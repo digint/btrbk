@@ -89,7 +89,7 @@ sub run_cmd($;$)
   my $cmd = shift;
   my $always_execute = shift;
   my $ret;
-  DEBUG "CMD: $cmd\n";
+  DEBUG "CMD: $cmd";
   if($always_execute || (not $dryrun)) {
     $ret = `$cmd`;
     die("command execution failed: \"$cmd\"") if($?);
@@ -152,19 +152,36 @@ sub send_receive($$;$)
   run_cmd("/sbin/btrfs send $parent $src | /sbin/btrfs receive ${dst}/");
 }
 
-sub get_latest($$)
+sub get_latest_common($$$)
 {
   my $vol = shift;
-  my $root = shift;
-  die("subvolume info not present: $root") unless(exists($vol_info{$root}));
+  my $sroot = shift;
+  my $droot = shift;
+
+  die("source subvolume info not present: $sroot") unless(exists($vol_info{$sroot}));
+  die("target subvolume info not present: $droot") unless(exists($vol_info{$droot}));
   my $latest;
-  foreach (@{$vol_info{$root}}) {
+  my @svol_list;
+  foreach (@{$vol_info{$sroot}}) {
+    my $v = $_->{path};
+    next unless($v =~ s/^$src_snapshot_dir\/$vol\./$vol\./);
+    DEBUG "get_latest_common(): found source snapshot: $v";
+    push @svol_list, $v;
+  }
+
+  foreach (@{$vol_info{$droot}}) {
     my $v = $_->{path};
     next unless($v =~ /^$vol\./);
-    DEBUG "found snapshot: $v";
-    $latest = $v if((not defined($latest)) || ($latest lt $v));
+    if(grep {$_ eq $v} @svol_list) {
+      DEBUG "get_latest_common(): found matching dest snapshot: $v";
+      $latest = $v if((not defined($latest)) || ($latest lt $v));
+    }
+    else {
+      DEBUG "get_latest_common(): found non-matching dest snapshot: $v";
+    }
   }
-  die("no snapshot matching \"${vol}.*\" present in subvolume: $root") unless($latest);
+  die("no common snapshots for \"${vol}.*\" found in \"$sroot/$src_snapshot_dir/\" and \"$droot/\"") unless($latest);
+  DEBUG "get_latest_common(): latest common snapshot: $latest";
   return $latest;
 }
 
@@ -172,14 +189,15 @@ MAIN:
 {
   $ENV{PATH} = '';
   $Getopt::Std::STANDARD_HELP_VERSION = 1;
+  $Data::Dumper::Sortkeys = 1;
 
   my %opts;
   getopts('hivd', \%opts);
   my $sroot = shift @ARGV;
   my $svol = shift @ARGV;
-  my @droot = @ARGV;
+  my @droot_list = @ARGV;
 
-  if($opts{h} || (not $svol) || (not @droot)) {
+  if($opts{h} || (not $svol) || (not @droot_list)) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 0;
@@ -195,12 +213,12 @@ MAIN:
 
   $vol_info{$sroot} = fetch_subvolume_info($sroot);
 
-  foreach (@droot) {
+  foreach (@droot_list) {
     s/\/+$//;   # sanitize
     die if exists $vol_info{$_};
     $vol_info{$_} = fetch_subvolume_info($_);
   };
-  print Data::Dumper->Dump([\%vol_info], ["vol_info"]) if($verbose);
+  DEBUG(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
   my $postfix = '.' . strftime($time_format, localtime);
 
@@ -212,15 +230,17 @@ MAIN:
   die("snapshot destination already exists: ${sroot}/${ssnap}") if check_vol($sroot, $ssnap);
   snapshot("${sroot}/${svol}", "${sroot}/${ssnap}");
 
-  foreach (@droot) {
-    die("subvolume already exists at destination: $_") if(check_vol($_, "${svol}${postfix}"));
+  foreach (@droot_list)
+  {
+    my $droot = $_;
+    die("snapshot already exists at destination: $droot") if(check_vol($droot, "${svol}${postfix}"));
     if($incremental) {
-      my $dest_latest = get_latest($svol, $_);
-      die("snapshot parent source does not exists: ${sroot}/${src_snapshot_dir}/${dest_latest}") unless check_vol($sroot, "${src_snapshot_dir}/${dest_latest}");
-      send_receive("${sroot}/${ssnap}", $_, "${sroot}/${src_snapshot_dir}/${dest_latest}");
+      my $parent_snap = $src_snapshot_dir . '/' . get_latest_common($svol, $sroot, $droot);
+      die("snapshot parent source does not exists: ${sroot}/${parent_snap}") unless check_vol($sroot, $parent_snap);
+      send_receive("${sroot}/${ssnap}", $droot, "${sroot}/${parent_snap}");
     }
     else {
-      send_receive("${sroot}/${ssnap}", $_);
+      send_receive("${sroot}/${ssnap}", $droot);
     }
   }
 }
