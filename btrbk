@@ -1,0 +1,228 @@
+#!/usr/bin/perl
+
+=head1 NAME
+
+btrbk - backup btrfs volumes at file-system level
+
+=head1 SYNOPSIS
+
+    btrbk --help
+
+=head1 DESCRIPTION
+
+Backup tool for btrfs (sub-)volumes, taking advantage of btrfs
+specific send-receive mechanism, allowing incremental backups at
+file-system level.
+
+The full btrbk documentation is available at L<http://www.digint.ch/btrbk>.
+
+=head1 AUTHOR
+
+Axel Burri <axel@tty0.ch>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (c) 2014 Axel Burri. All rights reserved.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+use strict;
+use warnings FATAL => qw( all );
+
+use POSIX qw(strftime);
+use File::Path qw(make_path);
+use Getopt::Std;
+use Data::Dumper;
+
+our $VERSION = "0.01";
+our $PROJECT_HOME = '<http://www.digint.ch/btrbk>';
+
+my $version_info = "btrfs-backup command line client, version $VERSION";
+my $time_format = "%Y%m%d_%H%M%S";
+
+my $src_snapshot_dir = "_btrbk";
+
+my %vol_info;
+my $dryrun;
+my $verbose = 0;
+
+sub VERSION_MESSAGE
+{
+  print STDERR $version_info . "\n\n";
+}
+
+sub HELP_MESSAGE
+{
+  print STDERR "usage: $0 [options] <root_volume> <subvol> <dest> [dest...]\n";
+  print STDERR "\n";
+  print STDERR "options:\n";
+  print STDERR "   -h, --help  display this help message\n";
+  print STDERR "   --version   display version information\n";
+  print STDERR "   -i          incremental backup\n";
+  print STDERR "   -v          verbose\n";
+  print STDERR "   -d          dryrun\n";
+  print STDERR "\n";
+  print STDERR "For additional information, see $PROJECT_HOME\n";
+}
+
+sub DEBUG
+{
+  my $text = shift;
+  print STDERR "DEBUG: $text\n" if($verbose);
+}
+
+sub run_cmd($;$)
+{
+  my $cmd = shift;
+  my $always_execute = shift;
+  my $ret;
+  DEBUG "CMD: $cmd\n";
+  if($always_execute || (not $dryrun)) {
+    $ret = `$cmd`;
+    die("command execution failed: \"$cmd\"") if($?);
+  }
+  return $ret;
+}
+
+sub fetch_subvolume_info($)
+{
+  my $path = shift;
+  my $ret = run_cmd("/sbin/btrfs subvolume list $path", 1);  # TODO: use -r for read-only
+#  my $ret = 'ID 350 gen 185 top level 349 path _backup_btr_system/root_gentoo.20141130_0
+#ID 363 gen 194 top level 349 path _backup_btr_system/kvm.20141130_0
+#ID 363 gen 194 top level 349 path boot
+#';
+  my @list;
+  foreach (split(/\n/, $ret)) {
+    die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) top level ([0-9]+) path (.+)$/);
+    push @list,  { ID => $1, gen => $2, top_level => $3, path => $4 };
+  }
+  return \@list;
+}
+
+sub check_vol($$)
+{
+  my $root = shift;
+  my $vol = shift;
+  die("subvolume info not present: $root") unless(exists($vol_info{$root}));
+  foreach (@{$vol_info{$root}}) {
+    return 1 if($_->{path} eq $vol);
+  }
+  return 0;
+}
+
+sub check_src($$)
+{
+  my $root = shift;
+  my $vol = shift;
+  die("subvolume not found: ${root}/${vol}") unless(check_vol($root, $vol));
+  my $dir = "${root}/${src_snapshot_dir}";
+  unless(-d $dir) {
+    print "creating directory: $dir\n";
+    make_path("${root}/${src_snapshot_dir}");
+  }
+}
+
+sub snapshot($$)
+{
+  my $src = shift;
+  my $dst = shift;
+  run_cmd("/sbin/btrfs subvolume snapshot -r $src $dst");
+}
+
+sub send_receive($$;$)
+{
+  my $src = shift;
+  my $dst = shift;
+  my $parent = shift;
+  $parent = $parent ? "-p $parent" : "";
+  run_cmd("/sbin/btrfs send $parent $src | /sbin/btrfs receive ${dst}/");
+}
+
+sub get_latest($$)
+{
+  my $vol = shift;
+  my $root = shift;
+  die("subvolume info not present: $root") unless(exists($vol_info{$root}));
+  my $latest;
+  foreach (@{$vol_info{$root}}) {
+    my $v = $_->{path};
+    next unless($v =~ /^$vol\./);
+    DEBUG "found snapshot: $v";
+    $latest = $v if((not defined($latest)) || ($latest lt $v));
+  }
+  die("no snapshot matching \"${vol}.*\" present in subvolume: $root") unless($latest);
+  return $latest;
+}
+
+MAIN:
+{
+  $ENV{PATH} = '';
+  $Getopt::Std::STANDARD_HELP_VERSION = 1;
+
+  my %opts;
+  getopts('hivd', \%opts);
+  my $sroot = shift @ARGV;
+  my $svol = shift @ARGV;
+  my @droot = @ARGV;
+
+  if($opts{h} || (not $svol) || (not @droot)) {
+    VERSION_MESSAGE();
+    HELP_MESSAGE(0);
+    exit 0;
+  }
+  $dryrun = $opts{d};
+  $verbose = $opts{v} || $dryrun;
+  my $incremental = $opts{i};
+
+  $sroot =~ s/\/+$//;   # sanitize trailing slash
+  $svol =~ s/\/+$//;    # sanitize trailing slash
+  $svol =~ s/^\/+//;    # sanitize trailing slash
+  die("svol contains slashes: $svol") if($svol =~ /\//);
+
+  $vol_info{$sroot} = fetch_subvolume_info($sroot);
+
+  foreach (@droot) {
+    s/\/+$//;   # sanitize
+    die if exists $vol_info{$_};
+    $vol_info{$_} = fetch_subvolume_info($_);
+  };
+  print Data::Dumper->Dump([\%vol_info], ["vol_info"]) if($verbose);
+
+  my $postfix = '.' . strftime($time_format, localtime);
+
+  my $ssnap = "${src_snapshot_dir}/${svol}${postfix}";
+  check_src($sroot, $svol);
+
+  # always make snapshot of svol
+  die("snapshot source does not exists: ${sroot}/${svol}") unless check_vol($sroot, $svol);
+  die("snapshot destination already exists: ${sroot}/${ssnap}") if check_vol($sroot, $ssnap);
+  snapshot("${sroot}/${svol}", "${sroot}/${ssnap}");
+
+  foreach (@droot) {
+    die("subvolume already exists at destination: $_") if(check_vol($_, "${svol}${postfix}"));
+    if($incremental) {
+      my $dest_latest = get_latest($svol, $_);
+      die("snapshot parent source does not exists: ${sroot}/${src_snapshot_dir}/${dest_latest}") unless check_vol($sroot, "${src_snapshot_dir}/${dest_latest}");
+      send_receive("${sroot}/${ssnap}", $_, "${sroot}/${src_snapshot_dir}/${dest_latest}");
+    }
+    else {
+      send_receive("${sroot}/${ssnap}", $_);
+    }
+  }
+}
+
+1;
