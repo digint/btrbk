@@ -46,6 +46,7 @@ use POSIX qw(strftime);
 use File::Path qw(make_path);
 use Getopt::Std;
 use Data::Dumper;
+use Tie::IxHash;
 
 our $VERSION = "0.01";
 our $PROJECT_HOME = '<http://www.digint.ch/btrbk>';
@@ -53,11 +54,12 @@ our $PROJECT_HOME = '<http://www.digint.ch/btrbk>';
 my $version_info = "btrfs-backup command line client, version $VERSION";
 my $time_format = "%Y%m%d_%H%M%S";
 
-my $src_snapshot_dir = "_btrbk";
+my $src_snapshot_dir = "_btrbk_snap";
 
 my %vol_info;
 my $dryrun;
 my $verbose = 0;
+my $debug = 0;
 
 sub VERSION_MESSAGE
 {
@@ -71,18 +73,18 @@ sub HELP_MESSAGE
   print STDERR "options:\n";
   print STDERR "   -h, --help  display this help message\n";
   print STDERR "   --version   display version information\n";
-  print STDERR "   -i          incremental backup\n";
+#  print STDERR "   -i          incremental backup\n";
+  print STDERR "   -c          config file\n";
   print STDERR "   -v          verbose\n";
-  print STDERR "   -d          dryrun\n";
+  print STDERR "   -d          debug\n";
+  print STDERR "   -p          pretend only (dryrun)\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
 
-sub DEBUG
-{
-  my $text = shift;
-  print STDERR "DEBUG: $text\n" if($verbose);
-}
+sub DEBUG { my $t = shift; print STDOUT "DEBUG: $t\n" if($debug);  }
+sub INFO  { my $t = shift; print STDOUT "$t\n" if($verbose);  }
+sub WARN  { my $t = shift; print STDOUT "WARN: $t\n";  }
 
 sub run_cmd($;$)
 {
@@ -115,10 +117,13 @@ sub check_src($$)
   my $root = shift;
   my $vol = shift;
   die("subvolume not found: ${root}/${vol}") unless(check_vol($root, $vol));
-  my $dir = "${root}/${src_snapshot_dir}";
-  unless(-d $dir) {
-    print "creating directory: $dir\n";
-    make_path("${root}/${src_snapshot_dir}");
+  unless($dryrun)
+  {
+    my $dir = "${root}/${src_snapshot_dir}";
+    unless(-d $dir) {
+      print "creating directory: $dir\n";
+      make_path("${root}/${src_snapshot_dir}");
+    }
   }
 }
 
@@ -132,6 +137,46 @@ sub check_rootvol($)
   }
   DEBUG "rootvol check failed: $vol";
   return 0;
+}
+
+sub parse_config($)
+{
+  my $file = shift;
+  DEBUG "parsing config file: $file";
+  tie my %cfg, "Tie::IxHash";
+  open FILE, "<$file" or die $!;
+  while (<FILE>) {
+    chomp;
+    DEBUG "parse_config: parsing line: $_";
+    if(/^\s*([a-zA-Z_]+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/) {
+      my %job = ( type  => lc($1),
+                  sroot => $2,
+                  svol  => $3,
+                  droot => $4,
+                  dvol  => $5
+                 );
+      DEBUG(Dumper \%job);
+      $job{sroot} =~ s/\/+$//;   # remove trailing slash
+      $job{sroot} =~ s/^\/+/\//; # sanitize leading slash
+      $job{svol} =~ s/\/+$//;    # remove trailing slash
+      $job{svol} =~ s/^\/+//;    # remove leading slash
+      die("svol contains slashes: $job{svol}") if($job{svol} =~ /\//);
+
+      $job{droot} =~ s/\/+$//;   # remove trailing slash
+      $job{droot} =~ s/^\/+/\//; # sanitize leading slash
+      $job{dvol} =~ s/\/+$//;    # remove trailing slash
+      $job{dvol} =~ s/^\/+//;    # remove leading slash
+      die("dvol contains slashes: $job{svol}") if($job{svol} =~ /\//);
+
+      $job{mountpoint} = $job{sroot}; # TODO: honor this, automount
+
+      DEBUG "parse_config: adding job \"$job{type}\": $job{sroot}/$job{svol} -> $job{droot}/$job{dvol}";
+      $cfg{"$job{sroot}/$job{svol}"} //= [];
+      push @{$cfg{"$job{sroot}/$job{svol}"}}, \%job;
+    }
+  }
+  close FILE;
+  return \%cfg;
 }
 
 sub btr_tree($)
@@ -194,6 +239,7 @@ sub snapshot($$)
 {
   my $src = shift;
   my $dst = shift;
+  INFO "[btrfs] snapshot $src -> $dst (ro)";
   run_cmd("/sbin/btrfs subvolume snapshot -r $src $dst");
 }
 
@@ -202,6 +248,7 @@ sub send_receive($$;$)
   my $src = shift;
   my $dst = shift;
   my $parent = shift;
+  INFO "[btrfs] send_receive: " . ($parent ? "<$parent>" : "") . "$src -> $dst";
   $parent = $parent ? "-p $parent" : "";
   run_cmd("/sbin/btrfs send $parent $src | /sbin/btrfs receive ${dst}/");
 }
@@ -249,56 +296,63 @@ MAIN:
   $Data::Dumper::Sortkeys = 1;
 
   my %opts;
-  getopts('hivd', \%opts);
-  my $sroot = shift @ARGV;
-  my $svol = shift @ARGV;
-  my $droot = shift @ARGV;
-  my $dvol = shift @ARGV;
+  getopts('hc:vdp', \%opts);
+  #  my $sroot = shift @ARGV;
+  #  my $svol = shift @ARGV;
+  #  my $droot = shift @ARGV;
+  #  my $dvol = shift @ARGV;
 
-  if($opts{h} || (not $dvol)) {
+  # assign command line options
+  $dryrun = $opts{p};  # TODO: rename to $pretend
+  $debug = $opts{d};
+  $verbose = $opts{v} || $debug;
+  my $incremental = $opts{i};
+  my $config = $opts{c};
+
+  # check command line options
+  if($opts{h} || (not $config)) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 0;
   }
-  $dryrun = $opts{d};
-  $verbose = $opts{v} || $dryrun;
-  my $incremental = $opts{i};
 
-  $sroot =~ s/\/+$//;   # remove trailing slash
-  $sroot =~ s/^\/+/\//; # sanitize leading slash
-  $svol =~ s/\/+$//;    # remove trailing slash
-  $svol =~ s/^\/+//;    # remove leading slash
-#  die("svol contains slashes: $svol") if($svol =~ /\//);
-
-  $vol_info{$sroot} = btr_tree($sroot);
-
-  $droot =~ s/\/+$//;   # remove trailing slash
-  $droot =~ s/^\/+/\//; # sanitize leading slash
-  $dvol =~ s/\/+$//;    # remove trailing slash
-  $dvol =~ s/^\/+//;    # remove leading slash
-
-  die if exists $vol_info{$droot};
-  $vol_info{$droot} = btr_tree($droot);
-
-  DEBUG(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
+  my $jobs = parse_config($config);
   my $postfix = '.' . strftime($time_format, localtime);
 
-  my $ssnap = "${src_snapshot_dir}/${svol}${postfix}";
-  check_src($sroot, $svol);
+  foreach my $target (values %$jobs)
+  {
+    foreach (@$target)
+    {
+      my $sroot = $_->{sroot};
+      my $svol  = $_->{svol};;
+      my $droot = $_->{droot};
+      my $dvol  = $_->{dvol};
+      my $type  = $_->{type};
 
-  # always make snapshot of svol
-  die("snapshot source does not exists: ${sroot}/${svol}") unless check_vol($sroot, $svol);
-  die("snapshot destination already exists: ${sroot}/${ssnap}") if check_vol($sroot, $ssnap);
-  snapshot("${sroot}/${svol}", "${sroot}/${ssnap}");
+      $vol_info{$sroot} //= btr_tree($sroot);
+      $vol_info{$droot} //= btr_tree($droot);
 
-  die("snapshot already exists at destination: $droot") if(check_vol($droot, "${svol}${postfix}"));
-  if($incremental) {
-    my $parent_snap = $src_snapshot_dir . '/' . get_latest_common($sroot, $svol, $droot, $dvol);
-    die("snapshot parent source does not exists: ${sroot}/${parent_snap}") unless check_vol($sroot, $parent_snap);
-    send_receive("${sroot}/${ssnap}", "${droot}/${dvol}", "${sroot}/${parent_snap}");
-  }
-  else {
-    send_receive("${sroot}/${ssnap}", "${droot}/${dvol}");
+      INFO ">>> processing job \"$type\": $sroot/$svol => $droot/$dvol";
+      DEBUG(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
+
+      my $ssnap = "${src_snapshot_dir}/${svol}${postfix}";
+      check_src($sroot, $svol);
+
+      # always make snapshot of svol
+      die("snapshot source does not exists: ${sroot}/${svol}") unless check_vol($sroot, $svol);
+      die("snapshot destination already exists: ${sroot}/${ssnap}") if check_vol($sroot, $ssnap);
+      snapshot("${sroot}/${svol}", "${sroot}/${ssnap}");
+
+      die("snapshot already exists at destination: $droot") if(check_vol($droot, "${svol}${postfix}"));
+      if($incremental) {
+        my $parent_snap = $src_snapshot_dir . '/' . get_latest_common($sroot, $svol, $droot, $dvol);
+        die("snapshot parent source does not exists: ${sroot}/${parent_snap}") unless check_vol($sroot, $parent_snap);
+        send_receive("${sroot}/${ssnap}", "${droot}/${dvol}", "${sroot}/${parent_snap}");
+      }
+      else {
+        send_receive("${sroot}/${ssnap}", "${droot}/${dvol}");
+      }
+    }
   }
 }
 
