@@ -89,10 +89,11 @@ sub WARN  { my $t = shift; print STDOUT "WARN: $t\n";  }
 sub run_cmd($;$)
 {
   my $cmd = shift;
-  my $always_execute = shift;
+  my $non_destructive = shift;
   my $ret;
-  DEBUG "CMD: $cmd";
-  if($always_execute || (not $dryrun)) {
+  INFO ">>> $cmd" unless($non_destructive);
+  if($non_destructive || (not $dryrun)) {
+    DEBUG "CMD: $cmd";
     $ret = `$cmd`;
     chomp($ret);
     DEBUG "RET: $ret";
@@ -147,13 +148,16 @@ sub parse_config($)
   open FILE, "<$file" or die $!;
   while (<FILE>) {
     chomp;
+    next if /^\s*#/; # ignore comments
     DEBUG "parse_config: parsing line: $_";
-    if(/^\s*([a-zA-Z_]+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/) {
-      my %job = ( type  => lc($1),
-                  sroot => $2,
-                  svol  => $3,
-                  droot => $4,
-                  dvol  => $5
+    if(/^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+([a-z,]+)\s*$/)
+    {
+      my %job = ( type  => "subvol_backup",
+                  sroot => $1,
+                  svol  => $2,
+                  droot => $3,
+                  dvol  => $4,
+                  options => [ split(/,/, $5) ],
                  );
       DEBUG(Dumper \%job);
       $job{sroot} =~ s/\/+$//;   # remove trailing slash
@@ -235,22 +239,27 @@ sub btr_tree($)
   return \%tree;
 }
 
-sub snapshot($$)
+sub btrfs_snapshot($$)
 {
   my $src = shift;
   my $dst = shift;
-  INFO "[btrfs] snapshot $src -> $dst (ro)";
+  INFO "[btrfs] snapshot (ro):";
+  INFO "[btrfs]   source: $src";
+  INFO "[btrfs]   dest  : $dst";
   run_cmd("/sbin/btrfs subvolume snapshot -r $src $dst");
 }
 
-sub send_receive($$;$)
+sub btrfs_send_receive($$;$)
 {
   my $src = shift;
   my $dst = shift;
-  my $parent = shift;
-  INFO "[btrfs] send_receive: " . ($parent ? "<$parent>" : "") . "$src -> $dst";
-  $parent = $parent ? "-p $parent" : "";
-  run_cmd("/sbin/btrfs send $parent $src | /sbin/btrfs receive ${dst}/");
+  my $parent = shift // "";
+  INFO "[btrfs] send_receive" . ($parent ? " (incremental)" : " (INIT)") . ":";
+  INFO "[btrfs]   source: $src";
+  INFO "[btrfs]   parent: $parent" if($parent);
+  INFO "[btrfs]   dest  : $dst";
+  my $parent_option = $parent ? "-p $parent" : "";
+  run_cmd("/sbin/btrfs send $parent_option $src | /sbin/btrfs receive $dst/");
 }
 
 sub get_latest_common($$$$)
@@ -284,8 +293,8 @@ sub get_latest_common($$$$)
       DEBUG "get_latest_common(): found non-matching dest snapshot: $v";
     }
   }
-  die("no common snapshots for \"${svol}.*\" found in \"$sroot/$src_snapshot_dir/\" and \"$droot/$dvol\"") unless($latest);
-  DEBUG "get_latest_common(): latest common snapshot: $latest";
+  WARN("no common snapshots for \"${svol}.*\" found in src=$sroot/$src_snapshot_dir/  dst=$droot/$dvol/") unless($latest);
+  DEBUG "get_latest_common(): latest common snapshot: " . ($latest ? "latest" : "<no_match>");
   return $latest;
 }
 
@@ -306,7 +315,7 @@ MAIN:
   $dryrun = $opts{p};  # TODO: rename to $pretend
   $debug = $opts{d};
   $verbose = $opts{v} || $debug;
-  my $incremental = $opts{i};
+  #  my $incremental = $opts{i};
   my $config = $opts{c};
 
   # check command line options
@@ -318,39 +327,71 @@ MAIN:
 
   my $jobs = parse_config($config);
   my $postfix = '.' . strftime($time_format, localtime);
+  my %snapshots_created;
 
-  foreach my $target (values %$jobs)
+  foreach my $job_key (keys %$jobs)
   {
-    foreach (@$target)
+#    INFO "========================================";
+#    INFO "job_key: $job_key";
+#    INFO "========================================";
+    foreach (@{$jobs->{$job_key}})
     {
       my $sroot = $_->{sroot};
       my $svol  = $_->{svol};;
       my $droot = $_->{droot};
       my $dvol  = $_->{dvol};
       my $type  = $_->{type};
+      my @job_opts  = @{$_->{options}};
 
       $vol_info{$sroot} //= btr_tree($sroot);
       $vol_info{$droot} //= btr_tree($droot);
 
-      INFO ">>> processing job \"$type\": $sroot/$svol => $droot/$dvol";
+      INFO "***";
+      INFO "*** $type\[" . join(',', @job_opts) . "]";
+      INFO "***   source: $sroot/$svol";
+      INFO "***   dest  : $droot/$dvol";
+      INFO "***";
       DEBUG(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
       my $ssnap = "${src_snapshot_dir}/${svol}${postfix}";
       check_src($sroot, $svol);
 
-      # always make snapshot of svol
-      die("snapshot source does not exists: ${sroot}/${svol}") unless check_vol($sroot, $svol);
-      die("snapshot destination already exists: ${sroot}/${ssnap}") if check_vol($sroot, $ssnap);
-      snapshot("${sroot}/${svol}", "${sroot}/${ssnap}");
-
-      die("snapshot already exists at destination: $droot") if(check_vol($droot, "${svol}${postfix}"));
-      if($incremental) {
-        my $parent_snap = $src_snapshot_dir . '/' . get_latest_common($sroot, $svol, $droot, $dvol);
-        die("snapshot parent source does not exists: ${sroot}/${parent_snap}") unless check_vol($sroot, $parent_snap);
-        send_receive("${sroot}/${ssnap}", "${droot}/${dvol}", "${sroot}/${parent_snap}");
+      unless($snapshots_created{"${sroot}/${svol}"})
+      {
+        # make snapshot of svol, if not already created by another job
+        die("snapshot source does not exists: $sroot/$svol") unless check_vol($sroot, $svol);
+        die("snapshot destination already exists: $sroot/$ssnap") if check_vol($sroot, $ssnap);
+        btrfs_snapshot("$sroot/$svol", "$sroot/$ssnap");
+        $snapshots_created{"$sroot/$svol"} = "$sroot/$ssnap";
       }
       else {
-        send_receive("${sroot}/${ssnap}", "${droot}/${dvol}");
+        INFO "--- reusing snapshot: $ssnap";
+      }
+
+      die("snapshot already exists at destination: $droot") if(check_vol($droot, "${svol}${postfix}"));
+      if(grep(/incremental/, @job_opts))
+      {
+        INFO "--- processing option=incremental";
+        my $latest_common = get_latest_common($sroot, $svol, $droot, $dvol);
+        if($latest_common)
+        {
+          INFO "--- found common parent: $latest_common";
+          my $parent_snap = "$src_snapshot_dir/$latest_common";
+          die("snapshot parent source does not exists: $sroot/$parent_snap") unless check_vol($sroot, $parent_snap);
+          btrfs_send_receive("$sroot/$ssnap", "$droot/$dvol", "$sroot/$parent_snap");
+        }
+        elsif(grep(/init/, @job_opts)) {
+          INFO "--- no common parent subvolume found, making new snapshot copy (option=init)";
+          btrfs_send_receive("$sroot/$ssnap", "$droot/$dvol");
+        }
+        else {
+          WARN "backup to $droot failed: no common parent subvolume found, and job option \"create\" is not set";
+        }
+      }
+      elsif(grep(/create/, @job_opts))
+      {
+        INFO "<$type>  making new snapshot copy (option=create))";
+        btrfs_send_receive("${sroot}/${ssnap}", "${droot}/${dvol}");
       }
     }
   }
