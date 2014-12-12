@@ -66,7 +66,7 @@ sub VERSION_MESSAGE
 
 sub HELP_MESSAGE
 {
-  print STDERR "usage: $0 [options] <root_volume> <subvol> <dest> [dest...]\n";
+  print STDERR "usage: $0 [options] <src_root_volume> <subvol> <dest_root_volume> <subvol>\n";
   print STDERR "\n";
   print STDERR "options:\n";
   print STDERR "   -h, --help  display this help message\n";
@@ -92,25 +92,11 @@ sub run_cmd($;$)
   DEBUG "CMD: $cmd";
   if($always_execute || (not $dryrun)) {
     $ret = `$cmd`;
+    chomp($ret);
+    DEBUG "RET: $ret";
     die("command execution failed: \"$cmd\"") if($?);
   }
   return $ret;
-}
-
-sub fetch_subvolume_info($)
-{
-  my $path = shift;
-  my $ret = run_cmd("/sbin/btrfs subvolume list $path", 1);  # TODO: use -r for read-only
-#  my $ret = 'ID 350 gen 185 top level 349 path _backup_btr_system/root_gentoo.20141130_0
-#ID 363 gen 194 top level 349 path _backup_btr_system/kvm.20141130_0
-#ID 363 gen 194 top level 349 path boot
-#';
-  my @list;
-  foreach (split(/\n/, $ret)) {
-    die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) top level ([0-9]+) path (.+)$/);
-    push @list,  { ID => $1, gen => $2, top_level => $3, path => $4 };
-  }
-  return \@list;
 }
 
 sub check_vol($$)
@@ -118,8 +104,8 @@ sub check_vol($$)
   my $root = shift;
   my $vol = shift;
   die("subvolume info not present: $root") unless(exists($vol_info{$root}));
-  foreach (@{$vol_info{$root}}) {
-    return 1 if($_->{path} eq $vol);
+  foreach (values %{$vol_info{$root}}) {
+    return 1 if($_->{FS_PATH} eq "$root/$vol");
   }
   return 0;
 }
@@ -134,6 +120,74 @@ sub check_src($$)
     print "creating directory: $dir\n";
     make_path("${root}/${src_snapshot_dir}");
   }
+}
+
+sub check_rootvol($)
+{
+  my $vol = shift;
+  my $ret = run_cmd("/sbin/btrfs subvolume show $vol", 1);
+  if($ret eq "$vol is btrfs root") {
+    DEBUG "rootvol check passed: $vol";
+    return 1;
+  }
+  DEBUG "rootvol check failed: $vol";
+  return 0;
+}
+
+sub btr_tree($)
+{
+  my $vol = shift;
+  die("btr_tree: \"$vol\" is not btrfs root!") unless(check_rootvol($vol));
+  my $ret = run_cmd("/sbin/btrfs subvolume list -p -a $vol", 1);
+  my %tree;
+  foreach (split(/\n/, $ret))
+  {
+    # ID <ID> top level <ID> path <path> where path is the relative path
+    # of the subvolume to the top level subvolume. The subvolume?s ID may
+    # be used by the subvolume set-default command, or at mount time via
+    # the subvolid= option. If -p is given, then parent <ID> is added to
+    # the output between ID and top level. The parent?s ID may be used at
+    # mount time via the subvolrootid= option.
+    die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) parent ([0-9]+) top level ([0-9]+) path (.+)$/);
+    my %node = ( ID        => $1,
+                 gen       => $2,
+                 parent    => $3,
+                 top_level => $4,
+                 path      => $5
+                 );
+    $tree{$node{ID}} = \%node;
+    DEBUG "btr_tree: processing subvolid=$node{ID}";
+
+    # set FS_PATH
+    #
+    # NOTE: these substitutions are only valid if $root is a
+    # absolute path to a btrfs root volume (mounted with
+    # subvolumeid=0)
+    DEBUG "btr_tree: original path: $node{path}";
+    $node{FS_PATH} =  $node{path};
+    if($node{FS_PATH} =~ s/^<FS_TREE>\///) {
+      DEBUG "btr_tree: removed <FS_TREE> portion subvolume path: $node{FS_PATH}";
+    }
+
+    $node{SUBVOL_PATH} = $node{FS_PATH};
+    DEBUG "btr_tree: set SUBVOL_PATH: $node{FS_PATH}";
+
+    $node{FS_PATH} =  $vol . "/" . $node{FS_PATH};
+    DEBUG "btr_tree: set FS_PATH: $node{FS_PATH}";
+
+    if($node{top_level} != 5)
+    {
+      # man btrfs-subvolume:
+      #   Also every btrfs filesystem has a default subvolume as its initially
+      #   top-level subvolume, whose subvolume id is 5(FS_TREE).
+
+      # set child/parent node
+      die unless exists($tree{$node{top_level}});
+#      $tree{$node{top_level}}->{SUBVOL}->{$node{ID}} = \%node;
+      $tree{$node{ID}}->{PARENT_NODE} = $tree{$node{top_level}};
+    }
+  }
+  return \%tree;
 }
 
 sub snapshot($$)
@@ -152,26 +206,29 @@ sub send_receive($$;$)
   run_cmd("/sbin/btrfs send $parent $src | /sbin/btrfs receive ${dst}/");
 }
 
-sub get_latest_common($$$)
+sub get_latest_common($$$$)
 {
-  my $vol = shift;
   my $sroot = shift;
+  my $svol = shift;
   my $droot = shift;
+  my $dvol = shift;
 
   die("source subvolume info not present: $sroot") unless(exists($vol_info{$sroot}));
   die("target subvolume info not present: $droot") unless(exists($vol_info{$droot}));
   my $latest;
   my @svol_list;
-  foreach (@{$vol_info{$sroot}}) {
-    my $v = $_->{path};
-    next unless($v =~ s/^$src_snapshot_dir\/$vol\./$vol\./);
+  foreach (values %{$vol_info{$sroot}}) {
+    my $v = $_->{SUBVOL_PATH};
+    DEBUG "get_latest_common(): checking source volume: $v";
+    next unless($v =~ s/^$src_snapshot_dir\/$svol\./$svol\./);
     DEBUG "get_latest_common(): found source snapshot: $v";
     push @svol_list, $v;
   }
 
-  foreach (@{$vol_info{$droot}}) {
-    my $v = $_->{path};
-    next unless($v =~ /^$vol\./);
+  foreach (values %{$vol_info{$droot}}) {
+    my $v = $_->{SUBVOL_PATH};
+    DEBUG "get_latest_common(): checking dest volume: $v";
+    next unless($v =~ s/^$dvol\///);
     if(grep {$_ eq $v} @svol_list) {
       DEBUG "get_latest_common(): found matching dest snapshot: $v";
       $latest = $v if((not defined($latest)) || ($latest lt $v));
@@ -180,7 +237,7 @@ sub get_latest_common($$$)
       DEBUG "get_latest_common(): found non-matching dest snapshot: $v";
     }
   }
-  die("no common snapshots for \"${vol}.*\" found in \"$sroot/$src_snapshot_dir/\" and \"$droot/\"") unless($latest);
+  die("no common snapshots for \"${svol}.*\" found in \"$sroot/$src_snapshot_dir/\" and \"$droot/$dvol\"") unless($latest);
   DEBUG "get_latest_common(): latest common snapshot: $latest";
   return $latest;
 }
@@ -195,9 +252,10 @@ MAIN:
   getopts('hivd', \%opts);
   my $sroot = shift @ARGV;
   my $svol = shift @ARGV;
-  my @droot_list = @ARGV;
+  my $droot = shift @ARGV;
+  my $dvol = shift @ARGV;
 
-  if($opts{h} || (not $svol) || (not @droot_list)) {
+  if($opts{h} || (not $dvol)) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 0;
@@ -206,20 +264,23 @@ MAIN:
   $verbose = $opts{v} || $dryrun;
   my $incremental = $opts{i};
 
-  $sroot =~ s/\/+$//;   # sanitize trailing slash
-  $svol =~ s/\/+$//;    # sanitize trailing slash
-  $svol =~ s/^\/+//;    # sanitize trailing slash
-  die("svol contains slashes: $svol") if($svol =~ /\//);
+  $sroot =~ s/\/+$//;   # remove trailing slash
+  $sroot =~ s/^\/+/\//; # sanitize leading slash
+  $svol =~ s/\/+$//;    # remove trailing slash
+  $svol =~ s/^\/+//;    # remove leading slash
+#  die("svol contains slashes: $svol") if($svol =~ /\//);
 
-  $vol_info{$sroot} = fetch_subvolume_info($sroot);
+  $vol_info{$sroot} = btr_tree($sroot);
 
-  foreach (@droot_list) {
-    s/\/+$//;   # sanitize
-    die if exists $vol_info{$_};
-    $vol_info{$_} = fetch_subvolume_info($_);
-  };
+  $droot =~ s/\/+$//;   # remove trailing slash
+  $droot =~ s/^\/+/\//; # sanitize leading slash
+  $dvol =~ s/\/+$//;    # remove trailing slash
+  $dvol =~ s/^\/+//;    # remove leading slash
+
+  die if exists $vol_info{$droot};
+  $vol_info{$droot} = btr_tree($droot);
+
   DEBUG(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
-
   my $postfix = '.' . strftime($time_format, localtime);
 
   my $ssnap = "${src_snapshot_dir}/${svol}${postfix}";
@@ -230,18 +291,14 @@ MAIN:
   die("snapshot destination already exists: ${sroot}/${ssnap}") if check_vol($sroot, $ssnap);
   snapshot("${sroot}/${svol}", "${sroot}/${ssnap}");
 
-  foreach (@droot_list)
-  {
-    my $droot = $_;
-    die("snapshot already exists at destination: $droot") if(check_vol($droot, "${svol}${postfix}"));
-    if($incremental) {
-      my $parent_snap = $src_snapshot_dir . '/' . get_latest_common($svol, $sroot, $droot);
-      die("snapshot parent source does not exists: ${sroot}/${parent_snap}") unless check_vol($sroot, $parent_snap);
-      send_receive("${sroot}/${ssnap}", $droot, "${sroot}/${parent_snap}");
-    }
-    else {
-      send_receive("${sroot}/${ssnap}", $droot);
-    }
+  die("snapshot already exists at destination: $droot") if(check_vol($droot, "${svol}${postfix}"));
+  if($incremental) {
+    my $parent_snap = $src_snapshot_dir . '/' . get_latest_common($sroot, $svol, $droot, $dvol);
+    die("snapshot parent source does not exists: ${sroot}/${parent_snap}") unless check_vol($sroot, $parent_snap);
+    send_receive("${sroot}/${ssnap}", "${droot}/${dvol}", "${sroot}/${parent_snap}");
+  }
+  else {
+    send_receive("${sroot}/${ssnap}", "${droot}/${dvol}");
   }
 }
 
