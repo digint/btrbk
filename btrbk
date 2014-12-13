@@ -437,10 +437,10 @@ MAIN:
     {
       $info{$job->{sroot}}->{$job->{svol}} = $job;
     }
-    foreach my $root (keys %info)
+    foreach my $root (sort keys %info)
     {
       print "$root\n";
-      foreach my $job (values %{$info{$root}})
+      foreach my $job (sort { $a->{svol} cmp $b->{svol} } (values %{$info{$root}}))
       {
         my $sroot = $job->{sroot} || die;
         my $svol  = $job->{svol}  || die;
@@ -454,17 +454,17 @@ MAIN:
           }
         }
         die unless $sroot_uuid;
-        foreach (values $vol_info{$sroot}) {
+        foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values $vol_info{$sroot})) {
           next unless($_->{parent_uuid} && ($_->{parent_uuid} eq $sroot_uuid));
           # next unless($_->{SUBVOL_PATH} =~ /^$src_snapshot_dir\//);  # don't print non-btrbk snapshots
           print "|   ^-- $_->{SUBVOL_PATH}\n";
           my $snapshot = $_->{FS_PATH};
           $snapshot =~ s/^.*\///;
-          foreach (@$jobs) {
+          foreach (sort { $a->{droot} cmp $b->{droot} } @$jobs) {
             next unless $vol_info{$_->{droot}};
             next unless(($_->{sroot} eq $sroot) && ($_->{svol} eq $svol));
             my $match = "$_->{droot}/$_->{dvol}/$snapshot";
-            foreach (values $vol_info{$_->{droot}}) {
+            foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values $vol_info{$_->{droot}})) {
               print "|   |   # $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
             }
           }
