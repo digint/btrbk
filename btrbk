@@ -139,7 +139,7 @@ sub check_src($$)
 sub check_rootvol($)
 {
   my $vol = shift;
-  my $ret = run_cmd("/sbin/btrfs subvolume show $vol", 1);
+  my $ret = run_cmd("/sbin/btrfs subvolume show $vol 2>/dev/null", 1);
   if($ret eq "$vol is btrfs root") {
     TRACE "rootvol check passed: $vol";
     return 1;
@@ -206,7 +206,10 @@ sub parse_config($)
 sub btr_tree($)
 {
   my $vol = shift;
-  die("btr_tree: \"$vol\" is not btrfs root!") unless(check_rootvol($vol));
+  unless(check_rootvol($vol)) {
+    ERROR "\"$vol\" is not btrfs root!";
+    return undef;
+  }
   my $ret = run_cmd("/sbin/btrfs subvolume list -u -q -a $vol", 1);
   my %tree;
   foreach (split(/\n/, $ret))
@@ -416,6 +419,11 @@ MAIN:
     my $droot = $job->{droot} || die;
     $vol_info{$sroot} //= btr_tree($sroot);
     $vol_info{$droot} //= btr_tree($droot);
+    unless($vol_info{$sroot} && $vol_info{$droot}) {
+      ERROR "Failed to read btrfs subvolume information, aborting job";
+      $job->{ABORTED} = 1;
+      next;
+    }
   }
   TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
@@ -436,6 +444,7 @@ MAIN:
       {
         my $sroot = $job->{sroot} || die;
         my $svol  = $job->{svol}  || die;
+        next unless $vol_info{$job->{sroot}};
         print "|-- $svol\n";
         my $sroot_uuid;
         foreach (values $vol_info{$sroot}) {
@@ -452,6 +461,7 @@ MAIN:
           my $snapshot = $_->{FS_PATH};
           $snapshot =~ s/^.*\///;
           foreach (@$jobs) {
+            next unless $vol_info{$_->{droot}};
             next unless(($_->{sroot} eq $sroot) && ($_->{svol} eq $svol));
             my $match = "$_->{droot}/$_->{dvol}/$snapshot";
             foreach (values $vol_info{$_->{droot}}) {
