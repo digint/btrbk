@@ -46,7 +46,6 @@ use POSIX qw(strftime);
 use File::Path qw(make_path);
 use Getopt::Std;
 use Data::Dumper;
-use Tie::IxHash;
 
 our $VERSION = "0.01";
 our $PROJECT_HOME = '<http://www.digint.ch/btrbk>';
@@ -210,7 +209,7 @@ sub btr_tree($)
 {
   my $vol = shift;
   die("btr_tree: \"$vol\" is not btrfs root!") unless(check_rootvol($vol));
-  my $ret = run_cmd("/sbin/btrfs subvolume list -p -a $vol", 1);
+  my $ret = run_cmd("/sbin/btrfs subvolume list -u -q -a $vol", 1);
   my %tree;
   foreach (split(/\n/, $ret))
   {
@@ -220,13 +219,15 @@ sub btr_tree($)
     # the subvolid= option. If -p is given, then parent <ID> is added to
     # the output between ID and top level. The parent?s ID may be used at
     # mount time via the subvolrootid= option.
-    die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) parent ([0-9]+) top level ([0-9]+) path (.+)$/);
-    my %node = ( ID        => $1,
-                 gen       => $2,
-                 parent    => $3,
-                 top_level => $4,
-                 path      => $5
-                 );
+    die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
+    my %node = ( ID          => $1,
+                 gen         => $2,
+                 top_level   => $3,
+                 parent_uuid => $4,
+                 uuid        => $5,
+                 path        => $6
+                );
+    $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
     $tree{$node{ID}} = \%node;
     DEBUG "btr_tree: processing subvolid=$node{ID}";
 
@@ -410,14 +411,46 @@ MAIN:
 
   if($action_info)
   {
-    INFO(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
+    #
+    # print snapshot tree
+    #
+    my %info;
     foreach my $job (@$jobs)
     {
-      my $sroot = $job->{sroot} || die;
-      my $svol  = $job->{svol}  || die;
-      my $droot = $job->{droot} || die;
-      my $dvol  = $job->{dvol}  || die;
-      print "$sroot/$svol\n"
+      $info{$job->{sroot}}->{$job->{svol}} = $job;
+    }
+    foreach my $root (keys %info)
+    {
+      print "$root\n";
+      foreach my $job (values %{$info{$root}})
+      {
+        my $sroot = $job->{sroot} || die;
+        my $svol  = $job->{svol}  || die;
+        print "|-- $svol\n";
+        my $sroot_uuid;
+        foreach (values $vol_info{$sroot}) {
+          if($_->{FS_PATH} eq "$sroot/$svol") {
+            die if $sroot_uuid;
+            $sroot_uuid = $_->{uuid};
+          }
+        }
+        die unless $sroot_uuid;
+        foreach (values $vol_info{$sroot}) {
+          next unless($_->{parent_uuid} && ($_->{parent_uuid} eq $sroot_uuid));
+          # next unless($_->{SUBVOL_PATH} =~ /^$src_snapshot_dir\//);  # don't print non-btrbk snapshots
+          print "|   ^-- $_->{SUBVOL_PATH}\n";
+          my $snapshot = $_->{FS_PATH};
+          $snapshot =~ s/^.*\///;
+          foreach (@$jobs) {
+            next unless(($_->{sroot} eq $sroot) && ($_->{svol} eq $svol));
+            my $match = "$_->{droot}/$_->{dvol}/$snapshot";
+            foreach (values $vol_info{$_->{droot}}) {
+              print "|   |   # $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
+            }
+          }
+        }
+      }
+      print "\n";
     }
   }
 
