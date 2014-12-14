@@ -57,6 +57,8 @@ my $default_config = "/etc/btrbk.conf";
 my $src_snapshot_dir = "_btrbk_snap";
 
 my %vol_info;
+my %uuid_info;
+
 my $dryrun;
 my $loglevel = 1;
 
@@ -210,8 +212,9 @@ sub btr_tree($)
     ERROR "\"$vol\" is not btrfs root!";
     return undef;
   }
-  my $ret = run_cmd("/sbin/btrfs subvolume list -u -q -a $vol", 1);
+  my $ret = run_cmd("/sbin/btrfs subvolume list -a -c -u -q -R $vol", 1);
   my %tree;
+  my %id;
   foreach (split(/\n/, $ret))
   {
     # ID <ID> top level <ID> path <path> where path is the relative path
@@ -220,16 +223,17 @@ sub btr_tree($)
     # the subvolid= option. If -p is given, then parent <ID> is added to
     # the output between ID and top level. The parent?s ID may be used at
     # mount time via the subvolrootid= option.
-    die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
+    die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) received_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
     my %node = ( ID          => $1,
                  gen         => $2,
-                 top_level   => $3,
-                 parent_uuid => $4,
-                 uuid        => $5,
-                 path        => $6
+                 cgen        => $3,
+                 top_level   => $4,
+                 parent_uuid => $5,
+                 received_uuid => $6,
+                 uuid        => $7,
+                 path        => $8
                 );
-    $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
-    $tree{$node{ID}} = \%node;
+#    $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
     TRACE "btr_tree: processing subvolid=$node{ID}";
 
     # set FS_PATH
@@ -249,6 +253,10 @@ sub btr_tree($)
     $node{FS_PATH} =  $vol . "/" . $node{FS_PATH};
     TRACE "btr_tree: set FS_PATH: $node{FS_PATH}";
 
+    $id{$node{ID}} = \%node;
+    $tree{$node{SUBVOL_PATH}} = \%node;
+    $uuid_info{$node{uuid}} = \%node;
+
     if($node{top_level} != 5)
     {
       # man btrfs-subvolume:
@@ -256,9 +264,10 @@ sub btr_tree($)
       #   top-level subvolume, whose subvolume id is 5(FS_TREE).
 
       # set child/parent node
-      die unless exists($tree{$node{top_level}});
-#      $tree{$node{top_level}}->{SUBVOL}->{$node{ID}} = \%node;
-      $tree{$node{ID}}->{PARENT_NODE} = $tree{$node{top_level}};
+      die unless exists($id{$node{top_level}});
+      die if exists($id{$node{top_level}}->{SUBVOLUME}->{$node{SUBVOL_PATH}});
+      $id{$node{top_level}}->{SUBVOLUME}->{$node{SUBVOL_PATH}} = \%node;
+      $node{TOP_LEVEL_NODE} = $id{$node{top_level}};
     }
   }
   return \%tree;
@@ -324,6 +333,45 @@ sub btrfs_send_receive($$;$$)
   }
 }
 
+
+sub get_children($$)
+{
+  my $sroot = shift;
+  my $svol = shift;
+  die("root subvolume info not present: $sroot") unless(exists($vol_info{$sroot}));
+  die("subvolume info not present: $sroot/$svol") unless(exists($vol_info{$sroot}->{$svol}));
+  my $uuid = $vol_info{$sroot}->{$svol}->{uuid};
+  DEBUG "Getting snapshot children of: $sroot/$svol";
+  my @ret;
+  foreach (values %{$vol_info{$sroot}}) {
+    next unless($_->{parent_uuid} eq $uuid);
+    DEBUG "Found snapshot child: $_->{SUBVOL_PATH}";
+    push(@ret, $_);
+  }
+  #  DEBUG "Found " . scalar(@ret) . " snapshot children of: $sroot/$svol";
+  return @ret;
+}
+
+
+sub get_receive_targets_by_uuid($$$)
+{
+  my $droot = shift;
+  my $dvol = shift;
+  my $uuid = shift;
+  die("root subvolume info not present: $droot") unless(exists($vol_info{$droot}));
+  die("subvolume info not present: $uuid") unless(exists($uuid_info{$uuid}));
+  DEBUG "Getting receive targets in \"$droot/$dvol\" for: $uuid_info{$uuid}->{FS_PATH}";
+  my @ret;
+  foreach (values %{$vol_info{$droot}->{$dvol}->{SUBVOLUME}}) {
+    next unless($_->{received_uuid} eq $uuid);
+    DEBUG "Found receive target: $_->{SUBVOL_PATH}";
+    push(@ret, $_);
+  }
+  #  DEBUG "Found " . scalar(@ret) . " receive targets of: $uuid_info{$uuid}->{FS_PATH}";
+  return @ret;
+}
+
+
 sub get_latest_common($$$$)
 {
   my $sroot = shift;
@@ -333,31 +381,19 @@ sub get_latest_common($$$$)
 
   die("source subvolume info not present: $sroot") unless(exists($vol_info{$sroot}));
   die("target subvolume info not present: $droot") unless(exists($vol_info{$droot}));
-  my $latest;
-  my @svol_list;
-  foreach (values %{$vol_info{$sroot}}) {
-    my $v = $_->{SUBVOL_PATH};
-    TRACE "get_latest_common(): checking source volume: $v";
-    next unless($v =~ s/^$src_snapshot_dir\/$svol\./$svol\./);
-    TRACE "get_latest_common(): found source snapshot: $v";
-    push @svol_list, $v;
-  }
 
-  foreach (values %{$vol_info{$droot}}) {
-    my $v = $_->{SUBVOL_PATH};
-    TRACE "get_latest_common(): checking dest volume: $v";
-    next unless($v =~ s/^$dvol\///);
-    if(grep {$_ eq $v} @svol_list) {
-      TRACE "get_latest_common(): found matching dest snapshot: $v";
-      $latest = $v if((not defined($latest)) || ($latest lt $v));
+  foreach my $child (sort { $b->{gen} <=> $a->{gen} } get_children($sroot, $svol)) {
+    TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
+    next unless($child->{SUBVOL_PATH} =~ /^$src_snapshot_dir\/$svol\./);
+    foreach (get_receive_targets_by_uuid($droot, $dvol, $child->{uuid})) {
+      TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
+      DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  dst=$_->{FS_PATH}");
+      return ($child, $_);
     }
-    else {
-      TRACE "get_latest_common(): found non-matching dest snapshot: $v";
-    }
+    TRACE "get_latest_common: no matching targets found for: $child->{FS_PATH}";
   }
-  DEBUG("No common snapshots for \"${svol}.*\" found in src=$sroot/$src_snapshot_dir/  dst=$droot/$dvol/") unless($latest);
-  TRACE "get_latest_common(): latest common snapshot: " . ($latest ? "latest" : "<no_match>");
-  return $latest;
+  DEBUG("No common snapshots for \"$sroot/$svol\" found in src=$sroot/$src_snapshot_dir/  dst=$droot/$dvol/");
+  return (undef, undef);
 }
 
 
@@ -424,6 +460,7 @@ MAIN:
       $job->{ABORTED} = 1;
       next;
     }
+    get_children($sroot, $job->{svol});
   }
   TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
@@ -455,7 +492,7 @@ MAIN:
         }
         die unless $sroot_uuid;
         foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values $vol_info{$sroot})) {
-          next unless($_->{parent_uuid} && ($_->{parent_uuid} eq $sroot_uuid));
+          next unless($_->{parent_uuid} eq $sroot_uuid);
           # next unless($_->{SUBVOL_PATH} =~ /^$src_snapshot_dir\//);  # don't print non-btrbk snapshots
           print "|   ^-- $_->{SUBVOL_PATH}\n";
           my $snapshot = $_->{FS_PATH};
@@ -563,13 +600,12 @@ MAIN:
       {
         INFO "Using previously created snapshot: $snapshot";
         # INFO "Attempting incremantal backup (option=incremental)";
-        my $latest_common = get_latest_common($sroot, $svol, $droot, $dvol);
-        if($latest_common)
+        my ($latest_common_src, $latest_common_dst) = get_latest_common($sroot, $svol, $droot, $dvol);
+        if($latest_common_src && $latest_common_dst)
         {
-          my $parent_snap = "$src_snapshot_dir/$latest_common";
-          INFO "Using common parent snapshot: $sroot/$parent_snap";
-          die("snapshot parent source does not exists: $sroot/$parent_snap") unless check_vol($sroot, $parent_snap);
-          btrfs_send_receive($snapshot, "$droot/$dvol", "$sroot/$parent_snap", $changelog);
+          my $parent_snap = $latest_common_src->{FS_PATH};
+          INFO "Using parent snapshot: $parent_snap";
+          btrfs_send_receive($snapshot, "$droot/$dvol", $parent_snap, $changelog);
         }
         elsif(grep(/init/, @job_opts)) {
           if(check_vol($droot, $dvol)) {
