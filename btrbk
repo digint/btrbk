@@ -149,7 +149,7 @@ sub btr_subvolume_detail($)
   my $ret = run_cmd("/sbin/btrfs subvolume show $vol 2>/dev/null", 1);
   if($ret eq "$vol is btrfs root") {
     TRACE "btr_detail: found btrfs root: $vol";
-    return { ID => 5, is_root => 1 };
+    return { id => 5, is_root => 1 };
   }
   elsif($ret =~ /^$vol/) {
     TRACE "btr_detail: found btrfs subvolume: $vol";
@@ -158,7 +158,7 @@ sub btr_subvolume_detail($)
       uuid          => "uuid",
       parent_uuid   => "Parent uuid",
       creation_time => "Creation time",
-      ID            => "Object ID",
+      id            => "Object ID",
       gen           => "Generation \\(Gen\\)",
       cgen          => "Gen at creation",
       parent_id     => "Parent",
@@ -397,7 +397,6 @@ sub btrfs_send_receive($$;$$)
   $receive_option = "-v -v" if($parent && $changelog);
   my $cmd = "/sbin/btrfs send $parent_option $src | /sbin/btrfs receive $receive_option $dst/ 2>&1";
   my $ret = run_cmd($cmd);
-  # run_cmd("/bin/sync");
   if($changelog && (not $dryrun))
   {
     INFO "Writing btrfs-diff changelog: $changelog";
@@ -430,7 +429,6 @@ sub get_children($$)
     DEBUG "Found snapshot child: $_->{SUBVOL_PATH}";
     push(@ret, $_);
   }
-  #  DEBUG "Found " . scalar(@ret) . " snapshot children of: $sroot/$svol";
   return @ret;
 }
 
@@ -443,13 +441,11 @@ sub get_receive_targets_by_uuid($$)
   die("subvolume info not present: $uuid") unless(exists($uuid_info{$uuid}));
   DEBUG "Getting receive targets in \"$droot/\" for: $uuid_info{$uuid}->{FS_PATH}";
   my @ret;
-#  foreach (values %{$vol_info{$droot}->{SUBVOLUME}}) {  # this is for btr_tree, not btr_subtree!
   foreach (values %{$vol_info{$droot}}) {
     next unless($_->{received_uuid} eq $uuid);
     DEBUG "Found receive target: $_->{SUBVOL_PATH}";
     push(@ret, $_);
   }
-  #  DEBUG "Found " . scalar(@ret) . " receive targets of: $uuid_info{$uuid}->{FS_PATH}";
   return @ret;
 }
 
@@ -489,7 +485,7 @@ MAIN:
   my $command = shift @ARGV;
 
   # assign command line options
-  $loglevel = $opts{l} || 0;
+  $loglevel = $opts{l} || "";
   if   (lc($loglevel) eq "warn")  { $loglevel = 1; }
   elsif(lc($loglevel) eq "info")  { $loglevel = 2; }
   elsif(lc($loglevel) eq "debug") { $loglevel = 3; }
@@ -498,9 +494,9 @@ MAIN:
   else {
     $loglevel = $opts{v} ? 2 : 0;
   }
-  my $config = $opts{c} || $default_config;
+  my $config      = $opts{c} || $default_config;
   my $time_format = $opts{t} || $default_time_format;
-  my $snapdir = $opts{s} || $default_snapdir;
+  my $snapdir     = $opts{s} || $default_snapdir;
   $snapdir =~ s/\/+$//;   # remove trailing slash
   $snapdir =~ s/^\/+//;   # remove leading slash
   $snapdir .= '/';        # add trailing slash
@@ -769,10 +765,8 @@ MAIN:
           btrfs_send_receive($snapshot, $droot, $parent_snap, $changelog);
         }
         elsif($job_opts->{init}) {
-#          if(check_vol($droot, $dvol)) {  # TODO: perform checks
-            INFO "No common parent snapshots found, creating initial backup (option=init)";
-            btrfs_send_receive($snapshot, $droot, undef, $changelog);
-#          }
+          INFO "No common parent snapshots found, creating initial backup (option=init)";
+          btrfs_send_receive($snapshot, $droot, undef, $changelog);
         }
         else {
           WARN "Backup to $droot failed: no common parent subvolume found, and job option \"create\" is not set";
@@ -786,4 +780,6 @@ MAIN:
     }
   }
 }
+
+
 1;
