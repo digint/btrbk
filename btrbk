@@ -86,7 +86,7 @@ sub HELP_MESSAGE
   print STDERR "   info           shows information\n";
   print STDERR "   execute        perform all backups\n";
   print STDERR "   dryrun         don't run btrfs commands, just show what would be executed\n";
-  print STDERR "   diff <subvol>  shows new files for subvol\n";
+  print STDERR "   diff <subvol> [parent_subvol]  shows new files for subvol, optionally against a parent subvolume\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
@@ -515,6 +515,7 @@ MAIN:
   my $action_execute;
   my $action_info;
   my $action_diff;
+  my $target_diff;
   if(($command eq "execute") || ($command eq "dryrun")) {
     $action_execute = 1;
     $dryrun = 1 if($command eq "dryrun");
@@ -524,6 +525,7 @@ MAIN:
   }
   elsif($command eq "diff") {
     $action_diff = shift @ARGV;
+    $target_diff = shift @ARGV;
     unless($action_diff) {
       ERROR "Missing subvolume argument for \"diff\" command";
       HELP_MESSAGE(0);
@@ -551,23 +553,41 @@ MAIN:
 
     my $info = btr_tree($vol);
     my $node = $uuid_info{$detail->{uuid}};
-    my $parent = $uuid_info{$detail->{parent_uuid}};
-    print "--------------------------------------------------------------------------------\n";
-    print "Showing diff for: $node->{path}\n";
-    print "Parent is at    : $parent->{path}\n";
-    print "--------------------------------------------------------------------------------\n";
+    my $target = $uuid_info{$detail->{parent_uuid}};
     die unless($node->{cgen} == $detail->{cgen}); # my paranoia
-    unless($node->{cgen} == $parent->{gen}) {  # this should always match as far as i understand btrfs send -p
-      WARN "generation mismatch: cgen=$node->{cgen} != parent_gen=$parent->{gen}";
+    unless($node->{cgen} == $target->{gen}) {  # this should always match as far as i understand btrfs send -p
+      WARN "generation mismatch: cgen=$node->{cgen} != parent_gen=$target->{gen}";
+    }
+    my $lastgen = $detail->{cgen};
+
+    if($target_diff) {
+      my $target_detail = btr_subvolume_detail($target_diff);
+      $target = $uuid_info{$target_detail->{uuid}};
+      # check if given parent is really a parent
+      my $cur = $node;
+      while($cur->{PARENT}) {
+        $cur = $cur->{PARENT} || last;
+        last if($cur->{uuid} eq $target_detail->{uuid});
+        my $count++; die if($count == 1000); # just in case we parsed crappy input
+      }
+      unless($cur->{id} == $target->{id}) {
+        ERROR "subvolume at \"$target_diff\" is not an ancestor of \"$action_diff\"";
+        exit 1;
+      }
+      $lastgen = $target->{gen};
     }
 
     # dump files, sorted and unique
-    my $ret = btr_subvolume_find_new($vol, $detail->{cgen});
+    my $ret = btr_subvolume_find_new($vol, $lastgen);
     my %files;
     foreach (split(/\n/, $ret)) {
       /\S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ (\S+)/;
       $files{$1} = 1;
     }
+    print "--------------------------------------------------------------------------------\n";
+    print "Showing diff for: $node->{path}\n";
+    print "Using parent at : $target->{path}\n";
+    print "--------------------------------------------------------------------------------\n";
     print "$_\n" foreach(sort keys %files);
     exit 0;
   }
