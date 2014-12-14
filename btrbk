@@ -289,50 +289,35 @@ sub btr_subvolume_find_new($$)
 sub btr_tree($)
 {
   my $vol = shift;
-  my $detail = btr_subvolume_detail($vol);
-  unless($detail && $detail->{is_root}) {
-    ERROR "\"$vol\" is not btrfs root!";
-    return undef;
-  }
   my %tree;
   my %id;
   foreach my $node (btr_subvolume_list($vol, subvol_only => 0))
   {
     TRACE "btr_tree: processing subvolid=$node->{id}";
 
-    # set FS_PATH
-    #
-    # NOTE: these substitutions are only valid if $root is a
-    # absolute path to a btrfs root volume (mounted with
-    # subvolumeid=0)
-    TRACE "btr_tree: original path: $node->{path}";
-    $node->{FS_PATH} =  $node->{path};
-    if($node->{FS_PATH} =~ s/^<FS_TREE>\///) {
-      TRACE "btr_tree: removed <FS_TREE> portion subvolume path: $node->{FS_PATH}";
-    }
-
-    $node->{SUBVOL_PATH} = $node->{FS_PATH};
-    TRACE "btr_tree: set SUBVOL_PATH: $node->{FS_PATH}";
-
-    $node->{FS_PATH} =  $vol . "/" . $node->{FS_PATH};
-    TRACE "btr_tree: set FS_PATH: $node->{FS_PATH}";
-
     $id{$node->{id}} = $node;
-    $tree{$node->{SUBVOL_PATH}} = $node;
     $uuid_info{$node->{uuid}} = $node;
 
-    if($node->{top_level} != 5)
+    if($node->{top_level} == 5)
     {
       # man btrfs-subvolume:
       #   Also every btrfs filesystem has a default subvolume as its initially
       #   top-level subvolume, whose subvolume id is 5(FS_TREE).
 
-      # set child/parent node
-      die unless exists($id{$node->{top_level}});
-      die if exists($id{$node->{top_level}}->{SUBVOLUME}->{$node->{SUBVOL_PATH}});
-      $id{$node->{top_level}}->{SUBVOLUME}->{$node->{SUBVOL_PATH}} = $node;
-      $node->{TOP_LEVEL_NODE} = $id{$node->{top_level}};
+      $tree{$node->{id}} = $node;
     }
+    else
+    {
+      # set SUBVOLUME / TOP_LEVEL node
+      die unless exists($id{$node->{top_level}});
+      die if exists($id{$node->{top_level}}->{SUBVOLUME}->{$node->{id}});
+      $id{$node->{top_level}}->{SUBVOLUME}->{$node->{id}} = $node;
+      $node->{TOP_LEVEL} = $id{$node->{top_level}};
+    }
+  }
+  # set PARENT node
+  foreach (values %id){
+    $_->{PARENT} = $uuid_info{$_->{parent_uuid}} if($_->{parent_uuid} ne "-");
   }
   return \%tree;
 }
@@ -563,6 +548,20 @@ MAIN:
     if($detail->{is_root})  { ERROR "subvolume at \"$vol\" is btrfs root!"; exit 1; }
     unless($detail->{cgen}) { ERROR "subvolume at \"$vol\" does not provide cgen"; exit 1; }
     if($detail->{parent_uuid} eq "-") { ERROR "subvolume at \"$vol\" has no parent, aborting."; exit 1; }
+
+    my $info = btr_tree($vol);
+    my $node = $uuid_info{$detail->{uuid}};
+    my $parent = $uuid_info{$detail->{parent_uuid}};
+    print "--------------------------------------------------------------------------------\n";
+    print "Showing diff for: $node->{path}\n";
+    print "Parent is at    : $parent->{path}\n";
+    print "--------------------------------------------------------------------------------\n";
+    die unless($node->{cgen} == $detail->{cgen}); # my paranoia
+    unless($node->{cgen} == $parent->{gen}) {  # this should always match as far as i understand btrfs send -p
+      WARN "generation mismatch: cgen=$node->{cgen} != parent_gen=$parent->{gen}";
+    }
+
+    # dump files, sorted and unique
     my $ret = btr_subvolume_find_new($vol, $detail->{cgen});
     my %files;
     foreach (split(/\n/, $ret)) {
