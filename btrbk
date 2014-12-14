@@ -83,9 +83,10 @@ sub HELP_MESSAGE
   print STDERR "   -l LEVEL    set loglevel (1=warn, 2=info, 3=debug, 4=trace)\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   info        shows information\n";
-  print STDERR "   execute     perform all backups\n";
-  print STDERR "   dryrun      don't run btrfs commands, just show what would be executed\n";
+  print STDERR "   info           shows information\n";
+  print STDERR "   execute        perform all backups\n";
+  print STDERR "   dryrun         don't run btrfs commands, just show what would be executed\n";
+  print STDERR "   diff <subvol>  shows new files for subvol\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
@@ -275,6 +276,13 @@ sub btr_subvolume_list($;@)
     # $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
   }
   return @nodes;
+}
+
+sub btr_subvolume_find_new($$)
+{
+  my $vol = shift;
+  my $lastgen = shift;
+  my $ret = run_cmd("/sbin/btrfs subvolume find-new $vol $lastgen");
 }
 
 
@@ -521,6 +529,7 @@ MAIN:
 
   my $action_execute;
   my $action_info;
+  my $action_diff;
   if(($command eq "execute") || ($command eq "dryrun")) {
     $action_execute = 1;
     $dryrun = 1 if($command eq "dryrun");
@@ -528,11 +537,42 @@ MAIN:
   elsif($command eq "info") {
     $action_info = 1;
   }
+  elsif($command eq "diff") {
+    $action_diff = shift @ARGV;
+    unless($action_diff) {
+      ERROR "Missing subvolume argument for \"diff\" command";
+      HELP_MESSAGE(0);
+      exit 1;
+    }
+  }
   else {
     ERROR "Unrecognized command: $command";
     HELP_MESSAGE(0);
     exit 1;
   }
+
+
+  #
+  # print snapshot diff
+  #
+  if($action_diff)
+  {
+    my $vol = $action_diff;
+    my $detail = btr_subvolume_detail($vol);
+    unless($detail) { exit 1; }
+    if($detail->{is_root})  { ERROR "subvolume at \"$vol\" is btrfs root!"; exit 1; }
+    unless($detail->{cgen}) { ERROR "subvolume at \"$vol\" does not provide cgen"; exit 1; }
+    if($detail->{parent_uuid} eq "-") { ERROR "subvolume at \"$vol\" has no parent, aborting."; exit 1; }
+    my $ret = btr_subvolume_find_new($vol, $detail->{cgen});
+    my %files;
+    foreach (split(/\n/, $ret)) {
+      /\S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ (\S+)/;
+      $files{$1} = 1;
+    }
+    print "$_\n" foreach(sort keys %files);
+    exit 0;
+  }
+
 
   #
   # check jobs, fill vol_info hash
@@ -595,7 +635,7 @@ MAIN:
             next unless(($_->{sroot} eq $sroot) && ($_->{svol} eq $svol));
             my $match = "$_->{droot}/$snapshot";
             foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values $vol_info{$_->{droot}})) {
-              print "|   |   # $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
+              print "|   |   |== $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
             }
           }
         }
