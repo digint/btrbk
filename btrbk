@@ -51,10 +51,11 @@ our $VERSION = "0.01";
 our $PROJECT_HOME = '<http://www.digint.ch/btrbk>';
 
 my $version_info = "btrbk command line client, version $VERSION";
-my $time_format = "%Y%m%d_%H%M%S";
 
 my $default_config  = "/etc/btrbk.conf";
 my $default_snapdir = "_btrbk_snap";
+#my $default_time_format = "%Y%m%d_%H%M%S";
+my $default_time_format = "%Y%m%d";
 
 my %vol_info;
 my %uuid_info;
@@ -75,8 +76,9 @@ sub HELP_MESSAGE
   print STDERR "options:\n";
   print STDERR "   --help      display this help message\n";
   print STDERR "   --version   display version information\n";
-  print STDERR "   -s DIR      make source snapshots in subfolder <DIR> (defaults to \"$default_snapdir\")\n";
-  print STDERR "   -c          config file\n";
+  print STDERR "   -s DIR      make new source snapshots in subfolder <DIR> (defaults to \"$default_snapdir\")\n";
+  print STDERR "   -t FORMAT   time format for snapshot postix, see 'man strftime' (defaults to \"$default_time_format\")\n";
+  print STDERR "   -c FILE     config file to be processed on execute command (defaults to \"$default_config\")\n";
   print STDERR "   -v          be verbose (set loglevel=info)\n";
   print STDERR "   -l LEVEL    set loglevel (1=warn, 2=info, 3=debug, 4=trace)\n";
   print STDERR "\n";
@@ -490,7 +492,7 @@ MAIN:
   $Data::Dumper::Sortkeys = 1;
 
   my %opts;
-  getopts('s:c:vl:p', \%opts);
+  getopts('s:t:c:vl:p', \%opts);
   my $command = shift @ARGV;
 
   # assign command line options
@@ -504,6 +506,7 @@ MAIN:
     $loglevel = $opts{v} ? 2 : 0;
   }
   my $config = $opts{c} || $default_config;
+  my $time_format = $opts{t} || $default_time_format;
   my $snapdir = $opts{s} || $default_snapdir;
   $snapdir =~ s/\/+$//;   # remove trailing slash
   $snapdir =~ s/^\/+//;   # remove leading slash
@@ -603,52 +606,68 @@ MAIN:
 
   if($action_execute)
   {
-    my $postfix = '.' . strftime($time_format, localtime);
     #
     # create snapshots
     #
-    my %snapshots;
+    my $timestamp = strftime($time_format, localtime);
+    my %snapshot_cache;
     foreach my $job (@$jobs)
     {
       my $sroot    = $job->{sroot}      || die;
       my $svol     = $job->{svol}       || die;
       my $droot    = $job->{droot}      || die;
       my $type     = $job->{type}       || die;
-      my $ssnap = "$snapdir$svol$postfix";  # NOTE: $snapdir always has trailing slash!
 
-      # perform checks
-      if(check_vol($sroot, $ssnap)) {
-        # TODO: consider using numbered snapshot name instead of timestamp
-        ERROR "Snapshot already exists, aborting job: $sroot/$ssnap";
-        $job->{ABORTED} = 1;
-        next;
-      }
-      if(check_vol($droot, "$svol$postfix")) {
-        WARN "Snapshot already exists at destination, aborting job: $droot/$svol$postfix";
-        $job->{ABORTED} = 1;
-        next;
-      }
       unless(check_vol($sroot, $svol)) {
         WARN "Source subvolume not found, aborting job: $sroot/$svol";
+        $job->{ABORTED} = 1;
+        next;
+      }
+
+      my $snapshot;
+      my $snapshot_name;
+      if($snapshot_cache{"$sroot/$svol"})
+      {
+        $snapshot      = $snapshot_cache{"$sroot/$svol"}->{file};
+        $snapshot_name = $snapshot_cache{"$sroot/$svol"}->{name};
+      }
+      else
+      {
+        # find new snapshot name
+        my $postfix_counter = -1;
+        my $postfix;
+        do {
+          $postfix_counter++;
+          $postfix = '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
+          TRACE "Testing source snapshot name: $snapdir$svol$postfix"
+        } while(check_vol($sroot, "$snapdir$svol$postfix")); # NOTE: $snapdir always has trailing slash!
+        $snapshot      = "$sroot/$snapdir$svol$postfix";
+        $snapshot_name = "$svol$postfix";
+      }
+
+      if(check_vol($droot, $snapshot_name)) {
+        WARN "Snapshot already exists at destination, aborting job: $droot/$snapshot_name";
         $job->{ABORTED} = 1;
         next;
       }
       create_snapdir($sroot, $svol, $snapdir);
 
       # make snapshot of svol, if not already created by another job
-      unless($snapshots{"$sroot/$svol"})
+      unless($snapshot_cache{"$sroot/$svol"})
       {
         DEBUG "***";
         DEBUG "*** snapshot";
         DEBUG "***   source: $sroot/$svol";
-        DEBUG "***   dest  : $sroot/$ssnap";
+        DEBUG "***   dest  : $snapshot";
         DEBUG "***";
         INFO "Creating subvolume snapshot for: $sroot/$svol";
 
-        btrfs_snapshot("$sroot/$svol", "$sroot/$ssnap");
-        $snapshots{"$sroot/$svol"} = "$sroot/$ssnap";
+        btrfs_snapshot("$sroot/$svol", $snapshot);
+        $snapshot_cache{"$sroot/$svol"} = { name => $snapshot_name,
+                                            file => $snapshot };
       }
-      $job->{snapshot} = $snapshots{"$sroot/$svol"};
+      $job->{snapshot}      = $snapshot;
+      $job->{snapshot_name} = $snapshot_name;
     }
 
     #
@@ -658,12 +677,13 @@ MAIN:
     {
       next if($job->{ABORTED});
 
-      my $sroot    = $job->{sroot}      || die;
-      my $svol     = $job->{svol}       || die;
-      my $droot    = $job->{droot}      || die;
-      my $type     = $job->{type}       || die;
-      my $snapshot = $job->{snapshot}   || die;
-      my $job_opts = $job->{options}    || die;
+      my $sroot         = $job->{sroot}         || die;
+      my $svol          = $job->{svol}          || die;
+      my $droot         = $job->{droot}         || die;
+      my $type          = $job->{type}          || die;
+      my $snapshot      = $job->{snapshot}      || die;
+      my $snapshot_name = $job->{snapshot_name} || die;
+      my $job_opts      = $job->{options}       || die;
 
       DEBUG "***";
       DEBUG "*** $type\[" . join(',', map { "$_=$job_opts->{$_}" } keys(%$job_opts)) . "]";
@@ -676,7 +696,7 @@ MAIN:
       if($job_opts->{log})
       {
         # log defaults to sidecar of destination snapshot
-        $changelog = $job_opts->{logfile} || "$droot/$svol$postfix.btrbk.log";
+        $changelog = $job_opts->{logfile} || "$droot/$snapshot_name.btrbk.log";
       }
       if($job_opts->{incremental})
       {
