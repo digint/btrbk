@@ -54,13 +54,13 @@ my $version_info = "btrbk command line client, version $VERSION";
 my $time_format = "%Y%m%d_%H%M%S";
 
 my $default_config = "/etc/btrbk.conf";
-my $src_snapshot_dir = "_btrbk_snap";
 
 my %vol_info;
 my %uuid_info;
 
 my $dryrun;
 my $loglevel = 1;
+
 
 sub VERSION_MESSAGE
 {
@@ -92,6 +92,7 @@ sub INFO  { my $t = shift; print STDOUT "$t\n" if($loglevel >= 2);  }
 sub WARN  { my $t = shift; print STDOUT "WARNING: $t\n" if($loglevel >= 1);  }
 sub ERROR { my $t = shift; print STDOUT "ERROR: $t\n";  }
 
+
 sub run_cmd($;$)
 {
   my $cmd = shift;
@@ -121,33 +122,57 @@ sub check_vol($$)
 }
 
 
-sub check_src($$)
+sub create_snapdir($$$)
 {
   my $root = shift;
   my $vol = shift;
-  return 0 unless(check_vol($root, $vol));
-  unless($dryrun)
+  my $snapdir = shift;
+  if($snapdir && (not $dryrun))
   {
-    my $dir = "${root}/${src_snapshot_dir}";
+    my $dir = "$root/$snapdir";
     unless(-d $dir) {
       INFO "Creating snapshot directory: $dir\n";
-      make_path("${root}/${src_snapshot_dir}");
+      make_path($dir);
     }
   }
-  return 1;
 }
 
 
-sub check_rootvol($)
+sub btr_subvolume_detail($)
 {
   my $vol = shift;
   my $ret = run_cmd("/sbin/btrfs subvolume show $vol 2>/dev/null", 1);
   if($ret eq "$vol is btrfs root") {
-    TRACE "rootvol check passed: $vol";
-    return 1;
+    TRACE "btr_detail: found btrfs root: $vol";
+    return { ID => 5, is_root => 1 };
   }
-  TRACE "rootvol check failed: $vol";
-  return 0;
+  elsif($ret =~ /^$vol/) {
+    TRACE "btr_detail: found btrfs subvolume: $vol";
+    my %trans = (
+      name          => "Name",
+      uuid          => "uuid",
+      parent_uuid   => "Parent uuid",
+      creation_time => "Creation time",
+      ID            => "Object ID",
+      gen           => "Generation \\(Gen\\)",
+      cgen          => "Gen at creation",
+      parent_id     => "Parent",
+      top_level     => "Top Level",
+      flags         => "Flags",
+     );
+    my %detail;
+    foreach (keys %trans) {
+      if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
+        $detail{$_} = $1;
+      } else {
+        WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
+      }
+    }
+    TRACE "btr_detail for $vol: " . Dumper \%detail;
+    return \%detail;
+  }
+  ERROR "Failed to fetch subvolume detail for: $vol";
+  return undef;
 }
 
 
@@ -167,35 +192,54 @@ sub parse_config($)
     next if /^\s*#/; # ignore comments
     next if /^\s*$/; # ignore empty lines
     TRACE "parse_config: parsing line: $_";
-    if(/^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/)
+    if(/^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/)
     {
       my %job = ( type  => "subvol_backup",
                   sroot => $1,
                   svol  => $2,
                   droot => $3,
-                  dvol  => $4,
-                  options => [ split(/,/, $5) ],
                  );
+      my @options = split(/,/, $4);
+
       $job{sroot} =~ s/\/+$//;   # remove trailing slash
       $job{sroot} =~ s/^\/+/\//; # sanitize leading slash
       $job{svol} =~ s/\/+$//;    # remove trailing slash
       $job{svol} =~ s/^\/+//;    # remove leading slash
-      die("svol contains slashes: $job{svol}") if($job{svol} =~ /\//);
+      if($job{svol} =~ /\//) {
+        ERROR "src_subvol contains slashes: $job{svol}";
+        return undef;
+      }
 
       $job{droot} =~ s/\/+$//;   # remove trailing slash
       $job{droot} =~ s/^\/+/\//; # sanitize leading slash
-      $job{dvol} =~ s/\/+$//;    # remove trailing slash
-      $job{dvol} =~ s/^\/+//;    # remove leading slash
-      die("dvol contains slashes: $job{svol}") if($job{svol} =~ /\//);
 
       $job{mountpoint} = $job{sroot}; # TODO: honor this, automount
 
-      TRACE "parse_config: adding job \"$job{type}\": $job{sroot}/$job{svol} -> $job{droot}/$job{dvol}";
+      foreach(@options) {
+        if   ($_ eq "incremental") { $job{options}->{incremental} = 1; }
+        elsif($_ eq "init")        { $job{options}->{init} = 1;        }
+        elsif($_ eq "create")      { $job{options}->{create} = 1;      }
+        elsif($_ eq "log")         { $job{options}->{log} = 1;         }
+        elsif($_ =~ /^log=(\S+)$/) { $job{options}->{log} = 1; $job{options}->{logfile} = $1; }
+        elsif($_ =~ /^snapdir=(\S+)$/) {
+          my $snapdir = $1;
+          $snapdir =~ s/\/+$//;   # remove trailing slash
+          $snapdir =~ s/^\/+//;   # remove leading slash
+          $snapdir .= '/';        # add trailing slash
+          $job{options}->{snapdir} = $snapdir;
+        }
+        else {
+          ERROR "Ambiguous option=\"$_\": $file line $.";
+          return undef; # be very strict here
+        }
+      }
+
+      TRACE "parse_config: adding job \"$job{type}\": $job{sroot}/$job{svol} -> $job{droot}/";
       push @jobs, \%job;
     }
     else
     {
-      WARN "Ambiguous configuration: $file line $.";
+      ERROR "Ambiguous configuration: $file line $.";
       return undef; # be very strict here
     }
   }
@@ -205,16 +249,14 @@ sub parse_config($)
 }
 
 
-sub btr_tree($)
+sub btr_subvolume_list($;@)
 {
   my $vol = shift;
-  unless(check_rootvol($vol)) {
-    ERROR "\"$vol\" is not btrfs root!";
-    return undef;
-  }
-  my $ret = run_cmd("/sbin/btrfs subvolume list -a -c -u -q -R $vol", 1);
-  my %tree;
-  my %id;
+  my %opts = @_;
+  my $filter_option = "-a";
+  $filter_option = "-o" if($opts{subvol_only});
+  my $ret = run_cmd("/sbin/btrfs subvolume list $filter_option -c -u -q -R $vol", 1);
+  my @nodes;
   foreach (split(/\n/, $ret))
   {
     # ID <ID> top level <ID> path <path> where path is the relative path
@@ -224,51 +266,104 @@ sub btr_tree($)
     # the output between ID and top level. The parent?s ID may be used at
     # mount time via the subvolrootid= option.
     die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) received_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
-    my %node = ( ID          => $1,
-                 gen         => $2,
-                 cgen        => $3,
-                 top_level   => $4,
-                 parent_uuid => $5,
-                 received_uuid => $6,
-                 uuid        => $7,
-                 path        => $8
-                );
-#    $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
-    TRACE "btr_tree: processing subvolid=$node{ID}";
+    push @nodes, { id            => $1,
+                   gen           => $2,
+                   cgen          => $3,
+                   top_level     => $4,
+                   parent_uuid   => $5, # note: parent_uuid="-" if no parent
+                   received_uuid => $6,
+                   uuid          => $7,
+                   path          => $8
+                  };
+    # $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
+  }
+  return @nodes;
+}
+
+
+sub btr_tree($)
+{
+  my $vol = shift;
+  my $detail = btr_subvolume_detail($vol);
+  unless($detail && $detail->{is_root}) {
+    ERROR "\"$vol\" is not btrfs root!";
+    return undef;
+  }
+  my %tree;
+  my %id;
+  foreach my $node (btr_subvolume_list($vol, subvol_only => 0))
+  {
+    TRACE "btr_tree: processing subvolid=$node->{id}";
 
     # set FS_PATH
     #
     # NOTE: these substitutions are only valid if $root is a
     # absolute path to a btrfs root volume (mounted with
     # subvolumeid=0)
-    TRACE "btr_tree: original path: $node{path}";
-    $node{FS_PATH} =  $node{path};
-    if($node{FS_PATH} =~ s/^<FS_TREE>\///) {
-      TRACE "btr_tree: removed <FS_TREE> portion subvolume path: $node{FS_PATH}";
+    TRACE "btr_tree: original path: $node->{path}";
+    $node->{FS_PATH} =  $node->{path};
+    if($node->{FS_PATH} =~ s/^<FS_TREE>\///) {
+      TRACE "btr_tree: removed <FS_TREE> portion subvolume path: $node->{FS_PATH}";
     }
 
-    $node{SUBVOL_PATH} = $node{FS_PATH};
-    TRACE "btr_tree: set SUBVOL_PATH: $node{FS_PATH}";
+    $node->{SUBVOL_PATH} = $node->{FS_PATH};
+    TRACE "btr_tree: set SUBVOL_PATH: $node->{FS_PATH}";
 
-    $node{FS_PATH} =  $vol . "/" . $node{FS_PATH};
-    TRACE "btr_tree: set FS_PATH: $node{FS_PATH}";
+    $node->{FS_PATH} =  $vol . "/" . $node->{FS_PATH};
+    TRACE "btr_tree: set FS_PATH: $node->{FS_PATH}";
 
-    $id{$node{ID}} = \%node;
-    $tree{$node{SUBVOL_PATH}} = \%node;
-    $uuid_info{$node{uuid}} = \%node;
+    $id{$node->{id}} = $node;
+    $tree{$node->{SUBVOL_PATH}} = $node;
+    $uuid_info{$node->{uuid}} = $node;
 
-    if($node{top_level} != 5)
+    if($node->{top_level} != 5)
     {
       # man btrfs-subvolume:
       #   Also every btrfs filesystem has a default subvolume as its initially
       #   top-level subvolume, whose subvolume id is 5(FS_TREE).
 
       # set child/parent node
-      die unless exists($id{$node{top_level}});
-      die if exists($id{$node{top_level}}->{SUBVOLUME}->{$node{SUBVOL_PATH}});
-      $id{$node{top_level}}->{SUBVOLUME}->{$node{SUBVOL_PATH}} = \%node;
-      $node{TOP_LEVEL_NODE} = $id{$node{top_level}};
+      die unless exists($id{$node->{top_level}});
+      die if exists($id{$node->{top_level}}->{SUBVOLUME}->{$node->{SUBVOL_PATH}});
+      $id{$node->{top_level}}->{SUBVOLUME}->{$node->{SUBVOL_PATH}} = $node;
+      $node->{TOP_LEVEL_NODE} = $id{$node->{top_level}};
     }
+  }
+  return \%tree;
+}
+
+
+sub btr_subtree($)
+{
+  my $vol = shift;
+  my $detail = btr_subvolume_detail($vol);
+  my $volname = $detail->{name} || "";
+  my %tree;
+  foreach my $node (btr_subvolume_list($vol, subvol_only => 1))
+  {
+    TRACE "btr_subtree: processing subvolid=$node->{id}";
+
+    # set FS_PATH
+    TRACE "btr_subtree: original path: $node->{path}";
+    my $path =  $node->{path};
+    if($volname) {
+      # strip leading volume name
+      unless($path =~ s/^$volname\///) {
+        # if $vol is a sub-subvolume, strip whole prefix
+        unless($path =~ s/.+\/$volname\///) {
+          die("ambiguous btrfs subvolume info line");
+        }
+      }
+      TRACE "btr_subtree: removed \"$&\" prefix of subvolume path: $path";
+    }
+    $node->{SUBVOL_PATH} = $path;
+    TRACE "btr_subtree: set SUBVOL_PATH: $node->{SUBVOL_PATH}";
+
+    $node->{FS_PATH} =  $vol . "/" . $path;
+    TRACE "btr_subtree: set FS_PATH: $node->{FS_PATH}";
+
+    $tree{$node->{SUBVOL_PATH}} = $node;
+    $uuid_info{$node->{uuid}} = $node;
   }
   return \%tree;
 }
@@ -297,9 +392,6 @@ sub btrfs_send_receive($$;$$)
   my $src_name = $src;
   $src_name =~ s/^.*\///;
   INFO ">>> $dst/$src_name";
-#  INFO (($parent ? ">>>" : "+++") . " $dst/$src_name");
-#  INFO (($parent ? ">>> receive(incremental):" : ">>> receive(complete):") . " $dst/$src_name");
-  # INFO ">>> $dst/$src_name  ". ($parent ? "(incremental)" : "(INIT)");
 
   my @info;
   push @info, "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
@@ -353,16 +445,16 @@ sub get_children($$)
 }
 
 
-sub get_receive_targets_by_uuid($$$)
+sub get_receive_targets_by_uuid($$)
 {
   my $droot = shift;
-  my $dvol = shift;
   my $uuid = shift;
   die("root subvolume info not present: $droot") unless(exists($vol_info{$droot}));
   die("subvolume info not present: $uuid") unless(exists($uuid_info{$uuid}));
-  DEBUG "Getting receive targets in \"$droot/$dvol\" for: $uuid_info{$uuid}->{FS_PATH}";
+  DEBUG "Getting receive targets in \"$droot/\" for: $uuid_info{$uuid}->{FS_PATH}";
   my @ret;
-  foreach (values %{$vol_info{$droot}->{$dvol}->{SUBVOLUME}}) {
+#  foreach (values %{$vol_info{$droot}->{SUBVOLUME}}) {  # this is for btr_tree, not btr_subtree!
+  foreach (values %{$vol_info{$droot}}) {
     next unless($_->{received_uuid} eq $uuid);
     DEBUG "Found receive target: $_->{SUBVOL_PATH}";
     push(@ret, $_);
@@ -372,27 +464,26 @@ sub get_receive_targets_by_uuid($$$)
 }
 
 
-sub get_latest_common($$$$)
+sub get_latest_common($$$)
 {
   my $sroot = shift;
   my $svol = shift;
   my $droot = shift;
-  my $dvol = shift;
 
   die("source subvolume info not present: $sroot") unless(exists($vol_info{$sroot}));
   die("target subvolume info not present: $droot") unless(exists($vol_info{$droot}));
 
+  # sort children of svol descending by generation
   foreach my $child (sort { $b->{gen} <=> $a->{gen} } get_children($sroot, $svol)) {
     TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
-    next unless($child->{SUBVOL_PATH} =~ /^$src_snapshot_dir\/$svol\./);
-    foreach (get_receive_targets_by_uuid($droot, $dvol, $child->{uuid})) {
+    foreach (get_receive_targets_by_uuid($droot, $child->{uuid})) {
       TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
       DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  dst=$_->{FS_PATH}");
       return ($child, $_);
     }
     TRACE "get_latest_common: no matching targets found for: $child->{FS_PATH}";
   }
-  DEBUG("No common snapshots for \"$sroot/$svol\" found in src=$sroot/$src_snapshot_dir/  dst=$droot/$dvol/");
+  DEBUG("No common snapshots for \"$sroot/$svol\" found in src=$sroot/  dst=$droot/");
   return (undef, undef);
 }
 
@@ -453,8 +544,8 @@ MAIN:
   {
     my $sroot = $job->{sroot} || die;
     my $droot = $job->{droot} || die;
-    $vol_info{$sroot} //= btr_tree($sroot);
-    $vol_info{$droot} //= btr_tree($droot);
+    $vol_info{$sroot} //= btr_subtree($sroot);
+    $vol_info{$droot} //= btr_subtree($droot);
     unless($vol_info{$sroot} && $vol_info{$droot}) {
       ERROR "Failed to read btrfs subvolume information, aborting job";
       $job->{ABORTED} = 1;
@@ -481,6 +572,7 @@ MAIN:
       {
         my $sroot = $job->{sroot} || die;
         my $svol  = $job->{svol}  || die;
+        my $snapdir  = $job->{options}->{snapdir} || "";
         next unless $vol_info{$job->{sroot}};
         print "|-- $svol\n";
         my $sroot_uuid;
@@ -493,14 +585,14 @@ MAIN:
         die unless $sroot_uuid;
         foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values $vol_info{$sroot})) {
           next unless($_->{parent_uuid} eq $sroot_uuid);
-          # next unless($_->{SUBVOL_PATH} =~ /^$src_snapshot_dir\//);  # don't print non-btrbk snapshots
+          # next unless($_->{SUBVOL_PATH} =~ /^$snapdir/);  # don't print non-btrbk snapshots
           print "|   ^-- $_->{SUBVOL_PATH}\n";
           my $snapshot = $_->{FS_PATH};
           $snapshot =~ s/^.*\///;
           foreach (sort { $a->{droot} cmp $b->{droot} } @$jobs) {
             next unless $vol_info{$_->{droot}};
             next unless(($_->{sroot} eq $sroot) && ($_->{svol} eq $svol));
-            my $match = "$_->{droot}/$_->{dvol}/$snapshot";
+            my $match = "$_->{droot}/$snapshot";
             foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values $vol_info{$_->{droot}})) {
               print "|   |   # $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
             }
@@ -523,9 +615,9 @@ MAIN:
       my $sroot    = $job->{sroot}      || die;
       my $svol     = $job->{svol}       || die;
       my $droot    = $job->{droot}      || die;
-      my $dvol     = $job->{dvol}       || die;
       my $type     = $job->{type}       || die;
-      my $ssnap = "$src_snapshot_dir/$svol$postfix";
+      my $snapdir  = $job->{options}->{snapdir} || "";
+      my $ssnap = "$snapdir$svol$postfix";  # NOTE: $snapdir always has trailing slash!
 
       # perform checks
       if(check_vol($sroot, $ssnap)) {
@@ -534,16 +626,17 @@ MAIN:
         $job->{ABORTED} = 1;
         next;
       }
-      if(check_vol($droot, "$dvol/$svol$postfix")) {
-        WARN "Snapshot already exists at destination, aborting job: $droot/$dvol/$svol$postfix";
+      if(check_vol($droot, "$svol$postfix")) {
+        WARN "Snapshot already exists at destination, aborting job: $droot/$svol$postfix";
         $job->{ABORTED} = 1;
         next;
       }
-      unless(check_src($sroot, $svol) && check_vol($sroot, $svol)) {
+      unless(check_vol($sroot, $svol)) {
         WARN "Source subvolume not found, aborting job: $sroot/$svol";
         $job->{ABORTED} = 1;
         next;
       }
+      create_snapdir($sroot, $svol, $snapdir);
 
       # make snapshot of svol, if not already created by another job
       unless($snapshots{"$sroot/$svol"})
@@ -571,59 +664,48 @@ MAIN:
       my $sroot    = $job->{sroot}      || die;
       my $svol     = $job->{svol}       || die;
       my $droot    = $job->{droot}      || die;
-      my $dvol     = $job->{dvol}       || die;
       my $type     = $job->{type}       || die;
       my $snapshot = $job->{snapshot}   || die;
-      my @job_opts = @{$job->{options}};
+      my $job_opts = $job->{options}    || die;
 
       DEBUG "***";
-      DEBUG "*** $type\[" . join(',', @job_opts) . "]";
+      DEBUG "*** $type\[" . join(',', map { "$_=$job_opts->{$_}" } keys(%$job_opts)) . "]";
       DEBUG "***   source: $sroot/$svol";
-      DEBUG "***   dest  : $droot/$dvol";
+      DEBUG "***   dest  : $droot/";
       DEBUG "***";
       INFO "Creating subvolume backup for: $sroot/$svol";
 
       my $changelog = "";
-      if(grep(/^log/, @job_opts))
+      if($job_opts->{log})
       {
-        if(my @res = grep(/^log=\S+$/, @job_opts)) {
-          die if(scalar(@res) != 1);
-          $changelog = $res[0];
-          $changelog =~ s/^log=//;
-        }
-        else {
-          # log defaults to sidecar of destination snapshot
-          $changelog = "$droot/$dvol/$svol$postfix.btrbk.log";
-        }
+        # log defaults to sidecar of destination snapshot
+        $changelog = $job_opts->{logfile} || "$droot/$svol$postfix.btrbk.log";
       }
-      if(grep(/incremental/, @job_opts))
+      if($job_opts->{incremental})
       {
         INFO "Using previously created snapshot: $snapshot";
         # INFO "Attempting incremantal backup (option=incremental)";
-        my ($latest_common_src, $latest_common_dst) = get_latest_common($sroot, $svol, $droot, $dvol);
+        my ($latest_common_src, $latest_common_dst) = get_latest_common($sroot, $svol, $droot);
         if($latest_common_src && $latest_common_dst)
         {
           my $parent_snap = $latest_common_src->{FS_PATH};
           INFO "Using parent snapshot: $parent_snap";
-          btrfs_send_receive($snapshot, "$droot/$dvol", $parent_snap, $changelog);
+          btrfs_send_receive($snapshot, $droot, $parent_snap, $changelog);
         }
-        elsif(grep(/init/, @job_opts)) {
-          if(check_vol($droot, $dvol)) {
+        elsif($job_opts->{init}) {
+#          if(check_vol($droot, $dvol)) {  # TODO: perform checks
             INFO "No common parent snapshots found, creating initial backup (option=init)";
-            btrfs_send_receive($snapshot, "$droot/$dvol", undef, $changelog);
-          }
-          else {
-            WARN "Backup to $droot failed: target subvolume not found: $droot/$dvol";
-          }
+            btrfs_send_receive($snapshot, $droot, undef, $changelog);
+#          }
         }
         else {
           WARN "Backup to $droot failed: no common parent subvolume found, and job option \"create\" is not set";
         }
       }
-      elsif(grep(/create/, @job_opts))
+      elsif($job_opts->{create})
       {
         INFO "Creating new snapshot copy (option=create))";
-        btrfs_send_receive($snapshot, "${droot}/${dvol}", undef, $changelog);
+        btrfs_send_receive($snapshot, $droot, undef, $changelog);
       }
     }
   }
