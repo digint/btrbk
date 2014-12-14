@@ -53,7 +53,8 @@ our $PROJECT_HOME = '<http://www.digint.ch/btrbk>';
 my $version_info = "btrbk command line client, version $VERSION";
 my $time_format = "%Y%m%d_%H%M%S";
 
-my $default_config = "/etc/btrbk.conf";
+my $default_config  = "/etc/btrbk.conf";
+my $default_snapdir = "_btrbk_snap";
 
 my %vol_info;
 my %uuid_info;
@@ -74,6 +75,7 @@ sub HELP_MESSAGE
   print STDERR "options:\n";
   print STDERR "   --help      display this help message\n";
   print STDERR "   --version   display version information\n";
+  print STDERR "   -s DIR      make source snapshots in subfolder <DIR> (defaults to \"$default_snapdir\")\n";
   print STDERR "   -c          config file\n";
   print STDERR "   -v          be verbose (set loglevel=info)\n";
   print STDERR "   -l LEVEL    set loglevel (1=warn, 2=info, 3=debug, 4=trace)\n";
@@ -221,13 +223,6 @@ sub parse_config($)
         elsif($_ eq "create")      { $job{options}->{create} = 1;      }
         elsif($_ eq "log")         { $job{options}->{log} = 1;         }
         elsif($_ =~ /^log=(\S+)$/) { $job{options}->{log} = 1; $job{options}->{logfile} = $1; }
-        elsif($_ =~ /^snapdir=(\S+)$/) {
-          my $snapdir = $1;
-          $snapdir =~ s/\/+$//;   # remove trailing slash
-          $snapdir =~ s/^\/+//;   # remove leading slash
-          $snapdir .= '/';        # add trailing slash
-          $job{options}->{snapdir} = $snapdir;
-        }
         else {
           ERROR "Ambiguous option=\"$_\": $file line $.";
           return undef; # be very strict here
@@ -495,7 +490,7 @@ MAIN:
   $Data::Dumper::Sortkeys = 1;
 
   my %opts;
-  getopts('c:vl:p', \%opts);
+  getopts('s:c:vl:p', \%opts);
   my $command = shift @ARGV;
 
   # assign command line options
@@ -509,6 +504,10 @@ MAIN:
     $loglevel = $opts{v} ? 2 : 0;
   }
   my $config = $opts{c} || $default_config;
+  my $snapdir = $opts{s} || $default_snapdir;
+  $snapdir =~ s/\/+$//;   # remove trailing slash
+  $snapdir =~ s/^\/+//;   # remove leading slash
+  $snapdir .= '/';        # add trailing slash
 
   # check command line options
   if($opts{h} || (not $command)) {
@@ -572,7 +571,6 @@ MAIN:
       {
         my $sroot = $job->{sroot} || die;
         my $svol  = $job->{svol}  || die;
-        my $snapdir  = $job->{options}->{snapdir} || "";
         next unless $vol_info{$job->{sroot}};
         print "|-- $svol\n";
         my $sroot_uuid;
@@ -616,7 +614,6 @@ MAIN:
       my $svol     = $job->{svol}       || die;
       my $droot    = $job->{droot}      || die;
       my $type     = $job->{type}       || die;
-      my $snapdir  = $job->{options}->{snapdir} || "";
       my $ssnap = "$snapdir$svol$postfix";  # NOTE: $snapdir always has trailing slash!
 
       # perform checks
