@@ -118,15 +118,14 @@ sub run_cmd($;$)
 }
 
 
-sub check_vol($$)
+sub subvol($$)
 {
   my $root = shift;
   my $vol = shift;
-  die("subvolume info not present: $root") unless(exists($vol_info{$root}));
-  foreach (values %{$vol_info{$root}}) {
-    return 1 if($_->{FS_PATH} eq "$root/$vol");
+  if($vol_info{$root} && $vol_info{$root}->{$vol}) {
+    return $vol_info{$root}->{$vol};
   }
-  return 0;
+  return undef;
 }
 
 
@@ -448,13 +447,12 @@ sub get_children($$)
 {
   my $sroot = shift;
   my $svol = shift;
-  die("root subvolume info not present: $sroot") unless(exists($vol_info{$sroot}));
-  die("subvolume info not present: $sroot/$svol") unless(exists($vol_info{$sroot}->{$svol}));
-  my $uuid = $vol_info{$sroot}->{$svol}->{uuid};
+  my $svol_href = subvol($sroot, $svol);
+  die("subvolume info not present: $sroot/$svol") unless($svol_href);
   DEBUG "Getting snapshot children of: $sroot/$svol";
   my @ret;
   foreach (values %{$vol_info{$sroot}}) {
-    next unless($_->{parent_uuid} eq $uuid);
+    next unless($_->{parent_uuid} eq $svol_href->{uuid});
     DEBUG "Found snapshot child: $_->{SUBVOL_PATH}";
     push(@ret, $_);
   }
@@ -466,8 +464,8 @@ sub get_receive_targets_by_uuid($$)
 {
   my $droot = shift;
   my $uuid = shift;
-  die("root subvolume info not present: $droot") unless(exists($vol_info{$droot}));
-  die("subvolume info not present: $uuid") unless(exists($uuid_info{$uuid}));
+  die("root subvolume info not present: $droot") unless($vol_info{$droot});
+  die("subvolume info not present: $uuid") unless($uuid_info{$uuid});
   DEBUG "Getting receive targets in \"$droot/\" for: $uuid_info{$uuid}->{FS_PATH}";
   my @ret;
   foreach (values %{$vol_info{$droot}}) {
@@ -485,8 +483,8 @@ sub get_latest_common($$$)
   my $svol = shift;
   my $droot = shift;
 
-  die("source subvolume info not present: $sroot") unless(exists($vol_info{$sroot}));
-  die("target subvolume info not present: $droot") unless(exists($vol_info{$droot}));
+  die("source subvolume info not present: $sroot") unless($vol_info{$sroot});
+  die("target subvolume info not present: $droot") unless($vol_info{$droot});
 
   # sort children of svol descending by generation
   foreach my $child (sort { $b->{gen} <=> $a->{gen} } get_children($sroot, $svol)) {
@@ -636,7 +634,7 @@ MAIN:
     my $svol  = $job->{svol}  || die;
     $vol_info{$sroot} //= btr_subtree($sroot);
     $vol_info{$droot} //= btr_subtree($droot);
-    unless($vol_info{$sroot} && $vol_info{$droot} && $vol_info{$sroot}->{$svol}) {
+    unless(subvol($sroot, $svol) && $vol_info{$droot}) {
       ERROR "Failed to read btrfs subvolume information, aborting job";
       $job->{ABORTED} = 1;
       next;
@@ -705,7 +703,7 @@ MAIN:
       my $droot    = $job->{droot}      || die;
       my $type     = $job->{type}       || die;
 
-      unless(check_vol($sroot, $svol)) {
+      unless(subvol($sroot, $svol)) {
         WARN "Source subvolume not found, aborting job: $sroot/$svol";
         $job->{ABORTED} = 1;
         next;
@@ -726,13 +724,14 @@ MAIN:
         do {
           $postfix_counter++;
           $postfix = '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
-          TRACE "Testing source snapshot name: $snapdir$svol$postfix"
-        } while(check_vol($sroot, "$snapdir$svol$postfix")); # NOTE: $snapdir always has trailing slash!
+          TRACE "Testing source snapshot name: $snapdir$svol$postfix";
+        } while(subvol($sroot, "$snapdir$svol$postfix")); # NOTE: $snapdir always has trailing slash!
         $snapshot      = "$sroot/$snapdir$svol$postfix";
         $snapshot_name = "$svol$postfix";
       }
 
-      if(check_vol($droot, $snapshot_name)) {
+      if(subvol($droot, $snapshot_name)) {
+        # TODO: this seems not right here: maybe just skip this check, and panic later
         WARN "Snapshot already exists at destination, aborting job: $droot/$snapshot_name";
         $job->{ABORTED} = 1;
         next;
