@@ -633,14 +633,14 @@ MAIN:
   {
     my $sroot = $job->{sroot} || die;
     my $droot = $job->{droot} || die;
+    my $svol  = $job->{svol}  || die;
     $vol_info{$sroot} //= btr_subtree($sroot);
     $vol_info{$droot} //= btr_subtree($droot);
-    unless($vol_info{$sroot} && $vol_info{$droot}) {
+    unless($vol_info{$sroot} && $vol_info{$droot} && $vol_info{$sroot}->{$svol}) {
       ERROR "Failed to read btrfs subvolume information, aborting job";
       $job->{ABORTED} = 1;
       next;
     }
-    get_children($sroot, $job->{svol});
   }
   TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
