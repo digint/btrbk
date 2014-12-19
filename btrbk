@@ -109,7 +109,10 @@ sub run_cmd($;$)
     $ret = `$cmd`;
     chomp($ret);
     TRACE "command output:\n$ret";
-    die("command execution failed: \"$cmd\"") if($?);
+    if($?) {
+      WARN "command execution failed (exitcode=$?): \"$cmd\"";
+      return undef;
+    }
   }
   return $ret;
 }
@@ -147,36 +150,39 @@ sub btr_subvolume_detail($)
 {
   my $vol = shift;
   my $ret = run_cmd("/sbin/btrfs subvolume show $vol 2>/dev/null", 1);
-  if($ret eq "$vol is btrfs root") {
-    TRACE "btr_detail: found btrfs root: $vol";
-    return { id => 5, is_root => 1 };
-  }
-  elsif($ret =~ /^$vol/) {
-    TRACE "btr_detail: found btrfs subvolume: $vol";
-    my %trans = (
-      name          => "Name",
-      uuid          => "uuid",
-      parent_uuid   => "Parent uuid",
-      creation_time => "Creation time",
-      id            => "Object ID",
-      gen           => "Generation \\(Gen\\)",
-      cgen          => "Gen at creation",
-      parent_id     => "Parent",
-      top_level     => "Top Level",
-      flags         => "Flags",
-     );
-    my %detail;
-    foreach (keys %trans) {
-      if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
-        $detail{$_} = $1;
-      } else {
-        WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
-      }
+  if($ret)
+  {
+    if($ret eq "$vol is btrfs root") {
+      TRACE "btr_detail: found btrfs root: $vol";
+      return { id => 5, is_root => 1 };
     }
-    TRACE "btr_detail for $vol: " . Dumper \%detail;
-    return \%detail;
+    elsif($ret =~ /^$vol/) {
+      TRACE "btr_detail: found btrfs subvolume: $vol";
+      my %trans = (
+        name          => "Name",
+        uuid          => "uuid",
+        parent_uuid   => "Parent uuid",
+        creation_time => "Creation time",
+        id            => "Object ID",
+        gen           => "Generation \\(Gen\\)",
+        cgen          => "Gen at creation",
+        parent_id     => "Parent",
+        top_level     => "Top Level",
+        flags         => "Flags",
+       );
+      my %detail;
+      foreach (keys %trans) {
+        if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
+          $detail{$_} = $1;
+        } else {
+          WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
+        }
+      }
+      TRACE "btr_detail for $vol: " . Dumper \%detail;
+      return \%detail;
+    }
   }
-  ERROR "Failed to fetch subvolume detail for: $vol";
+  WARN "Failed to fetch subvolume detail for: $vol";
   return undef;
 }
 
@@ -254,6 +260,10 @@ sub btr_subvolume_list($;@)
   my $filter_option = "-a";
   $filter_option = "-o" if($opts{subvol_only});
   my $ret = run_cmd("/sbin/btrfs subvolume list $filter_option -c -u -q -R $vol", 1);
+  unless($ret) {
+    WARN "Failed to fetch btrfs subvolume list for: $vol";
+    return undef;
+  }
   my @nodes;
   foreach (split(/\n/, $ret))
   {
@@ -275,7 +285,7 @@ sub btr_subvolume_list($;@)
                   };
     # $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
   }
-  return @nodes;
+  return \@nodes;
 }
 
 sub btr_subvolume_find_new($$)
@@ -283,6 +293,8 @@ sub btr_subvolume_find_new($$)
   my $vol = shift;
   my $lastgen = shift;
   my $ret = run_cmd("/sbin/btrfs subvolume find-new $vol $lastgen");
+  ERROR "Failed to fetch modified files for: $vol" unless(defined($ret));
+  return $ret;
 }
 
 
@@ -291,7 +303,9 @@ sub btr_tree($)
   my $vol = shift;
   my %tree;
   my %id;
-  foreach my $node (btr_subvolume_list($vol, subvol_only => 0))
+  my $subvol_list = btr_subvolume_list($vol, subvol_only => 0);
+  return undef unless(ref($subvol_list) eq "ARRAY");
+  foreach my $node (@$subvol_list)
   {
     TRACE "btr_tree: processing subvolid=$node->{id}";
 
@@ -327,9 +341,16 @@ sub btr_subtree($)
 {
   my $vol = shift;
   my $detail = btr_subvolume_detail($vol);
+  unless($detail) {
+    WARN "Failed to build btrfs subtree for volume: $vol";
+    return undef;
+  }
+
   my $volname = $detail->{name} || "";
   my %tree;
-  foreach my $node (btr_subvolume_list($vol, subvol_only => 1))
+  my $subvol_list = btr_subvolume_list($vol, subvol_only => 1);
+  return undef unless(ref($subvol_list) eq "ARRAY");
+  foreach my $node (@$subvol_list)
   {
     TRACE "btr_subtree: processing subvolid=$node->{id}";
 
@@ -359,6 +380,7 @@ sub btr_subtree($)
 }
 
 
+# returns $dst, or undef on error
 sub btrfs_snapshot($$)
 {
   my $src = shift;
@@ -367,7 +389,9 @@ sub btrfs_snapshot($$)
   DEBUG "[btrfs]   source: $src";
   DEBUG "[btrfs]   dest  : $dst";
   INFO ">>> $dst";
-  run_cmd("/sbin/btrfs subvolume snapshot -r $src $dst");
+  my $ret = run_cmd("/sbin/btrfs subvolume snapshot -r $src $dst");
+  ERROR "Failed to create btrfs subvolume snapshot: $src -> $dst" unless(defined($ret));
+  return defined($ret) ? $dst : undef;
 }
 
 
@@ -397,6 +421,10 @@ sub btrfs_send_receive($$;$$)
   $receive_option = "-v -v" if($parent && $changelog);
   my $cmd = "/sbin/btrfs send $parent_option $src | /sbin/btrfs receive $receive_option $dst/ 2>&1";
   my $ret = run_cmd($cmd);
+  unless(defined($ret)) {
+    ERROR "Failed to send/receive btrfs subvolume: $src " . ($parent ? "[$parent]" : "") . " -> $dst";
+    return undef;
+  }
   if($changelog && (not $dryrun))
   {
     INFO "Writing btrfs-diff changelog: $changelog";
@@ -412,6 +440,7 @@ sub btrfs_send_receive($$;$$)
       WARN "Failed to open changelog file: $!";
     }
   }
+  return 1;
 }
 
 
@@ -558,6 +587,8 @@ MAIN:
 
     if($target_diff) {
       my $target_detail = btr_subvolume_detail($target_diff);
+      exit 1 unless($target_detail);
+
       $target = $uuid_info{$target_detail->{uuid}};
       # check if given parent is really a parent
       my $cur = $node;
@@ -575,6 +606,7 @@ MAIN:
 
     # dump files, sorted and unique
     my $ret = btr_subvolume_find_new($vol, $lastgen);
+    exit 1 unless(defined($ret));
     my %files;
     foreach (split(/\n/, $ret)) {
       /\S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ (\S+)/;
@@ -717,7 +749,10 @@ MAIN:
         DEBUG "***";
         INFO "Creating subvolume snapshot for: $sroot/$svol";
 
-        btrfs_snapshot("$sroot/$svol", $snapshot);
+        unless(btrfs_snapshot("$sroot/$svol", $snapshot)) {
+          WARN "Failed to create snapshot, aborting job: $sroot/$svol";
+          $job->{ABORTED} = 1;
+        }
         $snapshot_cache{"$sroot/$svol"} = { name => $snapshot_name,
                                             file => $snapshot };
       }
