@@ -86,7 +86,7 @@ sub HELP_MESSAGE
   print STDERR "   tree           shows backup tree\n";
   print STDERR "   execute        perform all backups\n";
   print STDERR "   dryrun         don't run btrfs commands, just show what would be executed\n";
-  print STDERR "   diff <subvol> [parent_subvol]  shows new files for subvol, optionally against a parent subvolume\n";
+  print STDERR "   diff <from> <to>  shows new files for subvolume <from>, against subvolume <to>\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
@@ -292,8 +292,53 @@ sub btr_subvolume_find_new($$)
   my $vol = shift;
   my $lastgen = shift;
   my $ret = run_cmd("/sbin/btrfs subvolume find-new $vol $lastgen");
-  ERROR "Failed to fetch modified files for: $vol" unless(defined($ret));
-  return $ret;
+  unless(defined($ret)) {
+    ERROR "Failed to fetch modified files for: $vol";
+    return undef;
+  }
+
+  my %files;
+  my $parse_errors = 0;
+  my $transid_marker;
+  foreach (split(/\n/, $ret))
+  {
+    if(/^inode \S+ file offset (\S+) len (\S+) disk start \S+ offset \S+ gen (\S+) flags (\S+) (\S+)$/) {
+      my $file_offset = $1;
+      my $len         = $2;
+      my $gen         = $3;
+      my $flags       = $4;
+      my $name        = $5;
+      $files{$name}->{len} += $len;
+      $files{$name}->{new} = 1 if($file_offset == 0);
+      $files{$name}->{gen}->{$gen} = 1;  # count the generations
+      if($flags eq "COMPRESS") {
+        $files{$name}->{flags}->{compress} = 1;
+      }
+      elsif($flags eq "COMPRESS|INLINE") {
+        $files{$name}->{flags}->{compress} = 1;
+        $files{$name}->{flags}->{inline} = 1;
+      }
+      elsif($flags eq "INLINE") {
+        $files{$name}->{flags}->{inline} = 1;
+      }
+      elsif($flags eq "NONE") {
+      }
+      else {
+        WARN "unparsed flags: $flags";
+      }
+    }
+    elsif(/^transid marker was (\S+)$/) {
+      $transid_marker = $1;
+    }
+    else {
+      $parse_errors++;
+    }
+  }
+
+  return { files => \%files,
+           transid_marker => $transid_marker,
+           parse_errors => $parse_errors,
+          };
 }
 
 
@@ -538,7 +583,6 @@ MAIN:
   my $action_execute;
   my $action_tree;
   my $action_diff;
-  my $target_diff;
   if(($command eq "execute") || ($command eq "dryrun")) {
     $action_execute = 1;
     $dryrun = 1 if($command eq "dryrun");
@@ -547,13 +591,7 @@ MAIN:
     $action_tree = 1;
   }
   elsif($command eq "diff") {
-    $action_diff = shift @ARGV;
-    $target_diff = shift @ARGV;
-    unless($action_diff) {
-      ERROR "Missing subvolume argument for \"diff\" command";
-      HELP_MESSAGE(0);
-      exit 1;
-    }
+    $action_diff = 1;
   }
   else {
     ERROR "Unrecognized command: $command";
@@ -567,54 +605,92 @@ MAIN:
   #
   if($action_diff)
   {
-    my $vol = $action_diff;
-    my $detail = btr_subvolume_detail($vol);
-    unless($detail) { exit 1; }
-    if($detail->{is_root})  { ERROR "subvolume at \"$vol\" is btrfs root!"; exit 1; }
-    unless($detail->{cgen}) { ERROR "subvolume at \"$vol\" does not provide cgen"; exit 1; }
-    if($detail->{parent_uuid} eq "-") { ERROR "subvolume at \"$vol\" has no parent, aborting."; exit 1; }
-
-    my $info = btr_tree($vol);
-    my $node = $uuid_info{$detail->{uuid}};
-    my $target = $uuid_info{$detail->{parent_uuid}};
-    die unless($node->{cgen} == $detail->{cgen}); # my paranoia
-    unless($node->{cgen} == $target->{gen}) {  # this should always match as far as i understand btrfs send -p
-      WARN "generation mismatch: cgen=$node->{cgen} != parent_gen=$target->{gen}";
+    my $src_vol    = shift @ARGV;
+    my $target_vol = shift @ARGV;
+    unless($src_vol && $target_vol) {
+      ERROR "Missing subvolume argument for \"diff\" command";
+      HELP_MESSAGE(0);
+      exit 1;
     }
-    my $lastgen = $detail->{cgen};
 
-    if($target_diff) {
-      my $target_detail = btr_subvolume_detail($target_diff);
-      exit 1 unless($target_detail);
+    my $src_detail = btr_subvolume_detail($src_vol);
+    unless($src_detail) { exit 1; }
+    if($src_detail->{is_root})  { ERROR "subvolume at \"$src_vol\" is btrfs root!"; exit 1; }
+    unless($src_detail->{cgen}) { ERROR "subvolume at \"$src_vol\" does not provide cgen"; exit 1; }
+#    if($src_detail->{parent_uuid} eq "-") { ERROR "subvolume at \"$src_vol\" has no parent, aborting."; exit 1; }
 
-      $target = $uuid_info{$target_detail->{uuid}};
-      # check if given parent is really a parent
-      my $cur = $node;
-      while($cur->{PARENT}) {
-        $cur = $cur->{PARENT} || last;
-        last if($cur->{uuid} eq $target_detail->{uuid});
-        my $count++; die if($count == 1000); # just in case we parsed crappy input
-      }
-      unless($cur->{id} == $target->{id}) {
-        ERROR "subvolume at \"$target_diff\" is not an ancestor of \"$action_diff\"";
-        exit 1;
-      }
-      $lastgen = $target->{gen};
+    my $target_detail = btr_subvolume_detail($target_vol);
+    unless($target_detail) { exit 1; }
+    unless($src_detail->{cgen}) { ERROR "subvolume at \"$src_vol\" does not provide cgen"; exit 1; }
+#    if($src_detail->{parent_uuid} eq "-") { ERROR "subvolume at \"$src_vol\" has no parent, aborting."; exit 1; }
+
+    my $info = btr_tree($src_vol);
+    my $src = $uuid_info{$src_detail->{uuid}} || die;
+    my $target = $uuid_info{$target_detail->{uuid}};
+    unless($target) { ERROR "target subvolume is not on the same btrfs filesystem!"; exit 1; }
+
+    my $lastgen;
+
+    # check if given src and target share same parent
+    if(ref($src->{PARENT}) && ($src->{PARENT}->{uuid} eq $target->{uuid})) {
+      DEBUG "target subvolume is direct parent of source subvolume";
     }
+    elsif(ref($src->{PARENT}) && ref($target->{PARENT}) && ($src->{PARENT}->{uuid} eq $target->{PARENT}->{uuid})) {
+      DEBUG "target subvolume and source subvolume share same parent";
+    }
+    else {
+      # TODO: this rule only applies to snapshots. find a way to distinguish snapshots from received backups
+      # ERROR "subvolumes \"$target_vol\" and \"$src_vol\" do not share the same parents";
+      # exit 1;
+    }
+
+    # NOTE: in some cases "cgen" differs from "gen", even for read-only snapshots (observed: gen=cgen+1)
+    $lastgen = $src->{cgen} + 1;
 
     # dump files, sorted and unique
-    my $ret = btr_subvolume_find_new($vol, $lastgen);
-    exit 1 unless(defined($ret));
-    my %files;
-    foreach (split(/\n/, $ret)) {
-      /\S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ (\S+)/;
-      $files{$1} = 1;
+    my $ret = btr_subvolume_find_new($target_vol, $lastgen);
+    exit 1 unless(ref($ret));
+
+    print "--------------------------------------------------------------------------------\n";
+    print "Showing changed files for subvolume:\n  $target->{path}  (gen=$target->{gen})\n";
+    print "\nStarting at creation generation from subvolume:\n  $src->{path}  (cgen=$src->{cgen})\n";
+    print "\nThis will show all files modified within generation range: [$lastgen..$target->{gen}]\n";
+    print "Newest file generation (transid marker) was: $ret->{transid_marker}\n";
+    print "Parse errors: $ret->{parse_errors}\n" if($ret->{parse_errors});
+    print "\nLegend: <flags> <gen> <size> <filename>\n";
+    print "  +..    file accessed at offset 0 (at least once)\n";
+    print "  .c.    flags COMPRESS or COMPRESS|INLINE set (at least once)\n";
+    print "  ..i    flags INLINE or COMPRESS|INLINE set (at least once)\n";
+    print "  <gen>  file was modified in <gen> generations\n";
+    print "  <size> file was modified for a total of <size> bytes\n";
+    print "--------------------------------------------------------------------------------\n";
+    my $files = $ret->{files};
+
+    # calculate the character offsets
+    my $len_charlen = 0;
+    my $gen_charlen = 0;
+    foreach (values %$files) {
+      my $len = length($_->{len});
+      my $gen = length(scalar(keys($_->{gen})));
+      $len_charlen = $len if($len > $len_charlen);
+      $gen_charlen = $gen if($gen > $gen_charlen);
     }
-    print "--------------------------------------------------------------------------------\n";
-    print "Showing diff for: $node->{path}\n";
-    print "Using parent at : $target->{path}\n";
-    print "--------------------------------------------------------------------------------\n";
-    print "$_\n" foreach(sort keys %files);
+
+    # finally print the output
+    foreach my $name (sort keys %$files) {
+      print ($files->{$name}->{new}               ? '+' : '.');
+      print ($files->{$name}->{flags}->{compress} ? 'c' : '.');
+      print ($files->{$name}->{flags}->{inline}   ? 'i' : '.');
+
+      # make nice table
+      my $gens = scalar(keys($files->{$name}->{gen}));
+      my $len = $files->{$name}->{len};
+      print "  " . (' ' x ($gen_charlen - length($gens))) .  $gens;
+      print "  " . (' ' x ($len_charlen - length($len))) .  $len;
+
+      print "  $name\n";
+    }
+
     exit 0;
   }
 
@@ -689,11 +765,12 @@ MAIN:
     }
   }
 
+
+  #
+  # create snapshots
+  #
   if($action_execute)
   {
-    #
-    # create snapshots
-    #
     my $timestamp = strftime($time_format, localtime);
     my %snapshot_cache;
     foreach my $job (@$jobs)
