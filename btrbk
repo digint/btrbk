@@ -83,7 +83,7 @@ sub HELP_MESSAGE
   print STDERR "   -l LEVEL    set loglevel (1=warn, 2=info, 3=debug, 4=trace)\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   info           shows information\n";
+  print STDERR "   tree           shows backup tree\n";
   print STDERR "   execute        perform all backups\n";
   print STDERR "   dryrun         don't run btrfs commands, just show what would be executed\n";
   print STDERR "   diff <subvol> [parent_subvol]  shows new files for subvol, optionally against a parent subvolume\n";
@@ -536,15 +536,15 @@ MAIN:
   }
 
   my $action_execute;
-  my $action_info;
+  my $action_tree;
   my $action_diff;
   my $target_diff;
   if(($command eq "execute") || ($command eq "dryrun")) {
     $action_execute = 1;
     $dryrun = 1 if($command eq "dryrun");
   }
-  elsif($command eq "info") {
-    $action_info = 1;
+  elsif($command eq "tree") {
+    $action_tree = 1;
   }
   elsif($command eq "diff") {
     $action_diff = shift @ARGV;
@@ -642,7 +642,7 @@ MAIN:
   }
   TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
-  if($action_info)
+  if($action_tree)
   {
     #
     # print snapshot tree
