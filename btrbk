@@ -42,9 +42,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use strict;
 use warnings FATAL => qw( all );
 
-use POSIX qw(strftime);
 use File::Path qw(make_path);
 use Getopt::Std;
+use Date::Calc qw(Today Delta_Days Add_Delta_Days Day_of_Week Monday_of_Week Week_of_Year);
 use Data::Dumper;
 
 our $VERSION = "0.01";
@@ -54,8 +54,6 @@ my $version_info = "btrbk command line client, version $VERSION";
 
 my $default_config  = "/etc/btrbk.conf";
 my $default_snapdir = "_btrbk_snap";
-#my $default_time_format = "%Y%m%d_%H%M%S";
-my $default_time_format = "%Y%m%d";
 
 my %vol_info;
 my %uuid_info;
@@ -77,7 +75,6 @@ sub HELP_MESSAGE
   print STDERR "   --help      display this help message\n";
   print STDERR "   --version   display version information\n";
   print STDERR "   -s DIR      make new source snapshots in subfolder <DIR> (defaults to \"$default_snapdir\")\n";
-  print STDERR "   -t FORMAT   time format for snapshot postix, see 'man strftime' (defaults to \"$default_time_format\")\n";
   print STDERR "   -c FILE     config file to be processed on execute command (defaults to \"$default_config\")\n";
   print STDERR "   -v          be verbose (set loglevel=info)\n";
   print STDERR "   -l LEVEL    set loglevel (1=warn, 2=info, 3=debug, 4=trace)\n";
@@ -85,6 +82,7 @@ sub HELP_MESSAGE
   print STDERR "commands:\n";
   print STDERR "   tree           shows backup tree\n";
   print STDERR "   execute        perform all backups\n";
+  print STDERR "   clean          delete old backups\n";
   print STDERR "   dryrun         don't run btrfs commands, just show what would be executed\n";
   print STDERR "   diff <from> <to>  shows new files for subvolume <from>, against subvolume <to>\n";
   print STDERR "\n";
@@ -231,6 +229,7 @@ sub parse_config($)
         elsif($_ eq "create")      { $job{options}->{create} = 1;      }
         elsif($_ eq "log")         { $job{options}->{log} = 1;         }
         elsif($_ =~ /^log=(\S+)$/) { $job{options}->{log} = 1; $job{options}->{logfile} = $1; }
+        elsif($_ =~ /^preserve=[dD]([0-9]+)[wW]([0-9]+)$/) { $job{options}->{preserve} = {daily => $1, weekly => $2}; }
         else {
           ERROR "Ambiguous option=\"$_\": $file line $.";
           return undef; # be very strict here
@@ -439,6 +438,17 @@ sub btrfs_snapshot($$)
 }
 
 
+sub btrfs_subvolume_delete(@)
+{
+  my @targets = @_;
+  return 0 unless(scalar(@targets));
+  INFO "--- $_" foreach(@targets);
+  my $ret = run_cmd("/sbin/btrfs subvolume delete " . join(' ', @targets));
+  ERROR "Failed to delete btrfs subvolumes: " . join(' ', @targets) unless(defined($ret));
+  return defined($ret) ? scalar(@targets) : undef;
+}
+
+
 sub btrfs_send_receive($$;$$)
 {
   my $src = shift;
@@ -551,6 +561,7 @@ MAIN:
   $ENV{PATH} = '';
   $Getopt::Std::STANDARD_HELP_VERSION = 1;
   $Data::Dumper::Sortkeys = 1;
+  my @today = Today();
 
   my %opts;
   getopts('s:t:c:vl:p', \%opts);
@@ -567,7 +578,6 @@ MAIN:
     $loglevel = $opts{v} ? 2 : 0;
   }
   my $config      = $opts{c} || $default_config;
-  my $time_format = $opts{t} || $default_time_format;
   my $snapdir     = $opts{s} || $default_snapdir;
   $snapdir =~ s/\/+$//;   # remove trailing slash
   $snapdir =~ s/^\/+//;   # remove leading slash
@@ -581,16 +591,20 @@ MAIN:
   }
 
   my $action_execute;
+  my $action_clean;
   my $action_tree;
   my $action_diff;
   if(($command eq "execute") || ($command eq "dryrun")) {
     $action_execute = 1;
     $dryrun = 1 if($command eq "dryrun");
   }
-  elsif($command eq "tree") {
+  elsif ($command eq "clean") {
+    $action_clean = 1;
+  }
+  elsif ($command eq "tree") {
     $action_tree = 1;
   }
-  elsif($command eq "diff") {
+  elsif ($command eq "diff") {
     $action_diff = 1;
   }
   else {
@@ -600,11 +614,11 @@ MAIN:
   }
 
 
-  #
-  # print snapshot diff
-  #
   if($action_diff)
   {
+    #
+    # print snapshot diff
+    #
     my $src_vol    = shift @ARGV;
     my $target_vol = shift @ARGV;
     unless($src_vol && $target_vol) {
@@ -718,6 +732,7 @@ MAIN:
   }
   TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
+
   if($action_tree)
   {
     #
@@ -766,12 +781,12 @@ MAIN:
   }
 
 
-  #
-  # create snapshots
-  #
   if($action_execute)
   {
-    my $timestamp = strftime($time_format, localtime);
+    #
+    # create snapshots
+    #
+    my $timestamp = sprintf("%04d%02d%02d", @today);
     my %snapshot_cache;
     foreach my $job (@$jobs)
     {
@@ -859,35 +874,115 @@ MAIN:
       INFO "Creating subvolume backup for: $sroot/$svol";
 
       my $changelog = "";
-      if($job_opts->{log})
-      {
+      if ($job_opts->{log}) {
         # log defaults to sidecar of destination snapshot
         $changelog = $job_opts->{logfile} || "$droot/$snapshot_name.btrbk.log";
       }
-      if($job_opts->{incremental})
-      {
+      if ($job_opts->{incremental}) {
         INFO "Using previously created snapshot: $snapshot";
         # INFO "Attempting incremantal backup (option=incremental)";
         my ($latest_common_src, $latest_common_dst) = get_latest_common($sroot, $svol, $droot);
-        if($latest_common_src && $latest_common_dst)
-        {
+        if ($latest_common_src && $latest_common_dst) {
           my $parent_snap = $latest_common_src->{FS_PATH};
           INFO "Using parent snapshot: $parent_snap";
           btrfs_send_receive($snapshot, $droot, $parent_snap, $changelog);
-        }
-        elsif($job_opts->{init}) {
+        } elsif ($job_opts->{init}) {
           INFO "No common parent snapshots found, creating initial backup (option=init)";
           btrfs_send_receive($snapshot, $droot, undef, $changelog);
-        }
-        else {
+        } else {
           WARN "Backup to $droot failed: no common parent subvolume found, and job option \"create\" is not set";
         }
-      }
-      elsif($job_opts->{create})
-      {
+      } elsif ($job_opts->{create}) {
         INFO "Creating new snapshot copy (option=create))";
         btrfs_send_receive($snapshot, $droot, undef, $changelog);
       }
+    }
+  }
+
+
+  if($action_clean)
+  {
+    $dryrun = 1;
+    #
+    # remove backups following a keep_daily/keep_weekly scheme
+    #
+    foreach my $job (@$jobs)
+    {
+      next if($job->{ABORTED});
+
+      my $sroot         = $job->{sroot}         || die;
+      my $svol          = $job->{svol}          || die;
+      my $droot         = $job->{droot}         || die;
+      my $job_opts      = $job->{options}       || die;
+
+      unless(ref($job_opts->{preserve})) {
+        INFO "Skip cleaning of subvolume backups (option preserve is not set): $sroot/$svol";
+        next;
+      }
+
+      INFO "Cleaning subvolume backups: $sroot/$svol";
+      my $keep_daily = $job_opts->{preserve}->{daily};
+      my $keep_weekly = $job_opts->{preserve}->{weekly};
+
+      # calculate weekly_threshold
+      my @last_sunday;
+      if(Day_of_Week(@today) == 7) {  # today is sunday
+        @last_sunday = @today;
+      }
+      else {
+        @last_sunday = Add_Delta_Days(Monday_of_Week(Week_of_Year(@today)), -1);
+      }
+      my @weekly_threshold = Add_Delta_Days(@last_sunday, (-7 * $keep_weekly));
+      INFO "last sunday: " . join('-', @last_sunday);
+      INFO "weekly_threshold: " . join('-', @weekly_threshold);
+
+
+      my %week;
+      my %month;
+      my @delete_targets;
+      foreach my $vol (sort { $b cmp $a } keys %{$vol_info{$sroot}})
+      {
+        next unless($vol =~ /^$snapdir$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/);
+        my ($vol_y, $vol_m, $vol_d) = ($1, $2, $3);
+        my @vol_date = ($vol_y, $vol_m, $vol_d);
+        my $keep = 0;
+
+        my $dd = Delta_Days(@vol_date, @today);
+        if($dd <= $keep_daily)
+        {
+          $keep = "less than $keep_daily days old (age=$dd days)";
+          DEBUG "$vol: $keep";
+        }
+
+        if(Delta_Days(@vol_date, @weekly_threshold) < 0)
+        {
+          DEBUG "$vol: not older than $keep_weekly weeks";
+          my ($vol_wnr, $vol_wy) = Week_of_Year(@vol_date);
+          unless($week{"$vol_wy-$vol_wnr"})
+          {
+            $week{"$vol_wy-$vol_wnr"} = 1;
+            $keep = "last in week $vol_wy-$vol_wnr";
+            DEBUG "$vol: $keep";
+          }
+        }
+
+        unless($month{"$vol_y-$vol_m"})
+        {
+          $month{"$vol_y-$vol_m"} = 1;
+          $keep = "last in month $vol_y-$vol_m";
+          DEBUG "$vol: $keep";
+        }
+
+        if($keep)
+        {
+          INFO "$vol: keeping: $keep";
+          next;
+        }
+
+        INFO "$vol: DELETE";
+        push @delete_targets, "$sroot/$vol";
+      }
+      btrfs_subvolume_delete(@delete_targets);
     }
   }
 }
