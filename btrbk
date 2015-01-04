@@ -556,6 +556,47 @@ sub get_latest_common($$$)
 }
 
 
+sub check_backup_scheme(@)
+{
+  my %args = @_;
+  my $vol_date         = $args{vol_date}         || die;
+  my $today            = $args{today}            || die;
+  my $keep_days        = $args{keep_days}        || die;
+  my $weekly_threshold = $args{weekly_threshold} || die;
+  my $keep_info        = $args{keep_info}        || die;
+  my $keep = 0;
+  my ($vol_y, $vol_m, $vol_d) = @$vol_date;
+
+  my $dd = Delta_Days(@$vol_date, @$today);
+  if($dd <= $keep_days)
+  {
+    $keep = "less than $keep_days days old (age=$dd days)";
+    DEBUG "$keep";
+  }
+
+  if(Delta_Days(@$vol_date, @$weekly_threshold) < 0)
+  {
+    DEBUG "not older than " . join('-', @$weekly_threshold);
+    my ($vol_wnr, $vol_wy) = Week_of_Year(@$vol_date);
+    unless($keep_info->{week}->{"$vol_wy-$vol_wnr"})
+    {
+      $keep_info->{week}->{"$vol_wy-$vol_wnr"} = 1;
+      $keep = "last in week $vol_wy-$vol_wnr";
+      DEBUG "$keep";
+    }
+  }
+
+  unless($keep_info->{month}->{"$vol_y-$vol_m"})
+  {
+    $keep_info->{month}->{"$vol_y-$vol_m"} = 1;
+    $keep = "last in month $vol_y-$vol_m";
+    DEBUG "$keep";
+  }
+
+  return $keep;
+}
+
+
 MAIN:
 {
   $ENV{PATH} = '';
@@ -903,8 +944,11 @@ MAIN:
   if($action_clean)
   {
     $dryrun = 1;
+    # TODO: gather all information first, then delete all backups/snapshots at the end
+    # TODO: always keep first/last
+
     #
-    # remove backups following a keep_daily/keep_weekly scheme
+    # remove backups following a keep_days/keep_weekly scheme
     #
     foreach my $job (@$jobs)
     {
@@ -920,8 +964,8 @@ MAIN:
         next;
       }
 
-      INFO "Cleaning subvolume backups: $sroot/$svol";
-      my $keep_daily = $job_opts->{preserve}->{daily};
+      INFO "Cleaning subvolume backups of job: $sroot/$svol";
+      my $keep_days = $job_opts->{preserve}->{daily};
       my $keep_weekly = $job_opts->{preserve}->{weekly};
 
       # calculate weekly_threshold
@@ -933,56 +977,66 @@ MAIN:
         @last_sunday = Add_Delta_Days(Monday_of_Week(Week_of_Year(@today)), -1);
       }
       my @weekly_threshold = Add_Delta_Days(@last_sunday, (-7 * $keep_weekly));
-      INFO "last sunday: " . join('-', @last_sunday);
-      INFO "weekly_threshold: " . join('-', @weekly_threshold);
+      DEBUG "last sunday: " . join('-', @last_sunday);
+      DEBUG "weekly_threshold for keep_weekly=$keep_weekly: " . join('-', @weekly_threshold);
 
+      #
+      # delete backups
+      #
+      my $keep_info = {};
+      my @delete_backups;
+      INFO "Cleaning backups: $droot/$svol.*";
+      foreach my $vol (sort { $b cmp $a } keys %{$vol_info{$droot}})
+      {
+        next unless($vol =~ /^$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/);
+        my @vol_date = ($1, $2, $3);
 
-      my %week;
-      my %month;
-      my @delete_targets;
+        DEBUG "Checking: $vol";
+        my $keep = check_backup_scheme(
+          vol_date         => \@vol_date,
+          today            => \@today,
+          weekly_threshold => \@weekly_threshold,
+          keep_days        => $keep_days,
+          keep_info        => $keep_info,
+         );
+        if($keep) {
+          INFO "$vol: preserved: $keep";
+        }
+        else {
+          INFO "$vol: DELETE";
+          push @delete_backups, "$droot/$vol";
+        }
+      }
+      btrfs_subvolume_delete(@delete_backups);
+
+      #
+      # delete snapshots
+      #
+      $keep_info = {};
+      my @delete_snapshots;
+      INFO "Cleaning snapshots: $sroot/$snapdir$svol.*";
       foreach my $vol (sort { $b cmp $a } keys %{$vol_info{$sroot}})
       {
         next unless($vol =~ /^$snapdir$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/);
-        my ($vol_y, $vol_m, $vol_d) = ($1, $2, $3);
-        my @vol_date = ($vol_y, $vol_m, $vol_d);
-        my $keep = 0;
+        my @vol_date = ($1, $2, $3);
 
-        my $dd = Delta_Days(@vol_date, @today);
-        if($dd <= $keep_daily)
-        {
-          $keep = "less than $keep_daily days old (age=$dd days)";
-          DEBUG "$vol: $keep";
+        DEBUG "Checking: $vol";
+        my $keep = check_backup_scheme(
+          vol_date         => \@vol_date,
+          today            => \@today,
+          weekly_threshold => \@weekly_threshold,
+          keep_days        => $keep_days,
+          keep_info        => $keep_info,
+         );
+        if($keep) {
+          INFO "$vol: preserved: $keep";
         }
-
-        if(Delta_Days(@vol_date, @weekly_threshold) < 0)
-        {
-          DEBUG "$vol: not older than $keep_weekly weeks";
-          my ($vol_wnr, $vol_wy) = Week_of_Year(@vol_date);
-          unless($week{"$vol_wy-$vol_wnr"})
-          {
-            $week{"$vol_wy-$vol_wnr"} = 1;
-            $keep = "last in week $vol_wy-$vol_wnr";
-            DEBUG "$vol: $keep";
-          }
+        else {
+          INFO "$vol: DELETE";
+          push @delete_snapshots, "$sroot/$vol";
         }
-
-        unless($month{"$vol_y-$vol_m"})
-        {
-          $month{"$vol_y-$vol_m"} = 1;
-          $keep = "last in month $vol_y-$vol_m";
-          DEBUG "$vol: $keep";
-        }
-
-        if($keep)
-        {
-          INFO "$vol: keeping: $keep";
-          next;
-        }
-
-        INFO "$vol: DELETE";
-        push @delete_targets, "$sroot/$vol";
       }
-      btrfs_subvolume_delete(@delete_targets);
+      btrfs_subvolume_delete(@delete_snapshots);
     }
   }
 }
