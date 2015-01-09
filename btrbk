@@ -61,6 +61,23 @@ my %uuid_info;
 my $dryrun;
 my $loglevel = 1;
 
+my %config_defaults = (
+  snapshot_dir             => "_btrbk_snap",
+  incremental              => undef,
+  init                     => undef,
+  create                   => undef,
+  log                      => undef,
+  snapshot_create_always   => 0,     # TODO: honor this
+  snapshot_preserve_all    => 1,     # TODO: honor this
+  snapshot_preserve_days   => undef,
+  snapshot_preserve_weekly => undef,
+  target_preserve_all      => 1,     # TODO: honor this
+  target_preserve_days     => undef,
+  target_preserve_weekly   => undef,
+ );
+
+my @config_target_types = qw(send-receive);
+
 
 sub VERSION_MESSAGE
 {
@@ -184,70 +201,145 @@ sub btr_subvolume_detail($)
 }
 
 
+sub config_key($$)
+{
+  my $node = shift;
+  my $key = shift;
+  TRACE "config_key: $node->{CONTEXT}";
+  while(not defined($node->{$key})) {
+    return undef unless($node->{PARENT});
+    $node = $node->{PARENT};
+  }
+  TRACE "config_key: returning $node->{$key}";
+  return $node->{$key};
+}
+
+
 sub parse_config($)
 {
   my $file = shift;
-  my @jobs;
+  my $root = { CONTEXT => "root",
+               %config_defaults
+              };
+  my $cur = $root;
+
   unless(-r "$file") {
     WARN "Configuration file not found: $file";
     return undef;
   }
 
-  TRACE "parsing config file: $file";
+  DEBUG "config: parsing file: $file";
   open(FILE, '<', $file) or die $!;
   while (<FILE>) {
     chomp;
     next if /^\s*#/; # ignore comments
     next if /^\s*$/; # ignore empty lines
-    TRACE "parse_config: parsing line: $_";
-    if(/^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/)
+    TRACE "config: parsing line $. with context=$cur->{CONTEXT}: \"$_\"";
+    if(/^(\s*)([a-zA-Z_]+)\s+(.*)$/)
     {
-      my %job = ( type  => "subvol_backup",
-                  sroot => $1,
-                  svol  => $2,
-                  droot => $3,
-                 );
-      my @options = split(/,/, $4);
+      my ($indent, $key, $value) = (length($1), lc($2), $3);
+      $value =~ s/\s*$//;
+      # NOTE: we do not perform checks on indentation!
 
-      $job{sroot} =~ s/\/+$//;   # remove trailing slash
-      $job{sroot} =~ s/^\/+/\//; # sanitize leading slash
-      $job{svol} =~ s/\/+$//;    # remove trailing slash
-      $job{svol} =~ s/^\/+//;    # remove leading slash
-      if($job{svol} =~ /\//) {
-        ERROR "src_subvol contains slashes: $job{svol}";
+      if($key eq "volume")
+      {
+        $cur = $root;
+        DEBUG "config: context forced to: $cur->{CONTEXT}";
+        DEBUG "config: adding volume \"$value\" to root context";
+        $value =~ s/\/+$//;   # remove trailing slash
+        $value =~ s/^\/+/\//; # sanitize leading slash
+        my $volume = { CONTEXT => "volume",
+                       PARENT => $cur,
+                       sroot => $value,
+                      };
+        $cur->{VOLUME} //= [];
+        push(@{$cur->{VOLUME}}, $volume);
+        $cur = $volume;
+      }
+      elsif($key eq "subvolume")
+      {
+        while($cur->{CONTEXT} ne "volume") {
+          if(($cur->{CONTEXT} eq "root") || (not $cur->{PARENT})) {
+            ERROR "subvolume keyword outside volume context, in \"$file\" line $.";
+            return undef;
+          }
+          $cur = $cur->{PARENT} || die;
+          DEBUG "config: context changed to: $cur->{CONTEXT}";
+        }
+        $value =~ s/\/+$//;    # remove trailing slash
+        $value =~ s/^\/+//;    # remove leading slash
+        if($value =~ /\//) {
+          ERROR "subvolume contains slashes: \"$value\" in \"$file\" line $.";
+          return undef;
+        }
+
+        DEBUG "config: adding subvolume \"$value\" to volume context: $cur->{sroot}";
+        my $subvolume = { CONTEXT => "subvolume",
+                          PARENT => $cur,
+                          svol => $value,
+                         };
+        $cur->{SUBVOLUME} //= [];
+        push(@{$cur->{SUBVOLUME}}, $subvolume);
+        $cur = $subvolume;
+      }
+      elsif($key eq "target")
+      {
+        if($cur->{CONTEXT} eq "target") {
+          $cur = $cur->{PARENT} || die;
+          DEBUG "config: context changed to: $cur->{CONTEXT}";
+        }
+        if($cur->{CONTEXT} ne "subvolume") {
+          ERROR "target keyword outside subvolume context, in \"$file\" line $.";
+          return undef;
+        }
+        if($value =~ /^(\S+)\s+(\S+)$/)
+        {
+          my ($target_type, $droot) = ($1, $2);
+          unless(grep(/^$target_type$/, @config_target_types)) {
+            ERROR "unknown target type \"$target_type\" in \"$file\" line $.";
+            return undef;
+          }
+          $droot =~ s/\/+$//;   # remove trailing slash
+          $droot =~ s/^\/+/\//; # sanitize leading slash
+          DEBUG "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{PARENT}->{sroot}/$cur->{svol}";
+          my $target = { CONTEXT => "target",
+                         PARENT => $cur,
+                         target_type => $target_type,
+                         droot => $droot,
+                       };
+          $cur->{TARGET} //= [];
+          push(@{$cur->{TARGET}}, $target);
+          $cur = $target;
+        }
+        else
+        {
+          ERROR "Ambiguous target configuration, in \"$file\" line $.";
+          return undef;
+        }
+      }
+      elsif(grep(/^$key$/, keys %config_defaults))  # accept only keys listed in %config_default
+      {
+        DEBUG "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
+        $cur->{$key} = $value;
+      }
+      else
+      {
+        ERROR "Unknown option \"$key\" in \"$file\" line $.";
         return undef;
       }
 
-      $job{droot} =~ s/\/+$//;   # remove trailing slash
-      $job{droot} =~ s/^\/+/\//; # sanitize leading slash
-
-      $job{mountpoint} = $job{sroot}; # TODO: honor this, automount
-
-      foreach(@options) {
-        if   ($_ eq "incremental") { $job{options}->{incremental} = 1; }
-        elsif($_ eq "init")        { $job{options}->{init} = 1;        }
-        elsif($_ eq "create")      { $job{options}->{create} = 1;      }
-        elsif($_ eq "log")         { $job{options}->{log} = 1;         }
-        elsif($_ =~ /^log=(\S+)$/) { $job{options}->{log} = 1; $job{options}->{logfile} = $1; }
-        elsif($_ =~ /^preserve=[dD]([0-9]+)[wW]([0-9]+)$/) { $job{options}->{preserve} = {daily => $1, weekly => $2}; }
-        else {
-          ERROR "Ambiguous option=\"$_\": $file line $.";
-          return undef; # be very strict here
-        }
-      }
-
-      TRACE "parse_config: adding job \"$job{type}\": $job{sroot}/$job{svol} -> $job{droot}/";
-      push @jobs, \%job;
+      TRACE "line processed: new context=$cur->{CONTEXT}";
     }
     else
     {
-      ERROR "Ambiguous configuration: $file line $.";
-      return undef; # be very strict here
+      ERROR "Parse error in \"$file\" line $.";
+      return undef;
     }
   }
-  close FILE;
-  TRACE "jobs: " . Dumper(\@jobs);
-  return \@jobs;
+
+  TRACE(Data::Dumper->Dump([$root], ["config_root"]));
+  exit 0;
+  return $root;
 }
 
 
