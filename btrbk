@@ -889,19 +889,14 @@ MAIN:
     #
     # print snapshot tree
     #
-    my %info;
-    foreach my $job (@$jobs)
+    foreach my $config_vol (@{$config->{VOLUME}})
     {
-      $info{$job->{sroot}}->{$job->{svol}} = $job;
-    }
-    foreach my $root (sort keys %info)
-    {
-      print "$root\n";
-      foreach my $job (sort { $a->{svol} cmp $b->{svol} } (values %{$info{$root}}))
+      my $sroot = $config_vol->{sroot} || die;
+      print "$sroot\n";
+      next unless $vol_info{$sroot};
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
-        my $sroot = $job->{sroot} || die;
-        my $svol  = $job->{svol}  || die;
-        next unless $vol_info{$job->{sroot}};
+        my $svol = $config_subvol->{svol} || die;
         print "|-- $svol\n";
         my $sroot_uuid;
         foreach (values $vol_info{$sroot}) {
@@ -911,17 +906,19 @@ MAIN:
           }
         }
         die unless $sroot_uuid;
-        foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values $vol_info{$sroot})) {
+        foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values $vol_info{$sroot}))
+        {
           next unless($_->{parent_uuid} eq $sroot_uuid);
           # next unless($_->{SUBVOL_PATH} =~ /^$snapdir/);  # don't print non-btrbk snapshots
           print "|   ^-- $_->{SUBVOL_PATH}\n";
           my $snapshot = $_->{FS_PATH};
           $snapshot =~ s/^.*\///;
-          foreach (sort { $a->{droot} cmp $b->{droot} } @$jobs) {
-            next unless $vol_info{$_->{droot}};
-            next unless(($_->{sroot} eq $sroot) && ($_->{svol} eq $svol));
-            my $match = "$_->{droot}/$snapshot";
-            foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values $vol_info{$_->{droot}})) {
+          foreach my $config_target (@{$config_subvol->{TARGET}})
+          {
+            my $droot = $config_target->{droot} || die;
+            next unless $vol_info{$droot};
+            my $match = "$droot/$snapshot";
+            foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values $vol_info{$droot})) {
               print "|   |   |== $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
             }
           }
