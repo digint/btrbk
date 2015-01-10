@@ -338,7 +338,6 @@ sub parse_config($)
   }
 
   TRACE(Data::Dumper->Dump([$root], ["config_root"]));
-  exit 0;
   return $root;
 }
 
@@ -697,7 +696,11 @@ MAIN:
   my @today = Today();
 
   my %opts;
-  getopts('s:t:c:vl:p', \%opts);
+  unless(getopts('s:t:c:vl:p', \%opts)) {
+    VERSION_MESSAGE();
+    HELP_MESSAGE(0);
+    exit 1;
+  }
   my $command = shift @ARGV;
 
   # assign command line options
@@ -710,7 +713,7 @@ MAIN:
   else {
     $loglevel = $opts{v} ? 2 : 0;
   }
-  my $config      = $opts{c} || $default_config;
+  my $config_file = $opts{c} || $default_config;
   my $snapdir     = $opts{s} || $default_snapdir;
   $snapdir =~ s/\/+$//;   # remove trailing slash
   $snapdir =~ s/^\/+//;   # remove leading slash
@@ -843,24 +846,39 @@ MAIN:
 
 
   #
-  # check jobs, fill vol_info hash
+  # fill vol_info hash, basic checks on configuration
   #
-  my $jobs = parse_config($config);
-  unless($jobs) {
+  my $config = parse_config($config_file);
+  unless($config) {
     ERROR "Failed to parse configuration file";
     exit 1;
   }
-  foreach my $job (@$jobs)
+  unless(ref($config->{VOLUME}) eq "ARRAY") {
+    ERROR "No volumes defined in configuration file";
+    exit 1;
+  }
+  foreach my $config_vol (@{$config->{VOLUME}})
   {
-    my $sroot = $job->{sroot} || die;
-    my $droot = $job->{droot} || die;
-    my $svol  = $job->{svol}  || die;
+    my $sroot = $config_vol->{sroot} || die;
     $vol_info{$sroot} //= btr_subtree($sroot);
-    $vol_info{$droot} //= btr_subtree($droot);
-    unless(subvol($sroot, $svol) && $vol_info{$droot}) {
-      ERROR "Failed to read btrfs subvolume information, aborting job";
-      $job->{ABORTED} = 1;
-      next;
+    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+    {
+      my $svol = $config_subvol->{svol} || die;
+      unless(subvol($sroot, $svol)) {
+        ERROR "subvolume \"$svol\" not present in btrfs subvolume list for \"$sroot\", skipping";
+        $config_subvol->{ABORTED} = 1;
+        next;
+      }
+      foreach my $config_target (@{$config_subvol->{TARGET}})
+      {
+        my $droot = $config_target->{droot} || die;
+        $vol_info{$droot} //= btr_subtree($droot);
+        unless($vol_info{$droot}) {
+          ERROR "Failed to read btrfs subvolume list for \"$droot\", skipping";
+          $config_target->{ABORTED} = 1;
+          next;
+        }
+      }
     }
   }
   TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
