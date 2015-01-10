@@ -865,7 +865,7 @@ MAIN:
     {
       my $svol = $config_subvol->{svol} || die;
       unless(subvol($sroot, $svol)) {
-        ERROR "subvolume \"$svol\" not present in btrfs subvolume list for \"$sroot\", skipping";
+        WARN "Subvolume \"$svol\" not present in btrfs subvolume list for \"$sroot\", skipping section";
         $config_subvol->{ABORTED} = 1;
         next;
       }
@@ -874,7 +874,7 @@ MAIN:
         my $droot = $config_target->{droot} || die;
         $vol_info{$droot} //= btr_subtree($droot);
         unless($vol_info{$droot}) {
-          ERROR "Failed to read btrfs subvolume list for \"$droot\", skipping";
+          WARN "Failed to read btrfs subvolume list for \"$droot\", skipping target";
           $config_target->{ABORTED} = 1;
           next;
         }
@@ -936,67 +936,73 @@ MAIN:
     #
     my $timestamp = sprintf("%04d%02d%02d", @today);
     my %snapshot_cache;
-    foreach my $job (@$jobs)
+    foreach my $config_vol (@{$config->{VOLUME}})
     {
-      my $sroot    = $job->{sroot}      || die;
-      my $svol     = $job->{svol}       || die;
-      my $droot    = $job->{droot}      || die;
-      my $type     = $job->{type}       || die;
-
-      unless(subvol($sroot, $svol)) {
-        WARN "Source subvolume not found, aborting job: $sroot/$svol";
-        $job->{ABORTED} = 1;
-        next;
-      }
-
-      my $snapshot;
-      my $snapshot_name;
-      if($snapshot_cache{"$sroot/$svol"})
+      next if($config_vol->{ABORTED});
+      my $sroot = $config_vol->{sroot} || die;
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
-        $snapshot      = $snapshot_cache{"$sroot/$svol"}->{file};
-        $snapshot_name = $snapshot_cache{"$sroot/$svol"}->{name};
-      }
-      else
-      {
-        # find new snapshot name
-        my $postfix_counter = -1;
-        my $postfix;
-        do {
-          $postfix_counter++;
-          $postfix = '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
-          TRACE "Testing source snapshot name: $snapdir$svol$postfix";
-        } while(subvol($sroot, "$snapdir$svol$postfix")); # NOTE: $snapdir always has trailing slash!
-        $snapshot      = "$sroot/$snapdir$svol$postfix";
-        $snapshot_name = "$svol$postfix";
-      }
-
-      if(subvol($droot, $snapshot_name)) {
-        # TODO: this seems not right here: maybe just skip this check, and panic later
-        WARN "Snapshot already exists at destination, aborting job: $droot/$snapshot_name";
-        $job->{ABORTED} = 1;
-        next;
-      }
-      create_snapdir($sroot, $svol, $snapdir);
-
-      # make snapshot of svol, if not already created by another job
-      unless($snapshot_cache{"$sroot/$svol"})
-      {
-        DEBUG "***";
-        DEBUG "*** snapshot";
-        DEBUG "***   source: $sroot/$svol";
-        DEBUG "***   dest  : $snapshot";
-        DEBUG "***";
-        INFO "Creating subvolume snapshot for: $sroot/$svol";
-
-        unless(btrfs_snapshot("$sroot/$svol", $snapshot)) {
-          WARN "Failed to create snapshot, aborting job: $sroot/$svol";
-          $job->{ABORTED} = 1;
+        next if($config_subvol->{ABORTED});
+        my $svol = $config_subvol->{svol} || die;
+        my $snapshot;
+        my $snapshot_name;
+        if($snapshot_cache{"$sroot/$svol"})
+        {
+          $snapshot      = $snapshot_cache{"$sroot/$svol"}->{file};
+          $snapshot_name = $snapshot_cache{"$sroot/$svol"}->{name};
         }
-        $snapshot_cache{"$sroot/$svol"} = { name => $snapshot_name,
-                                            file => $snapshot };
+        else
+        {
+          # find new snapshot name
+          my $postfix_counter = -1;
+          my $postfix;
+          do {
+            $postfix_counter++;
+            $postfix = '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
+            TRACE "Testing source snapshot name: $snapdir$svol$postfix";
+          } while(subvol($sroot, "$snapdir$svol$postfix")); # NOTE: $snapdir always has trailing slash!
+          $snapshot      = "$sroot/$snapdir$svol$postfix";
+          $snapshot_name = "$svol$postfix";
+        }
+
+        my $create_snapshot = config_key($config_subvol, "snapshot_create_always");  # TODO: check for "yes", ...
+        foreach my $config_target (@{$config_subvol->{TARGET}})
+        {
+          next if($config_target->{ABORTED});
+          my $droot = $config_target->{droot} || die;
+          if(subvol($droot, $snapshot_name)) {
+            # TODO: this seems not right here: maybe just skip this check, and panic later
+            WARN "Snapshot already exists at destination, skipping target: $droot/$snapshot_name";
+            $config_target->{ABORTED} = 1;
+            next;
+          }
+          if($config_target->{target_type} eq "send-receive") {
+            $create_snapshot = 1;
+          }
+        }
+        unless($create_snapshot) {
+          WARN "No snapshots to be created, skipping subvolume: $sroot/$svol";
+          $config_subvol->{ABORTED} = 1;
+          next;
+        }
+
+        create_snapdir($sroot, $svol, $snapdir);
+
+        # make snapshot of svol, if not already created by another job
+        unless($snapshot_cache{"$sroot/$svol"})
+        {
+          INFO "Creating subvolume snapshot for: $sroot/$svol";
+
+          unless(btrfs_snapshot("$sroot/$svol", $snapshot)) {
+            WARN "Failed to create snapshot, skipping subvolume: $sroot/$svol";
+            $config_subvol->{ABORTED} = 1;
+          }
+          $snapshot_cache{"$sroot/$svol"} = { name => $snapshot_name,
+                                              file => $snapshot };
+        }
+        $config_subvol->{snapshot}      = $snapshot;
+        $config_subvol->{snapshot_name} = $snapshot_name;
       }
-      $job->{snapshot}      = $snapshot;
-      $job->{snapshot_name} = $snapshot_name;
     }
 
     #
