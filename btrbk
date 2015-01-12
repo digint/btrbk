@@ -63,11 +63,9 @@ my $loglevel = 1;
 
 my %config_defaults = (
   snapshot_dir             => "_btrbk_snap",
-  incremental              => undef,
-  init                     => undef,
-  create                   => undef,
-  log                      => undef,
-  snapshot_create_always   => 0,     # TODO: honor this
+  incremental              => 1,
+  receive_log              => undef,
+  snapshot_create_always   => 0,
   snapshot_preserve_all    => 1,     # TODO: honor this
   snapshot_preserve_days   => undef,
   snapshot_preserve_weekly => undef,
@@ -1008,47 +1006,72 @@ MAIN:
     #
     # create backups
     #
-    foreach my $job (@$jobs)
+    foreach my $config_vol (@{$config->{VOLUME}})
     {
-      next if($job->{ABORTED});
+      next if($config_vol->{ABORTED});
+      my $sroot = $config_vol->{sroot} || die;
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+      {
+        next if($config_subvol->{ABORTED});
+        my $svol          = $config_subvol->{svol}          || die;
+        my $snapshot      = $config_subvol->{snapshot}      || die;
+        my $snapshot_name = $config_subvol->{snapshot_name} || die;
 
-      my $sroot         = $job->{sroot}         || die;
-      my $svol          = $job->{svol}          || die;
-      my $droot         = $job->{droot}         || die;
-      my $type          = $job->{type}          || die;
-      my $snapshot      = $job->{snapshot}      || die;
-      my $snapshot_name = $job->{snapshot_name} || die;
-      my $job_opts      = $job->{options}       || die;
+        foreach my $config_target (@{$config_subvol->{TARGET}})
+        {
+          next if($config_target->{ABORTED});
+          my $droot       = $config_target->{droot}       || die;
+          my $target_type = $config_target->{target_type} || die;
 
-      DEBUG "***";
-      DEBUG "*** $type\[" . join(',', map { "$_=$job_opts->{$_}" } keys(%$job_opts)) . "]";
-      DEBUG "***   source: $sroot/$svol";
-      DEBUG "***   dest  : $droot/";
-      DEBUG "***";
-      INFO "Creating subvolume backup for: $sroot/$svol";
+          if($target_type eq "send-receive")
+          {
+            DEBUG "***";
+#      DEBUG "*** $type\[" . join(',', map { "$_=$job_opts->{$_}" } keys(%$job_opts)) . "]";
+            DEBUG "*** $target_type";
+            DEBUG "***   source: $sroot/$svol";
+            DEBUG "***   dest  : $droot/";
+            DEBUG "***";
+            INFO "Creating subvolume backup ($target_type) for: $sroot/$svol";
 
-      my $changelog = "";
-      if ($job_opts->{log}) {
-        # log defaults to sidecar of destination snapshot
-        $changelog = $job_opts->{logfile} || "$droot/$snapshot_name.btrbk.log";
-      }
-      if ($job_opts->{incremental}) {
-        INFO "Using previously created snapshot: $snapshot";
-        # INFO "Attempting incremantal backup (option=incremental)";
-        my ($latest_common_src, $latest_common_dst) = get_latest_common($sroot, $svol, $droot);
-        if ($latest_common_src && $latest_common_dst) {
-          my $parent_snap = $latest_common_src->{FS_PATH};
-          INFO "Using parent snapshot: $parent_snap";
-          btrfs_send_receive($snapshot, $droot, $parent_snap, $changelog);
-        } elsif ($job_opts->{init}) {
-          INFO "No common parent snapshots found, creating initial backup (option=init)";
-          btrfs_send_receive($snapshot, $droot, undef, $changelog);
-        } else {
-          WARN "Backup to $droot failed: no common parent subvolume found, and job option \"create\" is not set";
+            my $receive_log = config_key($config_target, "receive_log");
+            if($receive_log)
+            {
+              if(lc($receive_log) eq "sidecar" ) {
+                # log defaults to sidecar of destination snapshot
+                $receive_log = "$droot/$snapshot_name.btrbk.log";
+              }
+              else {
+                $receive_log =~ s/\/+$//;   # remove trailing slash
+                $receive_log =~ s/^\/+/\//; # sanitize leading slash
+                unless($receive_log =~ /^\//) {
+                  WARN "Receive logfile is not absolute, ignoring: $receive_log";
+                  $receive_log = undef;
+                }
+              }
+            }
+            if(config_key($config_target, "incremental"))
+            {
+              INFO "Using previously created snapshot: $snapshot";
+              my ($latest_common_src, $latest_common_dst) = get_latest_common($sroot, $svol, $droot);
+              if($latest_common_src && $latest_common_dst) {
+                my $parent_snap = $latest_common_src->{FS_PATH};
+                INFO "Using parent snapshot: $parent_snap";
+                btrfs_send_receive($snapshot, $droot, $parent_snap, $receive_log);
+              } elsif (lc(config_key($config_target, "incremental")) ne "strict") {
+                INFO "No common parent subvolume present, creating initial full backup";
+                btrfs_send_receive($snapshot, $droot, undef, $receive_log);
+              } else {
+                WARN "Backup to $droot failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+              }
+            } else {
+              INFO "Creating full backup (option \"incremental\" is not set)";
+              btrfs_send_receive($snapshot, $droot, undef, $receive_log);
+            }
+          }
+          else {
+            ERROR "Unknown target type \"$target_type\", skipping: $sroot/$svol";
+          }
         }
-      } elsif ($job_opts->{create}) {
-        INFO "Creating new snapshot copy (option=create))";
-        btrfs_send_receive($snapshot, $droot, undef, $changelog);
       }
     }
   }
