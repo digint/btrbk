@@ -61,17 +61,18 @@ my %uuid_info;
 my $dryrun;
 my $loglevel = 1;
 
-my %config_defaults = (
-  snapshot_dir             => "_btrbk_snap",
-  incremental              => 1,
-  receive_log              => undef,
-  snapshot_create_always   => 0,
-  snapshot_preserve_all    => 1,     # TODO: honor this
-  snapshot_preserve_days   => undef,
-  snapshot_preserve_weekly => undef,
-  target_preserve_all      => 1,     # TODO: honor this
-  target_preserve_days     => undef,
-  target_preserve_weekly   => undef,
+my %config_options = (
+  # NOTE: the parser always maps "no" to undef
+  snapshot_dir             => { default => "_btrbk_snap", accept_file => "relative" },
+  incremental              => { default => "yes",         accept => [ "yes", "no", "strict" ] },
+  receive_log              => { default => undef,         accept => [ "sidecar", "no" ], accept_file => "absolute" },
+  snapshot_create_always   => { default => undef,         accept => [ "yes", "no" ] },
+  snapshot_preserve_all    => { default => "yes",         accept => [ "yes", "no" ] }, # TODO: honor this
+  snapshot_preserve_days   => { default => undef,         accept => [ "no" ], accept_number => 1  },
+  snapshot_preserve_weekly => { default => undef,         accept => [ "no" ], accept_number => 1  },
+  target_preserve_all      => { default => "yes",         accept => [ "yes", "no" ] }, # TODO: honor this
+  target_preserve_days     => { default => undef,         accept => [ "no" ], accept_number => 1  },
+  target_preserve_weekly   => { default => undef,         accept => [ "no" ], accept_number => 1  },
  );
 
 my @config_target_types = qw(send-receive);
@@ -204,11 +205,11 @@ sub config_key($$)
   my $node = shift;
   my $key = shift;
   TRACE "config_key: $node->{CONTEXT}";
-  while(not defined($node->{$key})) {
+  while(not exists($node->{$key})) {
     return undef unless($node->{PARENT});
     $node = $node->{PARENT};
   }
-  TRACE "config_key: returning $node->{$key}";
+  TRACE "config_key: returning " . ($node->{$key} // "<undef>");
   return $node->{$key};
 }
 
@@ -216,10 +217,12 @@ sub config_key($$)
 sub parse_config($)
 {
   my $file = shift;
-  my $root = { CONTEXT => "root",
-               %config_defaults
-              };
+  my $root = { CONTEXT => "root" };
   my $cur = $root;
+  # set defaults
+  foreach (keys %config_options) {
+    $root->{$_} = $config_options{$_}->{default};
+  }
 
   unless(-r "$file") {
     WARN "Configuration file not found: $file";
@@ -315,9 +318,35 @@ sub parse_config($)
           return undef;
         }
       }
-      elsif(grep(/^$key$/, keys %config_defaults))  # accept only keys listed in %config_default
+      elsif(grep(/^$key$/, keys %config_options))  # accept only keys listed in %config_options
       {
+        if(grep(/^$value$/, @{$config_options{$key}->{accept}})) {
+          TRACE "option \"$key=$value\" found in accept list";
+        }
+        elsif($config_options{$key}->{accept_number} && ($value =~ /^[0-9]+$/)) {
+          TRACE "option \"$key=$value\" is a number, accepted";
+        }
+        elsif($config_options{$key}->{accept_file})
+        {
+          if(($config_options{$key}->{accept_file} eq "relative") && ($value =~ /^\//)) {
+            ERROR "Only relative files allowed for option \"$key\" in \"$file\" line $.";
+            return undef;
+          }
+          elsif(($config_options{$key}->{accept_file} eq "absolute") && ($value !~ /^\//)) {
+            ERROR "Only absolute files allowed for option \"$key\" in \"$file\" line $.";
+            return undef;
+          }
+          TRACE "option \"$key=$value\" is a file, accepted";
+          $value =~ s/\/+$//;   # remove trailing slash
+          $value =~ s/^\/+/\//; # sanitize leading slash
+        }
+        else
+        {
+          ERROR "Unsupported value \"$value\" for option \"$key\" in \"$file\" line $.";
+          return undef;
+        }
         DEBUG "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
+        $value = undef if($value eq "no");  # we don't want to check for "no" all the time
         $cur->{$key} = $value;
       }
       else
@@ -963,7 +992,7 @@ MAIN:
           $snapshot_name = "$svol$postfix";
         }
 
-        my $create_snapshot = config_key($config_subvol, "snapshot_create_always");  # TODO: check for "yes", ...
+        my $create_snapshot = config_key($config_subvol, "snapshot_create_always");
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
           next if($config_target->{ABORTED});
@@ -1025,45 +1054,33 @@ MAIN:
 
           if($target_type eq "send-receive")
           {
-            DEBUG "***";
-#      DEBUG "*** $type\[" . join(',', map { "$_=$job_opts->{$_}" } keys(%$job_opts)) . "]";
-            DEBUG "*** $target_type";
-            DEBUG "***   source: $sroot/$svol";
-            DEBUG "***   dest  : $droot/";
-            DEBUG "***";
             INFO "Creating subvolume backup ($target_type) for: $sroot/$svol";
+            INFO "Using previously created snapshot: $snapshot";
 
             my $receive_log = config_key($config_target, "receive_log");
-            if($receive_log)
-            {
-              if(lc($receive_log) eq "sidecar" ) {
-                # log defaults to sidecar of destination snapshot
-                $receive_log = "$droot/$snapshot_name.btrbk.log";
-              }
-              else {
-                $receive_log =~ s/\/+$//;   # remove trailing slash
-                $receive_log =~ s/^\/+/\//; # sanitize leading slash
-                unless($receive_log =~ /^\//) {
-                  WARN "Receive logfile is not absolute, ignoring: $receive_log";
-                  $receive_log = undef;
-                }
-              }
+            if($receive_log && ($receive_log eq "sidecar")) {
+              # log to sidecar of destination snapshot
+              $receive_log = "$droot/$snapshot_name.btrbk.log";
             }
-            if(config_key($config_target, "incremental"))
+
+            my $incremental = config_key($config_target, "incremental");
+            if($incremental)
             {
-              INFO "Using previously created snapshot: $snapshot";
               my ($latest_common_src, $latest_common_dst) = get_latest_common($sroot, $svol, $droot);
               if($latest_common_src && $latest_common_dst) {
                 my $parent_snap = $latest_common_src->{FS_PATH};
-                INFO "Using parent snapshot: $parent_snap";
+                INFO "Incremental from parent snapshot: $parent_snap";
                 btrfs_send_receive($snapshot, $droot, $parent_snap, $receive_log);
-              } elsif (lc(config_key($config_target, "incremental")) ne "strict") {
-                INFO "No common parent subvolume present, creating initial full backup";
+              }
+              elsif($incremental ne "strict") {
+                INFO "No common parent subvolume present, creating full backup";
                 btrfs_send_receive($snapshot, $droot, undef, $receive_log);
-              } else {
+              }
+              else {
                 WARN "Backup to $droot failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
               }
-            } else {
+            }
+            else {
               INFO "Creating full backup (option \"incremental\" is not set)";
               btrfs_send_receive($snapshot, $droot, undef, $receive_log);
             }
