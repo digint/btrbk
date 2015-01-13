@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -T
 
 =head1 NAME
 
@@ -42,23 +42,19 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use strict;
 use warnings FATAL => qw( all );
 
+use Carp qw(confess);
 use File::Path qw(make_path);
+use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
-use Date::Calc qw(Today Delta_Days Add_Delta_Days Day_of_Week Monday_of_Week Week_of_Year);
 use Data::Dumper;
 
-our $VERSION = "0.01";
-our $PROJECT_HOME = '<http://www.digint.ch/btrbk>';
+our $VERSION       = "0.01";
+our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
+our $PROJECT_HOME  = '<http://www.digint.ch/btrbk>';
 
-my $version_info = "btrbk command line client, version $VERSION";
+my $version_info   = "btrbk command line client, version $VERSION";
 
-my $default_config  = "/etc/btrbk.conf";
-
-my %vol_info;
-my %uuid_info;
-
-my $dryrun;
-my $loglevel = 1;
+my $default_config = "/etc/btrbk.conf";
 
 my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6, sunday => 7 );
 
@@ -80,6 +76,19 @@ my %config_options = (
 
 my @config_target_types = qw(send-receive);
 
+my %vol_info;
+my %uuid_info;
+
+my $dryrun;
+my $loglevel = 1;
+
+
+$SIG{__DIE__} = sub {
+  print STDERR "\nERROR: process died unexpectedly (btrbk v$VERSION)";
+  print STDERR "\nPlease contact the author: $AUTHOR\n\n";
+  print STDERR "Stack Trace:\n----------------------------------------\n";
+  Carp::confess @_;
+};
 
 sub VERSION_MESSAGE
 {
@@ -696,7 +705,6 @@ sub check_backup_scheme(@)
   DEBUG "next $preserve_day_of_week is in $delta_dow days";
 
   my @last_in_week;
-  my ($wnr, $wy) = Week_of_Year(@today);
   foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$check)  # sorted ascending
   {
     my @date = @{$href->{date}};
@@ -1185,6 +1193,8 @@ MAIN:
         btrfs_subvolume_delete(@delete);
       }
     }
+
+    # TODO: print summary (add some text to ABORTED flags)
   }
 }
 
