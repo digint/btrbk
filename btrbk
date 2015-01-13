@@ -102,15 +102,16 @@ sub HELP_MESSAGE
   print STDERR "options:\n";
   print STDERR "   --help      display this help message\n";
   print STDERR "   --version   display version information\n";
-  print STDERR "   -c FILE     config file to be processed on execute command (defaults to \"$default_config\")\n";
+  print STDERR "   -c FILE     specify configuration file (defaults to \"$default_config\")\n";
   print STDERR "   -v          be verbose (set loglevel=info)\n";
-  print STDERR "   -l LEVEL    set loglevel (1=warn, 2=info, 3=debug, 4=trace)\n";
+  print STDERR "   -q          be quiet (do not print summary at end of \"execute\" command)\n";
+  print STDERR "   -l LEVEL    set loglevel (warn, info, debug, trace)\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   tree           shows backup tree\n";
-  print STDERR "   execute        perform all backups, and delete old snapshots based on configured backup scheme\n";
-  print STDERR "   dryrun         don't run btrfs commands, just show what would be executed\n";
-  print STDERR "   diff <from> <to>  shows new files for subvolume <from>, against subvolume <to>\n";
+  print STDERR "   execute     perform backup operations as defined in configuration\n";
+  print STDERR "   dryrun      don't run btrfs commands, just show what would be executed\n";
+  print STDERR "   tree        shows backup tree\n";
+  print STDERR "   diff <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
@@ -693,7 +694,7 @@ sub get_latest_common($$$)
 sub check_backup_scheme(@)
 {
   my %args = @_;
-  my $check                = $args{check}                || die;
+  my $schedule             = $args{schedule}             || die;
   my @today                = @{$args{today}};
   my $preserve_day_of_week = $args{preserve_day_of_week} || die;
   my $preserve_daily       = $args{preserve_daily}       // die;
@@ -705,7 +706,7 @@ sub check_backup_scheme(@)
   DEBUG "next $preserve_day_of_week is in $delta_dow days";
 
   my @last_in_week;
-  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$check)  # sorted ascending
+  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)  # sorted ascending
   {
     my @date = @{$href->{date}};
     my $delta_days = Delta_Days(@date, @today);
@@ -746,7 +747,7 @@ sub check_backup_scheme(@)
   }
 
   my @delete;
-  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$check)  # sorted ascending
+  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)  # sorted ascending
   {
     if($href->{preserve}) {
       INFO "$href->{sort}: $href->{preserve}";
@@ -768,7 +769,7 @@ MAIN:
   my @today = Today();
 
   my %opts;
-  unless(getopts('s:t:c:vl:p', \%opts)) {
+  unless(getopts('s:t:c:vql:p', \%opts)) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 1;
@@ -783,9 +784,10 @@ MAIN:
   elsif(lc($loglevel) eq "trace") { $loglevel = 4; }
   elsif($loglevel =~ /^[0-9]+$/) { ; }
   else {
-    $loglevel = $opts{v} ? 2 : 0;
+    $loglevel = $opts{v} ? 2 : 1;
   }
   my $config_file = $opts{c} || $default_config;
+  my $quiet = $opts{q};
 
   # check command line options
   if($opts{h} || (not $command)) {
@@ -929,8 +931,8 @@ MAIN:
     {
       my $svol = $config_subvol->{svol} || die;
       unless(subvol($sroot, $svol)) {
-        WARN "Subvolume \"$svol\" not present in btrfs subvolume list for \"$sroot\", skipping section";
-        $config_subvol->{ABORTED} = 1;
+        $config_subvol->{ABORTED} = "Subvolume \"$svol\" not present in btrfs subvolume list for \"$sroot\"";
+        WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
         next;
       }
       foreach my $config_target (@{$config_subvol->{TARGET}})
@@ -938,8 +940,8 @@ MAIN:
         my $droot = $config_target->{droot} || die;
         $vol_info{$droot} //= btr_subtree($droot);
         unless($vol_info{$droot}) {
-          WARN "Failed to read btrfs subvolume list for \"$droot\", skipping target";
-          $config_target->{ABORTED} = 1;
+          $config_target->{ABORTED} = "Failed to read btrfs subvolume list for \"$droot\"";
+          WARN "Skipping target: $config_target->{ABORTED}";
           next;
         }
       }
@@ -1037,9 +1039,8 @@ MAIN:
           next if($config_target->{ABORTED});
           my $droot = $config_target->{droot} || die;
           if(subvol($droot, $snapshot_name)) {
-            # TODO: this seems not right here: maybe just skip this check, and panic later
-            WARN "Snapshot already exists at destination, skipping target: $droot/$snapshot_name";
-            $config_target->{ABORTED} = 1;
+            $config_target->{ABORTED} = "Snapshot already exists at destination: $droot/$snapshot_name";
+            WARN "Skipping target: $config_target->{ABORTED}";
             next;
           }
           if($config_target->{target_type} eq "send-receive") {
@@ -1047,8 +1048,8 @@ MAIN:
           }
         }
         unless($create_snapshot) {
-          WARN "No snapshots to be created, skipping subvolume: $sroot/$svol";
-          $config_subvol->{ABORTED} = 1;
+          $config_subvol->{ABORTED} = "No targets defined for subvolume: $sroot/$svol";
+          WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
           next;
         }
 
@@ -1060,8 +1061,8 @@ MAIN:
           INFO "Creating subvolume snapshot for: $sroot/$svol";
 
           unless(btrfs_snapshot("$sroot/$svol", $snapshot)) {
-            WARN "Failed to create snapshot, skipping subvolume: $sroot/$svol";
-            $config_subvol->{ABORTED} = 1;
+            $config_subvol->{ABORTED} = "Failed to create snapshot, skipping subvolume: $sroot/$svol";
+            WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
           }
           $snapshot_cache{"$sroot/$svol"} = { name => $snapshot_name,
                                               file => $snapshot };
@@ -1128,7 +1129,12 @@ MAIN:
           else {
             ERROR "Unknown target type \"$target_type\", skipping: $sroot/$svol";
           }
-          $config_target->{ABORTED} = 1 unless($success);
+          if($success) {
+            $config_target->{subvol_created} = "$droot/$snapshot_name";
+          }
+          else {
+            $config_target->{ABORTED} = "btrfs send/receive command failed";
+          }
         }
       }
     }
@@ -1155,46 +1161,112 @@ MAIN:
           # delete backups
           #
           INFO "Cleaning backups of subvolume \"$sroot/$svol\": $droot/$svol.*";
-          my @check;
+          my @schedule;
           foreach my $vol (keys %{$vol_info{$droot}}) {
             if($vol =~ /^$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
-              push(@check, { name => "$droot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
+              push(@schedule, { name => "$droot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
             }
           }
           my @delete = check_backup_scheme(
-            check                => \@check,
+            schedule             => \@schedule,
             today                => \@today,
             preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
             preserve_daily       => config_key($config_target, "target_preserve_daily"),
             preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
             preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
            );
-          btrfs_subvolume_delete(@delete);
+          if(btrfs_subvolume_delete(@delete)) {
+            $config_target->{subvol_deleted} = \@delete;
+          }
+          else {
+            $config_target->{ABORTED} = "btrfs subvolume delete command failed";
+          }
+          $config_target->{schedule} = \@schedule;
         }
 
         #
         # delete snapshots
         #
         INFO "Cleaning snapshots: $sroot/$snapdir$svol.*";
-        my @check;
+        my @schedule;
         foreach my $vol (keys %{$vol_info{$sroot}}) {
           if($vol =~ /^$snapdir$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
-            push(@check, { name => "$sroot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
+            push(@schedule, { name => "$sroot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
           }
         }
         my @delete = check_backup_scheme(
-          check                => \@check,
+          schedule             => \@schedule,
           today                => \@today,
           preserve_day_of_week => config_key($config_subvol, "preserve_day_of_week"),
           preserve_daily       => config_key($config_subvol, "snapshot_preserve_daily"),
           preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
           preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
          );
-        btrfs_subvolume_delete(@delete);
+          if(btrfs_subvolume_delete(@delete)) {
+            $config_subvol->{subvol_deleted} = \@delete;
+          }
+          else {
+            $config_subvol->{ABORTED} = "btrfs subvolume delete command failed";
+          }
+        $config_subvol->{schedule} = \@schedule;
       }
     }
 
-    # TODO: print summary (add some text to ABORTED flags)
+
+    #
+    # print summary
+    #
+    unless($quiet)
+    {
+      my $err_count = 0;
+      print "--------------------------------------------------------------------------------\n";
+      print "$version_info\n";
+      print "--------------------------------------------------------------------------------";
+      foreach my $config_vol (@{$config->{VOLUME}})
+      {
+        if($config_vol->{ABORTED}) {
+          print "!!! $config_vol->{sroot}: ABORTED: $config_vol->{ABORTED}\n";
+          $err_count++;
+        }
+        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+        {
+          print "\n$config_vol->{sroot}/$config_subvol->{svol}\n";
+          if($config_subvol->{ABORTED}) {
+            print "!!! Subvolume \"$config_subvol->{svol}\" aborted: $config_subvol->{ABORTED}\n";
+            $err_count++;
+          }
+          # if($config_subvol->{schedule}) {
+          #   foreach (sort { $a->{sort} cmp $b->{sort} } @{$config_subvol->{schedule}}) {
+          #     print(($_->{preserve} ? "===" : "---") . " $_->{name}\n");
+          #   }
+          # }
+          if($config_subvol->{subvol_deleted}) {
+            print "--- $_\n" foreach(@{$config_subvol->{subvol_deleted}});
+          }
+          print "+++ $config_subvol->{snapshot}\n" if($config_subvol->{snapshot});
+          foreach my $config_target (@{$config_subvol->{TARGET}})
+          {
+            if($config_target->{ABORTED}) {
+              print "!!! Target \"$config_target->{droot}\" aborted: $config_target->{ABORTED}\n";
+              $err_count++;
+            }
+            # if($config_target->{schedule}) {
+            #   foreach (sort { $a->{sort} cmp $b->{sort} } @{$config_target->{schedule}}) {
+            #     print(($_->{preserve} ? "===" : "---") . " $_->{name}\n");
+            #   }
+            # }
+            if($config_target->{subvol_deleted}) {
+              print "--- $_\n" foreach(@{$config_target->{subvol_deleted}});
+            }
+            print "+++ $config_target->{subvol_created}\n" if($config_target->{subvol_created});
+          }
+        }
+      }
+      if($err_count) {
+        print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
+        print "Please check warning and error messages above.\n";
+      }
+    }
   }
 }
 
