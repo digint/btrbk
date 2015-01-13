@@ -75,6 +75,7 @@ my %config_options = (
   target_preserve_daily     => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
   target_preserve_weekly    => { default => 0,        accept => [ "all" ], accept_numeric => 1  },
   target_preserve_monthly   => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
+  # TODO: btrfs_commit_delete config option, setting --commit-after or --commit-each option to "btrfs subvolume delete" command
  );
 
 my @config_target_types = qw(send-receive);
@@ -98,8 +99,7 @@ sub HELP_MESSAGE
   print STDERR "\n";
   print STDERR "commands:\n";
   print STDERR "   tree           shows backup tree\n";
-  print STDERR "   execute        perform all backups\n";
-  print STDERR "   clean          delete old backups\n";
+  print STDERR "   execute        perform all backups, and delete old snapshots based on configured backup scheme\n";
   print STDERR "   dryrun         don't run btrfs commands, just show what would be executed\n";
   print STDERR "   diff <from> <to>  shows new files for subvolume <from>, against subvolume <to>\n";
   print STDERR "\n";
@@ -205,12 +205,12 @@ sub config_key($$)
 {
   my $node = shift;
   my $key = shift;
-  TRACE "config_key: $node->{CONTEXT}";
+  TRACE "config_key: context=$node->{CONTEXT}, key=$key";
   while(not exists($node->{$key})) {
     return undef unless($node->{PARENT});
     $node = $node->{PARENT};
   }
-  TRACE "config_key: returning " . ($node->{$key} // "<undef>");
+  TRACE "config_key: found value=" . ($node->{$key} // "<undef>");
   return $node->{$key};
 }
 
@@ -787,15 +787,11 @@ MAIN:
   }
 
   my $action_execute;
-  my $action_clean;
   my $action_tree;
   my $action_diff;
   if(($command eq "execute") || ($command eq "dryrun")) {
     $action_execute = 1;
     $dryrun = 1 if($command eq "dryrun");
-  }
-  elsif ($command eq "clean") {
-    $action_clean = 1;
   }
   elsif ($command eq "tree") {
     $action_tree = 1;
@@ -979,6 +975,7 @@ MAIN:
             next unless $vol_info{$droot};
             my $match = "$droot/$snapshot";
             foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values $vol_info{$droot})) {
+              # TODO: also print the backups which do not have corresponding snapshot anymore
               print "|   |   |== $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
             }
           }
@@ -1127,23 +1124,7 @@ MAIN:
         }
       }
     }
-  }
 
-
-  if($action_clean)
-  {
-    $dryrun = 1;
-    # TODO: gather all information first, then delete all backups/snapshots at the end
-    # TODO: always preserve first/last
-
-    my @last_sunday;
-    if(Day_of_Week(@today) == 7) {  # today is sunday
-      @last_sunday = @today;
-    }
-    else {
-      @last_sunday = Add_Delta_Days(Monday_of_Week(Week_of_Year(@today)), -1);
-    }
-    DEBUG "last sunday: " . join('-', @last_sunday);
 
     #
     # remove backups following a preserve daily/weekly/monthly scheme
@@ -1157,7 +1138,6 @@ MAIN:
         next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
         my $snapdir = config_key($config_subvol, "snapshot_dir") || die;
-        INFO "Cleaning subvolume backups for: $sroot/$svol";
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
           next if($config_target->{ABORTED});
@@ -1166,7 +1146,7 @@ MAIN:
           #
           # delete backups
           #
-          INFO "Cleaning backups: $droot/$svol.*";
+          INFO "Cleaning backups of subvolume \"$sroot/$svol\": $droot/$svol.*";
           my @check;
           foreach my $vol (keys %{$vol_info{$droot}}) {
             if($vol =~ /^$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
