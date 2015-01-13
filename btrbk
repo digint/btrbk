@@ -22,7 +22,7 @@ Axel Burri <axel@tty0.ch>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (c) 2014 Axel Burri. All rights reserved.
+Copyright (c) 2014-2015 Axel Burri. All rights reserved.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -61,16 +61,21 @@ my %uuid_info;
 my $dryrun;
 my $loglevel = 1;
 
+my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6, sunday => 7 );
+
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
-  snapshot_dir             => { default => "_btrbk_snap", accept_file => "relative" },
-  incremental              => { default => "yes",         accept => [ "yes", "no", "strict" ] },
-  receive_log              => { default => undef,         accept => [ "sidecar", "no" ], accept_file => "absolute" },
-  snapshot_create_always   => { default => undef,         accept => [ "yes", "no" ] },
-  snapshot_preserve_days   => { default => "all",         accept => [ "no", "all" ], accept_number => 1  },
-  snapshot_preserve_weekly => { default => 0,             accept => [ "no" ],        accept_number => 1  },
-  target_preserve_days     => { default => "all",         accept => [ "no", "all" ], accept_number => 1  },
-  target_preserve_weekly   => { default => 0,             accept => [ "no" ],        accept_number => 1  },
+  snapshot_dir              => { default => "_btrbk_snap", accept_file => "relative" },
+  receive_log               => { default => undef,         accept => [ "sidecar", "no" ], accept_file => "absolute" },
+  incremental               => { default => "yes",         accept => [ "yes", "no", "strict" ] },
+  snapshot_create_always    => { default => undef,         accept => [ "yes", "no" ] },
+  preserve_day_of_week      => { default => "sunday",      accept => [ (keys %day_of_week_map) ] },
+  snapshot_preserve_daily   => { default => "all",         accept => [ "all" ], accept_numeric => 1  },
+  snapshot_preserve_weekly  => { default => 0,             accept => [ "all" ], accept_numeric => 1  },
+  snapshot_preserve_monthly => { default => "all",         accept => [ "all" ], accept_numeric => 1  },
+  target_preserve_daily     => { default => "all",         accept => [ "all" ], accept_numeric => 1  },
+  target_preserve_weekly    => { default => 0,             accept => [ "all" ], accept_numeric => 1  },
+  target_preserve_monthly   => { default => "all",         accept => [ "all" ], accept_numeric => 1  },
  );
 
 my @config_target_types = qw(send-receive);
@@ -321,8 +326,8 @@ sub parse_config($)
         if(grep(/^$value$/, @{$config_options{$key}->{accept}})) {
           TRACE "option \"$key=$value\" found in accept list";
         }
-        elsif($config_options{$key}->{accept_number} && ($value =~ /^[0-9]+$/)) {
-          TRACE "option \"$key=$value\" is a number, accepted";
+        elsif($config_options{$key}->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
+          TRACE "option \"$key=$value\" is numeric, accepted";
         }
         elsif($config_options{$key}->{accept_file})
         {
@@ -539,18 +544,18 @@ sub btr_subtree($)
 }
 
 
-# returns $dst, or undef on error
+# returns $target, or undef on error
 sub btrfs_snapshot($$)
 {
   my $src = shift;
-  my $dst = shift;
+  my $target = shift;
   DEBUG "[btrfs] snapshot (ro):";
   DEBUG "[btrfs]   source: $src";
-  DEBUG "[btrfs]   dest  : $dst";
-  INFO ">>> $dst";
-  my $ret = run_cmd("/sbin/btrfs subvolume snapshot -r $src $dst");
-  ERROR "Failed to create btrfs subvolume snapshot: $src -> $dst" unless(defined($ret));
-  return defined($ret) ? $dst : undef;
+  DEBUG "[btrfs]   target: $target";
+  INFO ">>> $target";
+  my $ret = run_cmd("/sbin/btrfs subvolume snapshot -r $src $target");
+  ERROR "Failed to create btrfs subvolume snapshot: $src -> $target" unless(defined($ret));
+  return defined($ret) ? $target : undef;
 }
 
 
@@ -558,6 +563,8 @@ sub btrfs_subvolume_delete(@)
 {
   my @targets = @_;
   return 0 unless(scalar(@targets));
+  DEBUG "[btrfs] delete:";
+  DEBUG "[btrfs]   subvolume: $_" foreach(@targets);
   INFO "--- $_" foreach(@targets);
   my $ret = run_cmd("/sbin/btrfs subvolume delete " . join(' ', @targets));
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', @targets) unless(defined($ret));
@@ -568,20 +575,20 @@ sub btrfs_subvolume_delete(@)
 sub btrfs_send_receive($$;$$)
 {
   my $src = shift;
-  my $dst = shift;
+  my $target = shift;
   my $parent = shift // "";
   my $changelog = shift // "";
   my $now = localtime;
 
   my $src_name = $src;
   $src_name =~ s/^.*\///;
-  INFO ">>> $dst/$src_name";
+  INFO ">>> $target/$src_name";
 
   my @info;
   push @info, "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
   push @info, "[btrfs]   source: $src";
   push @info, "[btrfs]   parent: $parent" if($parent);
-  push @info, "[btrfs]   dest  : $dst";
+  push @info, "[btrfs]   target: $target";
   push @info, "[btrfs]   log   : $changelog" if($changelog);
   DEBUG $_ foreach(@info);
 
@@ -589,10 +596,10 @@ sub btrfs_send_receive($$;$$)
   my $receive_option = "";
   $receive_option = "-v" if($changelog || ($loglevel >= 2));
   $receive_option = "-v -v" if($parent && $changelog);
-  my $cmd = "/sbin/btrfs send $parent_option $src | /sbin/btrfs receive $receive_option $dst/ 2>&1";
+  my $cmd = "/sbin/btrfs send $parent_option $src | /sbin/btrfs receive $receive_option $target/ 2>&1";
   my $ret = run_cmd($cmd);
   unless(defined($ret)) {
-    ERROR "Failed to send/receive btrfs subvolume: $src " . ($parent ? "[$parent]" : "") . " -> $dst";
+    ERROR "Failed to send/receive btrfs subvolume: $src " . ($parent ? "[$parent]" : "") . " -> $target";
     return undef;
   }
   if($changelog && (not $dryrun))
@@ -662,12 +669,12 @@ sub get_latest_common($$$)
     TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
     foreach (get_receive_targets_by_uuid($droot, $child->{uuid})) {
       TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
-      DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  dst=$_->{FS_PATH}");
+      DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
       return ($child, $_);
     }
     TRACE "get_latest_common: no matching targets found for: $child->{FS_PATH}";
   }
-  DEBUG("No common snapshots for \"$sroot/$svol\" found in src=$sroot/  dst=$droot/");
+  DEBUG("No common snapshots for \"$sroot/$svol\" found in src=$sroot/  target=$droot/");
   return (undef, undef);
 }
 
@@ -675,52 +682,71 @@ sub get_latest_common($$$)
 sub check_backup_scheme(@)
 {
   my %args = @_;
-  my $vol_date         = $args{vol_date}         || die;
-  my $today            = $args{today}            || die;
-  my $week_start       = $args{week_start}       || die;
-  my $preserve_days    = $args{preserve_days}    // die;
-  my $preserve_weekly  = $args{preserve_weekly}  // die;
-  my $preserve_info    = $args{preserve_info}    || die;
-  my $preserve = 0;
-  my ($vol_y, $vol_m, $vol_d) = @$vol_date;
+  my $check                = $args{check}                || die;
+  my @today                = @{$args{today}};
+  my $preserve_day_of_week = $args{preserve_day_of_week} || die;
+  my $preserve_daily       = $args{preserve_daily}       // die;
+  my $preserve_weekly      = $args{preserve_weekly}      // die;
+  my $preserve_monthly     = $args{preserve_monthly}     // die;
 
-  # calculate weekly_threshold
-  my @weekly_threshold = Add_Delta_Days(@$week_start, (-7 * $preserve_weekly));
-  TRACE "weekly_threshold for preserve_weekly=$preserve_weekly: " . join('-', @weekly_threshold);
+  my $delta_dow = $day_of_week_map{$preserve_day_of_week} - Day_of_Week(@today);
+  $delta_dow = $delta_dow + 7 if($delta_dow < 0);
+  DEBUG "next $preserve_day_of_week is in $delta_dow days";
 
-  if($preserve_days eq "all") {
-    $preserve = "preserve_days is set to \"all\"";
-    DEBUG "$preserve";
-  }
-  else {
-    my $dd = Delta_Days(@$vol_date, @$today);
-    if($dd <= $preserve_days)
+  my @last_in_week;
+  my ($wnr, $wy) = Week_of_Year(@today);
+  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$check)  # sorted ascending
+  {
+    my @date = @{$href->{date}};
+    my $delta_days = Delta_Days(@date, @today);
+    if((not $href->{preserve}) && (($preserve_daily eq "all") || ($delta_days <= $preserve_daily))) {
+      $href->{preserve} = "preserved daily: $delta_days days ago";
+    }
+
+    my $delta_days_next_dow = $delta_days + $delta_dow;
     {
-      $preserve = "less than $preserve_days days old (age: $dd days)";
-      DEBUG "$preserve";
+      use integer; # do integer arithmetics
+      my $delta_weeks = $delta_days_next_dow / 7;
+      $href->{delta_days} = $delta_days;
+      $href->{delta_weeks} = $delta_weeks;
+      $href->{err_days} = $delta_days_next_dow % 7;
+      $last_in_week[$delta_weeks] = $href;
     }
   }
 
-  if(Delta_Days(@$vol_date, @weekly_threshold) < 0)
+  my @last_in_month;
+  foreach my $href (@last_in_week)
   {
-    DEBUG "not older than " . join('-', @weekly_threshold);
-    my ($vol_wnr, $vol_wy) = Week_of_Year(@$vol_date);
-    unless($preserve_info->{week}->{"$vol_wy-$vol_wnr"})
-    {
-      $preserve_info->{week}->{"$vol_wy-$vol_wnr"} = 1;
-      $preserve = "last in week #$vol_wnr, $vol_wy";
-      DEBUG "$preserve";
+    next unless $href;
+    if((not $href->{preserve}) && (($preserve_weekly eq "all") || ($href->{delta_weeks} <= $preserve_weekly))) {
+      $href->{preserve} = "preserved weekly: " . ($href->{err_days} ? "$href->{err_days} days before " : "") . "$preserve_day_of_week, $href->{delta_weeks} weeks ago";
+    }
+    my @date = @{$href->{date}};
+    my $delta_months = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
+    $href->{delta_months} = $delta_months;
+    $last_in_month[$delta_months] = $href;
+  }
+
+  foreach my $href (@last_in_month)
+  {
+    next unless $href;
+    if((not $href->{preserve}) && (($preserve_monthly eq "all") || ($href->{delta_months} <= $preserve_monthly))) {
+      $href->{preserve} = "preserved monthly: last $preserve_day_of_week of month (age: $href->{delta_months} months)";
     }
   }
 
-  unless($preserve_info->{month}->{"$vol_y-$vol_m"})
+  my @delete;
+  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$check)  # sorted ascending
   {
-    $preserve_info->{month}->{"$vol_y-$vol_m"} = 1;
-    $preserve = "last in month $vol_y-$vol_m";
-    DEBUG "$preserve";
+    if($href->{preserve}) {
+      INFO "$href->{sort}: $href->{preserve}";
+    }
+    else {
+      INFO "$href->{sort}: DELETE";
+      push(@delete, $href->{name});
+    }
   }
-
-  return $preserve;
+  return @delete;
 }
 
 
@@ -1076,8 +1102,8 @@ MAIN:
             my $incremental = config_key($config_target, "incremental");
             if($incremental)
             {
-              my ($latest_common_src, $latest_common_dst) = get_latest_common($sroot, $svol, $droot);
-              if($latest_common_src && $latest_common_dst) {
+              my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
+              if($latest_common_src && $latest_common_target) {
                 my $parent_snap = $latest_common_src->{FS_PATH};
                 INFO "Incremental from parent snapshot: $parent_snap";
                 $success = btrfs_send_receive($snapshot, $droot, $parent_snap, $receive_log);
@@ -1121,7 +1147,7 @@ MAIN:
     DEBUG "last sunday: " . join('-', @last_sunday);
 
     #
-    # remove backups following a preserve_days/preserve_weekly scheme
+    # remove backups following a preserve daily/weekly/monthly scheme
     #
     foreach my $config_vol (@{$config->{VOLUME}})
     {
@@ -1140,63 +1166,43 @@ MAIN:
           #
           # delete backups
           #
-          my $preserve_info = {};
-          my @delete_backups;
           INFO "Cleaning backups: $droot/$svol.*";
-          foreach my $vol (sort { $b cmp $a } keys %{$vol_info{$droot}})
-          {
-            next unless($vol =~ /^$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/);
-            my @vol_date = ($1, $2, $3);
-
-            DEBUG "Checking: $vol";
-            my $preserve = check_backup_scheme(
-              vol_date         => \@vol_date,
-              today            => \@today,
-              week_start       => \@last_sunday,   # TODO: configurable
-              preserve_days    => config_key($config_target, "target_preserve_days"),
-              preserve_weekly  => config_key($config_target, "target_preserve_weekly"),
-              preserve_info    => $preserve_info,
-             );
-            if($preserve) {
-              INFO "$vol: preserved: $preserve";
-            }
-            else {
-              INFO "$vol: DELETE";
-              push @delete_backups, "$droot/$vol";
+          my @check;
+          foreach my $vol (keys %{$vol_info{$droot}}) {
+            if($vol =~ /^$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
+              push(@check, { name => "$droot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
             }
           }
-          btrfs_subvolume_delete(@delete_backups);
+          my @delete = check_backup_scheme(
+            check                => \@check,
+            today                => \@today,
+            preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
+            preserve_daily       => config_key($config_target, "target_preserve_daily"),
+            preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
+            preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+           );
+          btrfs_subvolume_delete(@delete);
         }
 
         #
         # delete snapshots
         #
-        my $preserve_info = {};
-        my @delete_snapshots;
         INFO "Cleaning snapshots: $sroot/$snapdir$svol.*";
-        foreach my $vol (sort { $b cmp $a } keys %{$vol_info{$sroot}})
-        {
-          next unless($vol =~ /^$snapdir$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/);
-          my @vol_date = ($1, $2, $3);
-
-          DEBUG "Checking: $vol";
-          my $preserve = check_backup_scheme(
-            vol_date         => \@vol_date,
-            today            => \@today,
-            week_start       => \@last_sunday,   # TODO: configurable
-            preserve_days    => config_key($config_subvol, "snapshot_preserve_days"),
-            preserve_weekly  => config_key($config_subvol, "snapshot_preserve_weekly"),
-            preserve_info    => $preserve_info,
-           );
-          if($preserve) {
-            INFO "$vol: preserved: $preserve";
-          }
-          else {
-            INFO "$vol: DELETE";
-            push @delete_snapshots, "$sroot/$vol";
+        my @check;
+        foreach my $vol (keys %{$vol_info{$sroot}}) {
+          if($vol =~ /^$snapdir$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
+            push(@check, { name => "$sroot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
           }
         }
-        btrfs_subvolume_delete(@delete_snapshots);
+        my @delete = check_backup_scheme(
+          check                => \@check,
+          today                => \@today,
+          preserve_day_of_week => config_key($config_subvol, "preserve_day_of_week"),
+          preserve_daily       => config_key($config_subvol, "snapshot_preserve_daily"),
+          preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
+          preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
+         );
+        btrfs_subvolume_delete(@delete);
       }
     }
   }
