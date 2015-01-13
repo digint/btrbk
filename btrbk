@@ -71,7 +71,7 @@ my %config_options = (
   target_preserve_daily     => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
   target_preserve_weekly    => { default => 0,        accept => [ "all" ], accept_numeric => 1  },
   target_preserve_monthly   => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
-  # TODO: btrfs_commit_delete config option, setting --commit-after or --commit-each option to "btrfs subvolume delete" command
+  btrfs_commit_delete       => { default => undef,    accept => [ "after", "each", "no" ] },
  );
 
 my @config_target_types = qw(send-receive);
@@ -571,14 +571,18 @@ sub btrfs_snapshot($$)
 }
 
 
-sub btrfs_subvolume_delete(@)
+sub btrfs_subvolume_delete($@)
 {
+  my $commit_delete = shift;
   my @targets = @_;
   return 0 unless(scalar(@targets));
   DEBUG "[btrfs] delete:";
+  DEBUG "[btrfs] commit-delete: " . ($commit_delete ? $commit_delete : "no");
   DEBUG "[btrfs]   subvolume: $_" foreach(@targets);
-  INFO "--- $_" foreach(@targets);
-  my $ret = run_cmd("/sbin/btrfs subvolume delete " . join(' ', @targets));
+  my $options = "";
+  $options = "--commit-after " if($commit_delete eq "after");
+  $options = "--commit-each "  if($commit_delete eq "each");
+  my $ret = run_cmd("/sbin/btrfs subvolume delete $options" . join(' ', @targets));
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', @targets) unless(defined($ret));
   return defined($ret) ? scalar(@targets) : undef;
 }
@@ -750,10 +754,10 @@ sub check_backup_scheme(@)
   foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)  # sorted ascending
   {
     if($href->{preserve}) {
-      INFO "$href->{sort}: $href->{preserve}";
+      INFO "=== $href->{sort}: $href->{preserve}";
     }
     else {
-      INFO "$href->{sort}: DELETE";
+      INFO "<<< $href->{sort}";
       push(@delete, $href->{name});
     }
   }
@@ -1175,7 +1179,10 @@ MAIN:
             preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
             preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
            );
-          if(btrfs_subvolume_delete(@delete)) {
+          my $commit_delete = config_key($config_target, "btrfs_commit_delete");
+          my $ret = btrfs_subvolume_delete($commit_delete, @delete);
+          if(defined($ret)) {
+            INFO "Deleted $ret subvolumes in: $droot/$svol.*";
             $config_target->{subvol_deleted} = \@delete;
           }
           else {
@@ -1202,12 +1209,15 @@ MAIN:
           preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
           preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
          );
-          if(btrfs_subvolume_delete(@delete)) {
-            $config_subvol->{subvol_deleted} = \@delete;
-          }
-          else {
-            $config_subvol->{ABORTED} = "btrfs subvolume delete command failed";
-          }
+        my $commit_delete = config_key($config_subvol, "btrfs_commit_delete");
+        my $ret = btrfs_subvolume_delete($commit_delete, @delete);
+        if(defined($ret)) {
+          INFO "Deleted $ret subvolumes in: $sroot/$snapdir$svol.*";
+          $config_subvol->{subvol_deleted} = \@delete;
+        }
+        else {
+          $config_subvol->{ABORTED} = "btrfs subvolume delete command failed";
+        }
         $config_subvol->{schedule} = \@schedule;
       }
     }
@@ -1220,7 +1230,7 @@ MAIN:
     {
       my $err_count = 0;
       print "--------------------------------------------------------------------------------\n";
-      print "$version_info\n";
+      print "Backup Summary ($version_info)\n";
       print "--------------------------------------------------------------------------------";
       foreach my $config_vol (@{$config->{VOLUME}})
       {
