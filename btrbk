@@ -43,7 +43,6 @@ use strict;
 use warnings FATAL => qw( all );
 
 use Carp qw(confess);
-use File::Path qw(make_path);
 use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
@@ -60,7 +59,8 @@ my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4
 
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
-  snapshot_dir              => { default => "_btrbk_snapshot", accept_file => "relative", trailing_slash => 1 },
+  # TODO: check filenames with regexp (for security)
+  snapshot_dir              => { default => undef, accept_file => "relative", trailing_slash => 1 },
   receive_log               => { default => undef,    accept => [ "sidecar", "no" ], accept_file => "absolute" },
   incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
   snapshot_create_always    => { default => undef,    accept => [ "yes", "no" ] },
@@ -163,32 +163,16 @@ sub subvol($$)
 }
 
 
-sub create_snapdir($$$)
-{
-  my $root = shift || die;
-  my $vol = shift || die;
-  my $snapdir = shift || die;
-  if($snapdir && (not $dryrun))
-  {
-    my $dir = "$root/$snapdir";
-    unless(-d $dir) {
-      INFO "Creating snapshot directory: $dir\n";
-      make_path($dir);
-    }
-  }
-}
-
-
 sub get_rsh($$)
 {
-  my $vol = shift || die;
+  my $url = shift // die;
   my $config = shift;
-  if($config && ($vol =~ /^ssh:\/\/(\S+?)(\/\S+)$/)) {
-    my ($ssh_host, $real_vol) = ($1, $2);
+  if($config && ($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/)) {
+    my ($ssh_host, $file) = ($1, $2);
     my $rsh = "/usr/bin/ssh -i " . config_key($config, "ssh_identity") . ' ' . config_key($config, "ssh_user") . '@' . $ssh_host;
-    return ($rsh, $real_vol);
+    return ($rsh, $file);
   }
-  return ("", $vol);
+  return ("", $url);
 }
 
 
@@ -383,7 +367,7 @@ sub parse_config($)
         elsif($config_options{$key}->{accept_regexp}) {
           my $match = $config_options{$key}->{accept_regexp};
           if($value =~ m/$match/) {
-            TRACE "option \"$key=$value\" is numeric, accepted";
+            TRACE "option \"$key=$value\" matched regexp, accepted";
           }
           else {
             ERROR "Value \"$value\" failed input validation for option \"$key\" in \"$file\" line $.";
@@ -600,15 +584,18 @@ sub btr_subtree($;$)
 
 
 # returns $target, or undef on error
-sub btrfs_snapshot($$)
+sub btrfs_snapshot($$;$)
 {
   my $src = shift || die;
   my $target = shift || die;
+  my $config = shift;
+  my ($rsh, $real_src) = get_rsh($src, $config);
+  my (undef, $real_target) = get_rsh($target, $config);
   DEBUG "[btrfs] snapshot (ro):";
   DEBUG "[btrfs]   source: $src";
   DEBUG "[btrfs]   target: $target";
   INFO ">>> $target";
-  my $ret = run_cmd("/sbin/btrfs subvolume snapshot -r $src $target");
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume snapshot -r $real_src $real_target");
   ERROR "Failed to create btrfs subvolume snapshot: $src -> $target" unless(defined($ret));
   return defined($ret) ? $target : undef;
 }
@@ -619,14 +606,22 @@ sub btrfs_subvolume_delete($@)
   my $config = shift;
   my @targets = @_;
   return 0 unless(scalar(@targets));
+  my @real_targets;
+  my $rsh;
+  foreach (@targets) {
+    my ($r, $t) = get_rsh($_, $config);
+    die if($rsh && ($rsh ne $r)); # make sure all targets share same ssh host
+    $rsh = $r;
+    push(@real_targets, $t);
+  }
+  die if(scalar(@targets) != scalar(@real_targets));
   my $commit_delete = config_key($config, "btrfs_commit_delete");
-  DEBUG "[btrfs] delete:";
-  DEBUG "[btrfs] commit-delete: " . ($commit_delete ? $commit_delete : "no");
+  DEBUG "[btrfs] delete" . ($commit_delete ? " (commit-$commit_delete):" : ":");
   DEBUG "[btrfs]   subvolume: $_" foreach(@targets);
   my $options = "";
   $options = "--commit-after " if($commit_delete eq "after");
   $options = "--commit-each "  if($commit_delete eq "each");
-  my $ret = run_cmd("/sbin/btrfs subvolume delete $options" . join(' ', @targets));
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume delete $options" . join(' ', @real_targets));
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', @targets) unless(defined($ret));
   return defined($ret) ? scalar(@targets) : undef;
 }
@@ -639,7 +634,9 @@ sub btrfs_send_receive($$$$;$)
   my $parent = shift // "";
   my $changelog = shift // "";
   my $config = shift;
-  my ($rsh, $real_target) = get_rsh($target, $config);
+  my ($rsh_src, $real_src) = get_rsh($src, $config);
+  my ($rsh_target, $real_target) = get_rsh($target, $config);
+  my (undef, $real_parent) = get_rsh($parent, $config);
   my $now = localtime;
 
   my $src_name = $src;
@@ -654,14 +651,14 @@ sub btrfs_send_receive($$$$;$)
   push @info, "[btrfs]   log   : $changelog" if($changelog);
   DEBUG $_ foreach(@info);
 
-  my $parent_option = $parent ? "-p $parent" : "";
+  my $parent_option = $real_parent ? "-p $real_parent" : "";
   my $receive_option = "";
   $receive_option = "-v" if($changelog || ($loglevel >= 2));
-  $receive_option = "-v -v" if($parent && $changelog);
-  my $cmd = "/sbin/btrfs send $parent_option $src | $rsh /sbin/btrfs receive $receive_option $real_target/ 2>&1";
+  $receive_option = "-v -v" if($real_parent && $changelog);
+  my $cmd = "$rsh_src /sbin/btrfs send $parent_option $real_src | $rsh_target /sbin/btrfs receive $receive_option $real_target/ 2>&1";
   my $ret = run_cmd($cmd);
   unless(defined($ret)) {
-    ERROR "Failed to send/receive btrfs subvolume: $src " . ($parent ? "[$parent]" : "") . " -> $target";
+    ERROR "Failed to send/receive btrfs subvolume: $src " . ($real_parent ? "[$real_parent]" : "") . " -> $target";
     return undef;
   }
   if($changelog && (not $dryrun))
@@ -1061,7 +1058,7 @@ MAIN:
       {
         next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
-        my $snapdir = config_key($config_subvol, "snapshot_dir") || die;
+        my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
         my $snapshot;
         my $snapshot_name;
         if($snapshot_cache{"$sroot/$svol"})
@@ -1103,14 +1100,12 @@ MAIN:
           next;
         }
 
-        create_snapdir($sroot, $svol, $snapdir);
-
         # make snapshot of svol, if not already created by another job
         unless($snapshot_cache{"$sroot/$svol"})
         {
           INFO "Creating subvolume snapshot for: $sroot/$svol";
 
-          unless(btrfs_snapshot("$sroot/$svol", $snapshot)) {
+          unless(btrfs_snapshot("$sroot/$svol", $snapshot, $config_subvol)) {
             $config_subvol->{ABORTED} = "Failed to create snapshot, skipping subvolume: $sroot/$svol";
             WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
           }
@@ -1201,7 +1196,7 @@ MAIN:
       {
         next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
-        my $snapdir = config_key($config_subvol, "snapshot_dir") || die;
+        my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
           next if($config_target->{ABORTED});
