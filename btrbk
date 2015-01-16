@@ -59,9 +59,9 @@ my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4
 
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
-  # TODO: check filenames with regexp (for security)
-  snapshot_dir              => { default => undef, accept_file => "relative", trailing_slash => 1 },
-  receive_log               => { default => undef,    accept => [ "sidecar", "no" ], accept_file => "absolute" },
+  # NOTE: keys "volume", "subvolume" and "target" are hardcoded
+  snapshot_dir              => { default => undef,    accept_file => { relative => 1 }, append_trailing_slash => 1 },
+  receive_log               => { default => undef,    accept => [ "sidecar", "no" ], accept_file => { absolute => 1 } },
   incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
   snapshot_create_always    => { default => undef,    accept => [ "yes", "no" ] },
   preserve_day_of_week      => { default => "sunday", accept => [ (keys %day_of_week_map) ] },
@@ -72,7 +72,7 @@ my %config_options = (
   target_preserve_weekly    => { default => 0,        accept => [ "all" ], accept_numeric => 1  },
   target_preserve_monthly   => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
   btrfs_commit_delete       => { default => undef,    accept => [ "after", "each", "no" ] },
-  ssh_identity              => { default => undef,    accept_file => "absolute" },
+  ssh_identity              => { default => undef,    accept_file => { absolute => 1 } },
   ssh_user                  => { default => "root",   accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
  );
 
@@ -234,6 +234,48 @@ sub config_key($$)
 }
 
 
+sub check_file($$$$)
+{
+  my $file = shift;
+  my $accept = shift;
+  my $key = shift;  # only for error text
+  my $config_file = shift;  # only for error text
+
+  my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
+  my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
+  my $file_match = qr/[0-9a-zA-Z_\-\.\/]+/;
+
+  if($accept->{ssh} && ($file =~ /^ssh:\/\//)) {
+    unless($file =~ /^ssh:\/\/($ip_addr_match|$host_name_match)\/$file_match$/) {
+      ERROR "Ambiguous ssh url for option \"$key\" in \"$config_file\" line $.: $file";
+      return undef;
+    }
+  }
+  elsif($file =~ /^$file_match$/) {
+    if($accept->{absolute}) {
+      unless($file =~ /^\//) {
+        ERROR "Only absolute files allowed for option \"$key\" in \"$config_file\" line $.: $file";
+        return undef;
+      }
+    }
+    elsif($accept->{relative}) {
+      if($file =~ /^\//) {
+        ERROR "Only relative files allowed for option \"$key\" in \"$config_file\" line $.: $file";
+        return undef;
+      }
+    }
+    else {
+      die("accept_type must contain either 'relative' or 'absolute'");
+    }
+  }
+  else {
+    ERROR "Ambiguous file for option \"$key\" in \"$config_file\" line $.: $file";
+    return undef;
+  }
+  return $file;
+}
+
+
 sub parse_config($)
 {
   my $file = shift || die;
@@ -266,9 +308,12 @@ sub parse_config($)
       {
         $cur = $root;
         DEBUG "config: context forced to: $cur->{CONTEXT}";
-        DEBUG "config: adding volume \"$value\" to root context";
+
+        # be very strict about file options, for security sake
+        return undef unless(check_file($value, { absolute => 1, ssh => 1 }, $key, $file));
         $value =~ s/\/+$//;   # remove trailing slash
         $value =~ s/^\/+/\//; # sanitize leading slash
+        DEBUG "config: adding volume \"$value\" to root context";
         my $volume = { CONTEXT => "volume",
                        PARENT => $cur,
                        sroot => $value,
@@ -287,6 +332,8 @@ sub parse_config($)
           $cur = $cur->{PARENT} || die;
           DEBUG "config: context changed to: $cur->{CONTEXT}";
         }
+        # be very strict about file options, for security sake
+        return undef unless(check_file($value, { relative => 1 }, $key, $file));
         $value =~ s/\/+$//;    # remove trailing slash
         $value =~ s/^\/+//;    # remove leading slash
         if($value =~ /\//) {
@@ -320,6 +367,9 @@ sub parse_config($)
             ERROR "unknown target type \"$target_type\" in \"$file\" line $.";
             return undef;
           }
+          # be very strict about file options, for security sake
+          return undef unless(check_file($droot, { absolute => 1, ssh => 1 }, $key, $file));
+
           $droot =~ s/\/+$//;   # remove trailing slash
           $droot =~ s/^\/+/\//; # sanitize leading slash
           DEBUG "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{PARENT}->{sroot}/$cur->{svol}";
@@ -348,19 +398,14 @@ sub parse_config($)
         }
         elsif($config_options{$key}->{accept_file})
         {
-          if(($config_options{$key}->{accept_file} eq "relative") && ($value =~ /^\//)) {
-            ERROR "Only relative files allowed for option \"$key\" in \"$file\" line $.";
-            return undef;
-          }
-          elsif(($config_options{$key}->{accept_file} eq "absolute") && ($value !~ /^\//)) {
-            ERROR "Only absolute files allowed for option \"$key\" in \"$file\" line $.";
-            return undef;
-          }
-          TRACE "option \"$key=$value\" is a file, accepted";
+          # be very strict about file options, for security sake
+          return undef unless(check_file($value, $config_options{$key}->{accept_file}, $key, $file));
+
+          TRACE "option \"$key=$value\" is a valid file, accepted";
           $value =~ s/\/+$//;   # remove trailing slash
           $value =~ s/^\/+/\//; # sanitize leading slash
-          if($config_options{$key}->{trailing_slash}) {
-            TRACE "trailing_slash is specified for option \"$key\", adding trailing slash";
+          if($config_options{$key}->{append_trailing_slash}) {
+            TRACE "append_trailing_slash is specified for option \"$key\", adding trailing slash";
             $value .= '/';
           }
         }
