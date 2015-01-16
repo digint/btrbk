@@ -1242,9 +1242,13 @@ MAIN:
         next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
         my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+        my $target_aborted = 0;
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
-          next if($config_target->{ABORTED});
+          if($config_target->{ABORTED}) {
+            $target_aborted = 1;
+            next;
+          }
           my $droot = $config_target->{droot} || die;
 
           #
@@ -1272,6 +1276,7 @@ MAIN:
           }
           else {
             $config_target->{ABORTED} = "btrfs subvolume delete command failed";
+            $target_aborted = 1;
           }
           $config_target->{schedule} = \@schedule;
         }
@@ -1279,7 +1284,10 @@ MAIN:
         #
         # delete snapshots
         #
-        # TODO: don't delete any snapshots if on of the above failed
+        if($target_aborted) {
+          WARN "Skipping cleanup of snapshots for subvolume \"$sroot/$svol\", as at least one target aborted earlier";
+          next;
+        }
         INFO "Cleaning snapshots: $sroot/$snapdir$svol.*";
         my @schedule;
         foreach my $vol (keys %{$vol_info{$sroot}}) {
@@ -1360,6 +1368,9 @@ MAIN:
       if($err_count) {
         print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
         print "Please check warning and error messages above.\n";
+      }
+      if($dryrun) {
+        print "\nNOTE: Dryrun was active, none of the operations below were actually executed!\n";
       }
     }
   }
