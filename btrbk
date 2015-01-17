@@ -53,7 +53,7 @@ our $PROJECT_HOME  = '<http://www.digint.ch/btrbk>';
 
 my $version_info   = "btrbk command line client, version $VERSION";
 
-my $default_config = "/etc/btrbk.conf";
+my @config_src = ("/etc/btrbk.conf", "/etc/btrbk/btrbk.conf");
 
 my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6, sunday => 7 );
 
@@ -104,7 +104,7 @@ sub HELP_MESSAGE
   print STDERR "options:\n";
   print STDERR "   --help      display this help message\n";
   print STDERR "   --version   display version information\n";
-  print STDERR "   -c FILE     specify configuration file (defaults to \"$default_config\")\n";
+  print STDERR "   -c FILE     specify configuration file\n";
   print STDERR "   -v          be verbose (set loglevel=info)\n";
   print STDERR "   -q          be quiet (do not print summary at end of \"execute\" command)\n";
   print STDERR "   -l LEVEL    set loglevel (warn, info, debug, trace)\n";
@@ -276,9 +276,9 @@ sub check_file($$$$)
 }
 
 
-sub parse_config($)
+sub parse_config(@)
 {
-  my $file = shift || die;
+  my @config_files = @_;
   my $root = { CONTEXT => "root" };
   my $cur = $root;
   # set defaults
@@ -286,8 +286,16 @@ sub parse_config($)
     $root->{$_} = $config_options{$_}->{default};
   }
 
-  unless(-r "$file") {
-    WARN "Configuration file not found: $file";
+  my $file = undef;
+  foreach(@config_files) {
+    TRACE "config: checking for file: $_";
+    if(-r "$_") {
+      $file = $_;
+      last;
+    }
+  }
+  unless($file) {
+    ERROR "Configuration file not found: " . join(', ', @config_files);
     return undef;
   }
 
@@ -878,7 +886,7 @@ MAIN:
   else {
     $loglevel = $opts{v} ? 2 : 1;
   }
-  my $config_file = $opts{c} || $default_config;
+  @config_src = ( $opts{c} ) if($opts{c});
   my $quiet = $opts{q};
 
   # check command line options
@@ -1006,7 +1014,7 @@ MAIN:
   #
   # fill vol_info hash, basic checks on configuration
   #
-  my $config = parse_config($config_file);
+  my $config = parse_config(@config_src);
   unless($config) {
     ERROR "Failed to parse configuration file";
     exit 1;
