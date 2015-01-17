@@ -279,13 +279,6 @@ sub check_file($$$$)
 sub parse_config(@)
 {
   my @config_files = @_;
-  my $root = { CONTEXT => "root" };
-  my $cur = $root;
-  # set defaults
-  foreach (keys %config_options) {
-    $root->{$_} = $config_options{$_}->{default};
-  }
-
   my $file = undef;
   foreach(@config_files) {
     TRACE "config: checking for file: $_";
@@ -297,6 +290,13 @@ sub parse_config(@)
   unless($file) {
     ERROR "Configuration file not found: " . join(', ', @config_files);
     return undef;
+  }
+
+  my $root = { CONTEXT => "root", SRC_FILE => $file };
+  my $cur = $root;
+  # set defaults
+  foreach (keys %config_options) {
+    $root->{$_} = $config_options{$_}->{default};
   }
 
   DEBUG "config: parsing file: $file";
@@ -866,6 +866,7 @@ MAIN:
   $ENV{PATH} = '';
   $Getopt::Std::STANDARD_HELP_VERSION = 1;
   $Data::Dumper::Sortkeys = 1;
+  my $start_time = time;
   my @today = Today();
 
   my %opts;
@@ -1323,6 +1324,8 @@ MAIN:
       }
     }
 
+    my $time_elapsed = time - $start_time;
+    INFO "Completed within: ${time_elapsed}s";
 
     #
     # print summary
@@ -1331,7 +1334,9 @@ MAIN:
     {
       my $err_count = 0;
       print "--------------------------------------------------------------------------------\n";
-      print "Backup Summary ($version_info)\n";
+      print "Backup Summary ($version_info)\n\n";
+      print "    Date:   " . localtime($start_time) . "\n";
+      print "    Config: $config->{SRC_FILE}\n";
       print "--------------------------------------------------------------------------------";
       foreach my $config_vol (@{$config->{VOLUME}})
       {
@@ -1351,10 +1356,10 @@ MAIN:
           #     print(($_->{preserve} ? "===" : "---") . " $_->{name}\n");
           #   }
           # }
-          if($config_subvol->{subvol_deleted}) {
-            print "--- $_\n" foreach(@{$config_subvol->{subvol_deleted}});
-          }
           print "+++ $config_subvol->{snapshot}\n" if($config_subvol->{snapshot});
+          if($config_subvol->{subvol_deleted}) {
+            print "--- $_\n" foreach(sort { $b cmp $a} @{$config_subvol->{subvol_deleted}});
+          }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             if($config_target->{ABORTED}) {
@@ -1366,10 +1371,10 @@ MAIN:
             #     print(($_->{preserve} ? "===" : "---") . " $_->{name}\n");
             #   }
             # }
-            if($config_target->{subvol_deleted}) {
-              print "--- $_\n" foreach(@{$config_target->{subvol_deleted}});
-            }
             print "+++ $config_target->{subvol_created}\n" if($config_target->{subvol_created});
+            if($config_target->{subvol_deleted}) {
+              print "--- $_\n" foreach(sort { $b cmp $a} @{$config_target->{subvol_deleted}});
+            }
           }
         }
       }
@@ -1378,7 +1383,7 @@ MAIN:
         print "Please check warning and error messages above.\n";
       }
       if($dryrun) {
-        print "\nNOTE: Dryrun was active, none of the operations below were actually executed!\n";
+        print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
       }
     }
   }

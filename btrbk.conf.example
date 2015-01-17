@@ -3,15 +3,16 @@
 # Create snapshot into subdirectory
 snapshot_dir               _btrbk_snap
 
-# Always create backups, even if the target volume is not reachable
+# Always create snapshots, even if the target volume is unreachable
 snapshot_create_always     yes
 
-# Perform incremental backups
-incremental                strict
+# Perform incremental backups (set to "strict" if you want to prevent
+# creation of initial backups if no parent is found)
+incremental                yes
 
 # ssh key for ssh volumes/targets
 ssh_identity               /etc/btrbk/ssh/id_ed25519
-ssh_user root
+ssh_user                   root
 
 # Preserve weekly/monthly backups from given day of week
 preserve_day_of_week       sunday
@@ -29,19 +30,36 @@ target_preserve_monthly    all
 # Make sure the deletion of subvolumes is committed to disk when btrbk terminates
 btrfs_commit_delete        after
 
+# Dump verbose output of "btrfs receive" to a specified file. If set
+# to "sidecar", the file will be named "<backup_subvolume>.btrbk.log".
+# Note that this log file can become very big, as every change of
+# every file is being logged.
+#receive_log               /var/log/btrbk_receive.log
+#receive_log               sidecar
+receive_log                no
 
+
+#
 # Volume section: "volume <vol_dir>"
 # <vol_dir>: Directory of a btrfs volume (or subvolume) containing the
 #            subvolume to be backuped (usually the mount-point of a
 #            btrfs filesystem mounted with subvolid=0 option)
 #
 # Subvolume section: "subvolume <subvol>
-# <subvol>: Subvolume to be backuped, relative to <vol_dir> in
-#           volume section
+# <subvol>:  Subvolume to be backuped, relative to <vol_dir> in
+#            volume section
 #
-# Target section: "target <type> <subvol_dir>"
-# <type>:       Backup type, currently only "send-receive"
-# <subvol_dir>: Directory of a btrfs volume (or subvolume) receiving the backups
+# Target section: "target <type> <vol_dir>"
+# <type>:    Backup type, currently only "send-receive"
+# <vol_dir>: Directory of a btrfs volume (or subvolume) receiving the backups
+#
+#
+# NOTE: The parser does not care about indentation, this is only for
+# human readability. The options always apply to the last section
+# encountered, overriding the corresponding option of the upper
+# section. This means that the global options must be set before any
+# "volume" section.
+#
 
 volume /mnt/btr_system
   subvolume  root_gentoo
@@ -58,7 +76,6 @@ volume /mnt/btr_system
       target_preserve_weekly 0
 
     target send-receive    /mnt/btr_backup/_btrbk
-      receive_log sidecar
 
 
 volume /mnt/btr_data
