@@ -1,0 +1,84 @@
+# Example btrbk configuration file
+
+# Create snapshot into subdirectory
+snapshot_dir               _btrbk_snap
+
+# Always create backups, even if the target volume is not reachable
+snapshot_create_always     yes
+
+# Perform incremental backups
+incremental                strict
+
+# ssh key for ssh volumes/targets
+ssh_identity               /etc/btrbk/ssh/id_ed25519
+ssh_user root
+
+# Preserve weekly/monthly backups from given day of week
+preserve_day_of_week       sunday
+
+# Preserve matrix for snapshots
+snapshot_preserve_daily    14
+snapshot_preserve_weekly   0
+snapshot_preserve_monthly  0
+
+# Preserve matrix for backups
+target_preserve_daily      20
+target_preserve_weekly     10
+target_preserve_monthly    all
+
+# Make sure the deletion of subvolumes is committed to disk when btrbk terminates
+btrfs_commit_delete        after
+
+
+# Volume section: "volume <vol_dir>"
+# <vol_dir>: Directory of a btrfs volume (or subvolume) containing the
+#            subvolume to be backuped (usually the mount-point of a
+#            btrfs filesystem mounted with subvolid=0 option)
+#
+# Subvolume section: "subvolume <subvol>
+# <subvol>: Subvolume to be backuped, relative to <vol_dir> in
+#           volume section
+#
+# Target section: "target <type> <subvol_dir>"
+# <type>:       Backup type, currently only "send-receive"
+# <subvol_dir>: Directory of a btrfs volume (or subvolume) receiving the backups
+
+volume /mnt/btr_system
+  subvolume  root_gentoo
+    target send-receive    /mnt/btr_ext/_btrbk
+    target send-receive    /mnt/btr_backup/_btrbk
+      receive_log sidecar
+
+  subvolume  kvm
+    # use different preserve matrix for kvm backups
+    target_preserve_daily  7
+    target_preserve_weekly 4
+
+    target send-receive    /mnt/btr_ext/_btrbk
+      target_preserve_weekly 0
+
+    target send-receive    /mnt/btr_backup/_btrbk
+      receive_log sidecar
+
+
+volume /mnt/btr_data
+  subvolume  home
+    target send-receive    /mnt/btr_backup/_btrbk
+    target send-receive    ssh://backup.my-remote-host.com/mnt/btr_backup
+
+
+volume /mnt/btr_ext
+  subvolume data
+    target send-receive    /mnt/btr_backup/_btrbk
+
+volume /mnt/btr_boot
+  incremental yes
+
+  subvolume boot
+    target send-receive    /mnt/btr_ext/_btrbk
+    target send-receive    /mnt/btr_backup/_btrbk
+
+
+volume ssh://my-remote-host.com/mnt/btr_pool
+  subvolume system
+    target send-receive    /mnt/btr_backup/_btrbk/my-remote-host.com
