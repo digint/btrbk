@@ -170,7 +170,16 @@ sub get_rsh($$)
   my $config = shift;
   if($config && ($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/)) {
     my ($ssh_host, $file) = ($1, $2);
-    my $rsh = "/usr/bin/ssh -i " . config_key($config, "ssh_identity") . ' ' . config_key($config, "ssh_user") . '@' . $ssh_host;
+    my $ssh_user     = config_key($config, "ssh_user");
+    my $ssh_identity = config_key($config, "ssh_identity");
+    my $ssh_options = "";
+    if($ssh_identity) {
+      $ssh_options .= " -i $ssh_identity";
+    }
+    else {
+      WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
+    }
+    my $rsh = "/usr/bin/ssh $ssh_options " . $ssh_user . '@' . $ssh_host;
     return ($rsh, $file);
   }
   return ("", $url);
@@ -974,6 +983,7 @@ MAIN:
     exit 1;
   }
 
+  INFO "$version_info  (" . localtime($start_time) . ")";
 
   if($action_diff)
   {
@@ -1445,7 +1455,7 @@ MAIN:
     }
 
     my $time_elapsed = time - $start_time;
-    INFO "Completed within: ${time_elapsed}s";
+    INFO "Completed within: ${time_elapsed}s  (" . localtime(time) . ")";
 
     #
     # print summary
