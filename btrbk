@@ -112,6 +112,7 @@ sub HELP_MESSAGE
   print STDERR "commands:\n";
   print STDERR "   execute     perform backup operations as defined in configuration\n";
   print STDERR "   dryrun      don't run btrfs commands, just show what would be executed\n";
+  print STDERR "   info        print useful filesystem information\n";
   print STDERR "   tree        shows backup tree\n";
   print STDERR "   diff <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
   print STDERR "\n";
@@ -453,6 +454,32 @@ sub parse_config(@)
 
   TRACE(Data::Dumper->Dump([$root], ["config_root"]));
   return $root;
+}
+
+
+sub btr_filesystem_show_all_local()
+{
+  return run_cmd("/sbin/btrfs filesystem show", 1);
+}
+
+
+sub btr_filesystem_show($;$)
+{
+  my $vol = shift || die;
+  my $config = shift;
+  my ($rsh, $real_vol) = get_rsh($vol, $config);
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem show $real_vol", 1);
+  return $ret;
+}
+
+
+sub btr_filesystem_df($;$@)
+{
+  my $vol = shift || die;
+  my $config = shift;
+  my ($rsh, $real_vol) = get_rsh($vol, $config);
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem df $real_vol", 1);
+  return $ret;
 }
 
 
@@ -925,11 +952,15 @@ MAIN:
   }
 
   my $action_execute;
+  my $action_info;
   my $action_tree;
   my $action_diff;
   if(($command eq "execute") || ($command eq "dryrun")) {
     $action_execute = 1;
     $dryrun = 1 if($command eq "dryrun");
+  }
+  elsif ($command eq "info") {
+    $action_info = 1;
   }
   elsif ($command eq "tree") {
     $action_tree = 1;
@@ -1040,7 +1071,7 @@ MAIN:
 
 
   #
-  # fill vol_info hash, basic checks on configuration
+  # parse config file
   #
   my $config = parse_config(@config_src);
   unless($config) {
@@ -1051,6 +1082,68 @@ MAIN:
     ERROR "No volumes defined in configuration file";
     exit 1;
   }
+
+
+
+  if($action_info)
+  {
+    #
+    # print filesystem information
+    #
+    print "================================================================================\n";
+    print "Filesystem information ($version_info)\n\n";
+    print "    Date:   " . localtime($start_time) . "\n";
+    print "    Config: $config->{SRC_FILE}\n";
+    print "================================================================================\n";
+
+    print "\n--------------------------------------------------------------------------------\n";
+    print "All local btrfs filesystems\n";
+    print "--------------------------------------------------------------------------------\n";
+    print btr_filesystem_show_all_local();
+    print "\n";
+
+    my %processed;
+    foreach my $config_vol (@{$config->{VOLUME}})
+    {
+      my $sroot = $config_vol->{sroot} || die;
+      unless($processed{$sroot})
+      {
+        print "\n--------------------------------------------------------------------------------\n";
+        print "Source volume: $sroot\n";
+        print "--------------------------------------------------------------------------------\n";
+        print btr_filesystem_show($sroot, $config_vol);
+        print "\n\n";
+        print btr_filesystem_df($sroot, $config_vol);
+        print "\n";
+        $processed{$sroot} = 1;
+      }
+    }
+
+    foreach my $config_vol (@{$config->{VOLUME}}) {
+      my $sroot = $config_vol->{sroot} || die;
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+        foreach my $config_target (@{$config_subvol->{TARGET}})
+        {
+          my $droot = $config_target->{droot} || die;
+          unless($processed{$droot})
+          {
+            print "\n--------------------------------------------------------------------------------\n";
+            print "Target volume: $droot\n";
+            print "               ^--- $sroot\n";
+            print "--------------------------------------------------------------------------------\n";
+            print btr_filesystem_df($droot, $config_target);
+            print "\n";
+            $processed{$droot} = 1;
+          }
+        }
+      }
+    }
+    exit 0;
+  }
+
+  #
+  # fill vol_info hash, basic checks on configuration
+  #
   foreach my $config_vol (@{$config->{VOLUME}})
   {
     my $sroot = $config_vol->{sroot} || die;
