@@ -803,51 +803,78 @@ sub check_backup_scheme(@)
 
   my $delta_dow = $day_of_week_map{$preserve_day_of_week} - Day_of_Week(@today);
   $delta_dow = $delta_dow + 7 if($delta_dow < 0);
+  INFO "Filter scheme: preserving all within $preserve_daily days";
+  INFO "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
+  INFO "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
   DEBUG "next $preserve_day_of_week is in $delta_dow days";
 
-  my @last_in_week;
-  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)  # sorted ascending
+  my %first_in_delta_weeks;
+  my $oldest_daily;
+  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)
   {
     my @date = @{$href->{date}};
     my $delta_days = Delta_Days(@date, @today);
-    if((not $href->{preserve}) && (($preserve_daily eq "all") || ($delta_days <= $preserve_daily))) {
-      $href->{preserve} = "preserved daily: $delta_days days ago";
+    if(($preserve_daily eq "all") || ($delta_days <= $preserve_daily)) {
+      $href->{preserve} ||= "preserved daily: $delta_days days ago";
     }
 
-    my $delta_days_next_dow = $delta_days + $delta_dow;
     {
       use integer; # do integer arithmetics
-      my $delta_weeks = $delta_days_next_dow / 7;
-      $href->{delta_days} = $delta_days;
+      # note: our week starts on $preserve_day_of_week
+      my $delta_days_next_end_of_week = $delta_days + $delta_dow - 1;
+      my $delta_weeks = $delta_days_next_end_of_week / 7;
+      my $err_days    = 6 - $delta_days_next_end_of_week % 7;
+      $href->{delta_days}  = $delta_days;
       $href->{delta_weeks} = $delta_weeks;
-      $href->{err_days} = $delta_days_next_dow % 7;
-      $last_in_week[$delta_weeks] = $href;
+      $href->{err_days}    = $err_days;
+      $first_in_delta_weeks{$delta_weeks} //= $href;
+
+      unless($oldest_daily) {
+        # keep the oldest daily
+        if(($preserve_weekly eq "all") || ($delta_weeks <= $preserve_weekly)) {
+          $href->{preserve} ||= "preserved weekly: oldest daily backup: " . ($href->{err_days} ? "$href->{err_days} days after " : "") . "$preserve_day_of_week, not older than $preserve_weekly weeks";
+          $oldest_daily = $href;
+        }
+      }
     }
   }
 
-  my @last_in_month;
-  foreach my $href (@last_in_week)
+  my %last_in_delta_months;
+  my $oldest_weekly;
+  foreach (reverse sort keys %first_in_delta_weeks)
   {
-    next unless $href;
-    if((not $href->{preserve}) && (($preserve_weekly eq "all") || ($href->{delta_weeks} <= $preserve_weekly))) {
-      $href->{preserve} = "preserved weekly: " . ($href->{err_days} ? "$href->{err_days} days before " : "") . "$preserve_day_of_week, $href->{delta_weeks} weeks ago";
+    my $href = $first_in_delta_weeks{$_} || die;
+    if(($preserve_weekly eq "all") || ($href->{delta_weeks} <= $preserve_weekly)) {
+      $href->{preserve} ||= "preserved weekly: $href->{delta_weeks} weeks ago, " . ($href->{err_days} ? "+$href->{err_days} days after " : "on ") . "$preserve_day_of_week";
     }
     my @date = @{$href->{date}};
     my $delta_months = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
     $href->{delta_months} = $delta_months;
-    $last_in_month[$delta_months] = $href;
+    $href->{month} = "$date[0]-$date[1]";
+    # find last_in_month
+    $last_in_delta_months{$delta_months} = $href;
+
+    unless($oldest_weekly) {
+      if(($preserve_monthly eq "all") || ($delta_months <= $preserve_monthly)) {
+        # keep the oldest weekly
+        $href->{preserve} ||= "preserved monthly: oldest weekly backup: " . ($href->{err_days} ? "+$href->{err_days} days after " : "") . "$preserve_day_of_week (age: $delta_months months)";
+      }
+      $oldest_weekly = $href;
+    }
+
   }
 
-  foreach my $href (@last_in_month)
+  # keep last weekly of month
+  foreach (reverse sort keys %last_in_delta_months)
   {
-    next unless $href;
-    if((not $href->{preserve}) && (($preserve_monthly eq "all") || ($href->{delta_months} <= $preserve_monthly))) {
-      $href->{preserve} = "preserved monthly: last $preserve_day_of_week of month (age: $href->{delta_months} months)";
+    my $href = $last_in_delta_months{$_} || die;
+    if(($preserve_monthly eq "all") || ($href->{delta_months} <= $preserve_monthly)) {
+      $href->{preserve} ||= "preserved monthly: " . ($href->{err_days} ? "$href->{err_days} days after " : "") . "last $preserve_day_of_week of month $href->{month} (age: $href->{delta_months} months)";
     }
   }
 
   my @delete;
-  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)  # sorted ascending
+  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)
   {
     if($href->{preserve}) {
       INFO "=== $href->{sort}: $href->{preserve}";
