@@ -482,12 +482,22 @@ sub btr_filesystem_show($;$)
 }
 
 
-sub btr_filesystem_df($;$@)
+sub btr_filesystem_df($;$)
 {
   my $vol = shift || die;
   my $config = shift;
   my ($rsh, $real_vol) = get_rsh($vol, $config);
   my $ret = run_cmd("$rsh /sbin/btrfs filesystem df $real_vol", 1);
+  return $ret;
+}
+
+
+sub btr_filesystem_usage($;$)
+{
+  my $vol = shift || die;
+  my $config = shift;
+  my ($rsh, $real_vol) = get_rsh($vol, $config);
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem usage $real_vol", 1);
   return $ret;
 }
 
@@ -1106,11 +1116,11 @@ MAIN:
     print "    Config: $config->{SRC_FILE}\n";
     print "================================================================================\n";
 
-    print "\n--------------------------------------------------------------------------------\n";
-    print "All local btrfs filesystems\n";
-    print "--------------------------------------------------------------------------------\n";
-    print btr_filesystem_show_all_local();
-    print "\n";
+    # print "\n--------------------------------------------------------------------------------\n";
+    # print "All local btrfs filesystems\n";
+    # print "--------------------------------------------------------------------------------\n";
+    # print (btr_filesystem_show_all_local() // "");
+    # print "\n";
 
     my %processed;
     foreach my $config_vol (@{$config->{VOLUME}})
@@ -1121,9 +1131,9 @@ MAIN:
         print "\n--------------------------------------------------------------------------------\n";
         print "Source volume: $sroot\n";
         print "--------------------------------------------------------------------------------\n";
-        print btr_filesystem_show($sroot, $config_vol);
-        print "\n\n";
-        print btr_filesystem_df($sroot, $config_vol);
+        # print (btr_filesystem_show($sroot, $config_vol) // "");
+        # print "\n\n";
+        print (btr_filesystem_usage($sroot, $config_vol) // "");
         print "\n";
         $processed{$sroot} = 1;
       }
@@ -1141,7 +1151,7 @@ MAIN:
             print "Target volume: $droot\n";
             print "               ^--- $sroot\n";
             print "--------------------------------------------------------------------------------\n";
-            print btr_filesystem_df($droot, $config_target);
+            print (btr_filesystem_usage($droot, $config_target) // "");
             print "\n";
             $processed{$droot} = 1;
           }
