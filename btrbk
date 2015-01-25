@@ -1354,6 +1354,7 @@ MAIN:
               }
               elsif($incremental ne "strict") {
                 INFO "No common parent subvolume present, creating full backup";
+                $config_target->{subvol_non_incremental} = 1;
                 $success = btrfs_send_receive($snapshot, $droot, undef, $receive_log, $config_target);
               }
               else {
@@ -1362,6 +1363,7 @@ MAIN:
             }
             else {
               INFO "Creating full backup (option \"incremental\" is not set)";
+              $config_target->{subvol_non_incremental} = 1;
               $success = btrfs_send_receive($snapshot, $droot, undef, $receive_log, $config_target);
             }
           }
@@ -1511,7 +1513,8 @@ MAIN:
             #     print(($_->{preserve} ? "===" : "---") . " $_->{name}\n");
             #   }
             # }
-            print "+++ $config_target->{subvol_created}\n" if($config_target->{subvol_created});
+            my $create_mode = ($config_target->{subvol_non_incremental} ? "***" : ">>>");
+            print "$create_mode $config_target->{subvol_created}\n" if($config_target->{subvol_created});
             if($config_target->{subvol_deleted}) {
               print "--- $_\n" foreach(sort { $b cmp $a} @{$config_target->{subvol_deleted}});
             }
