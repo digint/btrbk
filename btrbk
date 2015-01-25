@@ -837,7 +837,7 @@ sub get_latest_common($$$)
 }
 
 
-sub check_backup_scheme(@)
+sub schedule_deletion(@)
 {
   my %args = @_;
   my $schedule             = $args{schedule}             || die;
@@ -847,78 +847,54 @@ sub check_backup_scheme(@)
   my $preserve_weekly      = $args{preserve_weekly}      // die;
   my $preserve_monthly     = $args{preserve_monthly}     // die;
 
-  my $delta_dow = $day_of_week_map{$preserve_day_of_week} - Day_of_Week(@today);
-  $delta_dow = $delta_dow + 7 if($delta_dow < 0);
   INFO "Filter scheme: preserving all within $preserve_daily days";
   INFO "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
   INFO "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
-  DEBUG "next $preserve_day_of_week is in $delta_dow days";
 
-  my %first_in_delta_weeks;
-  my $oldest_daily;
-  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)
+  # first, do our calendar calculations
+  # note: our week starts on $preserve_day_of_week
+  my $delta_days_to_eow_from_today = $day_of_week_map{$preserve_day_of_week} - Day_of_Week(@today) - 1;
+  $delta_days_to_eow_from_today = $delta_days_to_eow_from_today + 7 if($delta_days_to_eow_from_today < 0);
+  DEBUG "last day before next $preserve_day_of_week is in $delta_days_to_eow_from_today days";
+  foreach my $href (@$schedule)
   {
     my @date = @{$href->{date}};
     my $delta_days = Delta_Days(@date, @today);
-    if(($preserve_daily eq "all") || ($delta_days <= $preserve_daily)) {
-      $href->{preserve} ||= "preserved daily: $delta_days days ago";
-    }
-
+    my $delta_days_to_eow = $delta_days + $delta_days_to_eow_from_today;
     {
       use integer; # do integer arithmetics
-      # note: our week starts on $preserve_day_of_week
-      my $delta_days_next_end_of_week = $delta_days + $delta_dow - 1;
-      my $delta_weeks = $delta_days_next_end_of_week / 7;
-      my $err_days    = 6 - $delta_days_next_end_of_week % 7;
-      $href->{delta_days}  = $delta_days;
-      $href->{delta_weeks} = $delta_weeks;
-      $href->{err_days}    = $err_days;
-      $first_in_delta_weeks{$delta_weeks} //= $href;
-
-      unless($oldest_daily) {
-        # keep the oldest daily
-        if(($preserve_weekly eq "all") || ($delta_weeks <= $preserve_weekly)) {
-          $href->{preserve} ||= "preserved weekly: oldest daily backup: " . ($href->{err_days} ? "$href->{err_days} days after " : "") . "$preserve_day_of_week, not older than $preserve_weekly weeks";
-          $oldest_daily = $href;
-        }
-      }
+      $href->{delta_days}   = $delta_days;
+      $href->{delta_weeks}  = $delta_days_to_eow / 7;
+      $href->{err_days}     = 6 - ( $delta_days_to_eow % 7 );
+      $href->{delta_months} = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
+      $href->{month}        = "$date[0]-$date[1]";
     }
   }
 
-  my %last_in_delta_months;
-  my $oldest_weekly;
-  foreach (reverse sort keys %first_in_delta_weeks)
-  {
+  # filter daily, weekly, monthly
+  my %first_in_delta_weeks;
+  my %last_weekly_in_delta_months;
+  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule) {
+    if($preserve_daily && (($preserve_daily eq "all") || ($href->{delta_days} <= $preserve_daily))) {
+      $href->{preserve} ||= "preserved daily: $href->{delta_days} days ago";
+    }
+    $first_in_delta_weeks{$href->{delta_weeks}} //= $href;
+  }
+  foreach (reverse sort keys %first_in_delta_weeks) {
     my $href = $first_in_delta_weeks{$_} || die;
-    if(($preserve_weekly eq "all") || ($href->{delta_weeks} <= $preserve_weekly)) {
+    if($preserve_weekly && (($preserve_weekly eq "all") || ($href->{delta_weeks} <= $preserve_weekly))) {
       $href->{preserve} ||= "preserved weekly: $href->{delta_weeks} weeks ago, " . ($href->{err_days} ? "+$href->{err_days} days after " : "on ") . "$preserve_day_of_week";
     }
-    my @date = @{$href->{date}};
-    my $delta_months = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
-    $href->{delta_months} = $delta_months;
-    $href->{month} = "$date[0]-$date[1]";
-    # find last_in_month
-    $last_in_delta_months{$delta_months} = $href;
-
-    unless($oldest_weekly) {
-      if(($preserve_monthly eq "all") || ($delta_months <= $preserve_monthly)) {
-        # keep the oldest weekly
-        $href->{preserve} ||= "preserved monthly: oldest weekly backup: " . ($href->{err_days} ? "+$href->{err_days} days after " : "") . "$preserve_day_of_week (age: $delta_months months)";
-      }
-      $oldest_weekly = $href;
-    }
-
+    $last_weekly_in_delta_months{$href->{delta_months}} = $href;
   }
-
-  # keep last weekly of month
-  foreach (reverse sort keys %last_in_delta_months)
-  {
-    my $href = $last_in_delta_months{$_} || die;
-    if(($preserve_monthly eq "all") || ($href->{delta_months} <= $preserve_monthly)) {
+  foreach (reverse sort keys %last_weekly_in_delta_months) {
+    my $href = $last_weekly_in_delta_months{$_} || die;
+    if($preserve_monthly && (($preserve_monthly eq "all") || ($href->{delta_months} <= $preserve_monthly))) {
       $href->{preserve} ||= "preserved monthly: " . ($href->{err_days} ? "$href->{err_days} days after " : "") . "last $preserve_day_of_week of month $href->{month} (age: $href->{delta_months} months)";
     }
   }
 
+  # assemble results
   my @delete;
   foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)
   {
@@ -1412,7 +1388,7 @@ MAIN:
               push(@schedule, { name => "$droot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
             }
           }
-          my @delete = check_backup_scheme(
+          my @delete = schedule_deletion(
             schedule             => \@schedule,
             today                => \@today,
             preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
@@ -1446,7 +1422,7 @@ MAIN:
             push(@schedule, { name => "$sroot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
           }
         }
-        my @delete = check_backup_scheme(
+        my @delete = schedule_deletion(
           schedule             => \@schedule,
           today                => \@today,
           preserve_day_of_week => config_key($config_subvol, "preserve_day_of_week"),
