@@ -114,6 +114,7 @@ sub HELP_MESSAGE
   print STDERR "   dryrun      don't run btrfs commands, just show what would be executed\n";
   print STDERR "   info        print useful filesystem information\n";
   print STDERR "   tree        shows backup tree\n";
+  print STDERR "   origin <subvol>   print origin information for subvolume\n";
   print STDERR "   diff <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
@@ -837,6 +838,28 @@ sub get_latest_common($$$)
 }
 
 
+sub origin_tree
+{
+  my $prefix = shift;
+  my $uuid = shift;
+  my $lines = shift;
+  my $node = $uuid_info{$uuid};
+  unless($node) {
+    push(@$lines, ["$prefix<orphaned>", $uuid]);
+    return 0;
+  }
+  push(@$lines, ["$prefix$node->{FS_PATH}", $uuid]);
+  $prefix =~ s/./ /g;
+#  $prefix =~ s/^ /\|/g;
+  if($node->{received_uuid} ne '-') {
+    origin_tree("${prefix}^---", $node->{received_uuid}, $lines);
+  }
+  if($node->{parent_uuid} ne '-') {
+    origin_tree("${prefix}", $node->{parent_uuid}, $lines);
+  }
+}
+
+
 sub schedule_deletion(@)
 {
   my %args = @_;
@@ -946,10 +969,7 @@ MAIN:
     exit 0;
   }
 
-  my $action_execute;
-  my $action_info;
-  my $action_tree;
-  my $action_diff;
+  my ($action_execute, $action_info, $action_tree, $action_diff, $action_origin);
   if(($command eq "execute") || ($command eq "dryrun")) {
     $action_execute = 1;
     $dryrun = 1 if($command eq "dryrun");
@@ -962,6 +982,9 @@ MAIN:
   }
   elsif ($command eq "diff") {
     $action_diff = 1;
+  }
+  elsif ($command eq "origin") {
+    $action_origin = 1;
   }
   else {
     ERROR "Unrecognized command: $command";
@@ -1165,6 +1188,52 @@ MAIN:
     }
   }
   TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
+
+
+  if($action_origin)
+  {
+    #
+    # print origin information
+    #
+    my $subvol = shift @ARGV;
+    my $dump_uuid = 0;
+    unless($subvol) {
+      ERROR "Missing subvolume argument for \"origin\" command";
+      HELP_MESSAGE(0);
+      exit 1;
+    }
+    $subvol =~ s/\/+$//;   # remove trailing slash
+    my $uuid;
+    foreach(values %uuid_info) {
+      if($_->{FS_PATH} eq $subvol) {
+        $uuid = $_->{uuid};
+        last;
+      }
+    }
+    unless($uuid) {
+      ERROR "Not a configured backup target: $subvol";
+      exit 1;
+    }
+    my $lines = [];
+    origin_tree("", $uuid, $lines);
+
+    print "--------------------------------------------------------------------------------\n";
+    print "Origin Tree\n\n";
+    print "    ^---    : received from subvolume\n";
+    print "    newline : parent subvolume\n";
+    print "    orphaned: subvolume uuid could not be resolved (probably deleted)\n";
+    print "--------------------------------------------------------------------------------\n";
+
+    my $len = 0;
+    if($dump_uuid) {
+      $len = (length($_->[0]) > $len ? length($_->[0]) : $len) foreach(@$lines);
+    }
+    foreach(@$lines) {
+      print "$_->[0]";
+      print ' ' x ($len - length($_->[0]) + 4) . "$_->[1]" if($dump_uuid);
+      print "\n";
+    }
+  }
 
 
   if($action_tree)
