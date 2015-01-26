@@ -186,50 +186,6 @@ sub get_rsh($$)
 }
 
 
-sub btr_subvolume_detail($;$)
-{
-  my $vol = shift || die;
-  my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume show $real_vol 2>/dev/null", 1);
-  if($ret)
-  {
-    if($ret eq "$real_vol is btrfs root") {
-      DEBUG "found btrfs root: $vol";
-      return { id => 5, is_root => 1 };
-    }
-    elsif($ret =~ /^$real_vol/) {
-      TRACE "btr_detail: found btrfs subvolume: $vol";
-      my %trans = (
-        name          => "Name",
-        uuid          => "uuid",
-        parent_uuid   => "Parent uuid",
-        creation_time => "Creation time",
-        id            => "Object ID",
-        gen           => "Generation \\(Gen\\)",
-        cgen          => "Gen at creation",
-        parent_id     => "Parent",
-        top_level     => "Top Level",
-        flags         => "Flags",
-       );
-      my %detail;
-      foreach (keys %trans) {
-        if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
-          $detail{$_} = $1;
-        } else {
-          WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
-        }
-      }
-      DEBUG "parsed " . scalar(keys %detail) . " subvolume detail items: $vol";
-      TRACE "btr_detail for $vol: " . Dumper \%detail;
-      return \%detail;
-    }
-  }
-  WARN "Failed to fetch subvolume detail for: $vol";
-  return undef;
-}
-
-
 sub config_key($$)
 {
   my $node = shift || die;
@@ -499,6 +455,50 @@ sub btr_filesystem_usage($;$)
   my ($rsh, $real_vol) = get_rsh($vol, $config);
   my $ret = run_cmd("$rsh /sbin/btrfs filesystem usage $real_vol", 1);
   return $ret;
+}
+
+
+sub btr_subvolume_detail($;$)
+{
+  my $vol = shift || die;
+  my $config = shift;
+  my ($rsh, $real_vol) = get_rsh($vol, $config);
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume show $real_vol 2>/dev/null", 1);
+  if($ret)
+  {
+    if($ret eq "$real_vol is btrfs root") {
+      DEBUG "found btrfs root: $vol";
+      return { id => 5, is_root => 1 };
+    }
+    elsif($ret =~ /^$real_vol/) {
+      TRACE "btr_detail: found btrfs subvolume: $vol";
+      my %trans = (
+        name          => "Name",
+        uuid          => "uuid",
+        parent_uuid   => "Parent uuid",
+        creation_time => "Creation time",
+        id            => "Object ID",
+        gen           => "Generation \\(Gen\\)",
+        cgen          => "Gen at creation",
+        parent_id     => "Parent",
+        top_level     => "Top Level",
+        flags         => "Flags",
+       );
+      my %detail;
+      foreach (keys %trans) {
+        if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
+          $detail{$_} = $1;
+        } else {
+          WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
+        }
+      }
+      DEBUG "parsed " . scalar(keys %detail) . " subvolume detail items: $vol";
+      TRACE "btr_detail for $vol: " . Dumper \%detail;
+      return \%detail;
+    }
+  }
+  WARN "Failed to fetch subvolume detail for: $vol";
+  return undef;
 }
 
 
