@@ -1,0 +1,119 @@
+.TH "btrbk" "1" "2015-02-08" "btrbk v0.10" ""
+.SH NAME
+btrbk \- backup tool for btrfs volumes
+.SH SYNOPSIS
+\fBbtrbk\fR [\-\-version] [\-\-help] [\-c <file>] [\-v] [\-q] [\-l <level>] <command> [<args>]
+.SH DESCRIPTION
+\fBbtrbk\fR is a backup tool for btrfs subvolumes, taking advantage of
+btrfs specific capabilities to create atomic snapshots and transfer
+them incrementally to target volumes. It is able to perform backups
+from one source to multiple destinations.
+.PP
+Snapshots as well as backup subvolume names are created in form:
+.IP
+<source_name>.YYYYMMDD[_N]
+.PP
+Where YYYY is the year, MM is the month, and DD is the day of
+creation, and, if multiple backups are created on the same day, N will
+be incremented on each backup, starting at 1.
+.SH OPTIONS
+.TP
+\-\-version
+Prints the btrbk version.
+.TP
+\-\-help
+Prints the synopsis and a list of the commands.
+.TP
+\-c <file>
+Read the configuration from <file>.
+.TP
+\-v
+Verbose output. Identical to: \-l info.
+.TP
+\-q
+Quiet operation. If set, btrbk does not print the summary after
+executing the "run" command.
+.TP
+\-l <level>
+Set the level of verbosity. Accepted levels are warn, info, debug,
+and trace.
+.SH COMMANDS
+.PP
+.B run
+.RS 4
+Perform backup operations as specified in the configuration
+file:
+.PP
+First, btrbk reads information from the source/target btrfs volumes in
+order to do sanity checks and find out about parent/child as well as
+received-from relationships.
+.PP
+If the checks succeed, btrbk creates snapshots for all the source
+subvolumes specified in the configuration file.
+.PP
+Then, for each specified target, btrbk creates a new backup subvolume,
+incremental from the latest common snapshot / backup subvolume
+found. If no common parent subvolume is found, a full backup is
+created.
+.PP
+In a last step, previous snapshots and backup subvolumes that are not
+preserved by the current retention policy will be deleted.
+.RE
+.PP
+.B dryrun
+.RS 4
+Don't run btrfs commands, just show the snapshots and backup
+subvolumes that what would be created/deleted by the \fBrun\fR
+command. Use in conjunction with \fI\-l debug\fR to see the btrfs
+commands that would be executed.
+.RE
+.PP
+.B info
+.RS 4
+Print filesystem usage information for all source/target volumes.
+.RE
+.PP
+.B tree
+.RS 4
+Print the snapshots and their corresponding backup subvolumes as a
+tree.
+.RE
+.PP
+.B origin
+<subvolume>
+.RS 4
+Print origin information for the given backup subvolume, showing the
+parent-child relationship as well as the received-from information.
+.RE
+.PP
+.B diff
+<from> <to>
+.RS 4
+Print new files since subvolume <from> for subvolume <to>.
+.RE
+.SH FILES
+.TP
+/etc/btrbk.conf
+.PD 0
+.TP
+/etc/btrbk/btrbk.conf
+Default configuration file. The file format and configuration options
+are described in
+.BR btrbk.conf (5).
+.PD
+.SH EXIT STATUS
+.sp
+\fBbtrbk\fR returns a zero exit status if it succeeds. Non zero is
+returned in case of failure.
+.SH AVAILABILITY
+Please refer to the btrbk project page
+\fBhttp://www.digint.ch/btrbk\fR for further
+details.
+.SH SEE ALSO
+.BR btrbk.conf (5),
+.BR btrfs (1)
+.PP
+For more information about btrfs and incremental backups, see the web
+site at https://btrfs.wiki.kernel.org/index.php/Incremental_Backup
+.SH AUTHOR
+Axel Burri <axel@tty0.ch>
