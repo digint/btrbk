@@ -84,6 +84,9 @@ my %uuid_info;
 my $dryrun;
 my $loglevel = 1;
 
+my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
+my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
+my $file_match = qr/[0-9a-zA-Z_\-\.\/]+/;
 
 $SIG{__DIE__} = sub {
   print STDERR "\nERROR: process died unexpectedly (btrbk v$VERSION)";
@@ -207,10 +210,6 @@ sub check_file($$$$)
   my $accept = shift;
   my $key = shift;  # only for error text
   my $config_file = shift;  # only for error text
-
-  my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
-  my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
-  my $file_match = qr/[0-9a-zA-Z_\-\.\/]+/;
 
   if($accept->{ssh} && ($file =~ /^ssh:\/\//)) {
     unless($file =~ /^ssh:\/\/($ip_addr_match|$host_name_match)\/$file_match$/) {
@@ -559,7 +558,7 @@ sub btr_subvolume_find_new($$;$)
   my $transid_marker;
   foreach (split(/\n/, $ret))
   {
-    if(/^inode \S+ file offset (\S+) len (\S+) disk start \S+ offset \S+ gen (\S+) flags (\S+) (\S+)$/) {
+    if(/^inode \S+ file offset (\S+) len (\S+) disk start \S+ offset \S+ gen (\S+) flags (\S+) (.+)$/) {
       my $file_offset = $1;
       my $len         = $2;
       my $gen         = $3;
@@ -1006,6 +1005,17 @@ MAIN:
       HELP_MESSAGE(0);
       exit 1;
     }
+    # untaint arguments
+    unless($src_vol =~ /^($file_match)$/) {
+      ERROR "bad argument: not a file: $src_vol";
+      exit 1;
+    }
+    $src_vol = $1;
+    unless($target_vol =~ /^($file_match)$/) {
+      ERROR "bad argument: not a file: $target_vol";
+      exit 1;
+    }
+    $target_vol = $1;
 
     my $src_detail = btr_subvolume_detail($src_vol);
     unless($src_detail) { exit 1; }
@@ -1051,12 +1061,12 @@ MAIN:
     print "\nThis will show all files modified within generation range: [$lastgen..$target->{gen}]\n";
     print "Newest file generation (transid marker) was: $ret->{transid_marker}\n";
     print "Parse errors: $ret->{parse_errors}\n" if($ret->{parse_errors});
-    print "\nLegend: <flags> <gen> <size> <filename>\n";
-    print "  +..    file accessed at offset 0 (at least once)\n";
-    print "  .c.    flags COMPRESS or COMPRESS|INLINE set (at least once)\n";
-    print "  ..i    flags INLINE or COMPRESS|INLINE set (at least once)\n";
-    print "  <gen>  file was modified in <gen> generations\n";
-    print "  <size> file was modified for a total of <size> bytes\n";
+    print "\nLegend: <flags> <count> <size> <filename>\n";
+    print "  +..     file accessed at offset 0 (at least once)\n";
+    print "  .c.     flags COMPRESS or COMPRESS|INLINE set (at least once)\n";
+    print "  ..i     flags INLINE or COMPRESS|INLINE set (at least once)\n";
+    print "  <count> file was modified in <count> generations\n";
+    print "  <size>  file was modified for a total of <size> bytes\n";
     print "--------------------------------------------------------------------------------\n";
     my $files = $ret->{files};
 
