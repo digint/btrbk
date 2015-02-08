@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-btrbk - backup btrfs volumes at file-system level
+btrbk - backup tool for btrfs volumes
 
 =head1 SYNOPSIS
 
@@ -109,11 +109,11 @@ sub HELP_MESSAGE
   print STDERR "   --version   display version information\n";
   print STDERR "   -c FILE     specify configuration file\n";
   print STDERR "   -v          be verbose (set loglevel=info)\n";
-  print STDERR "   -q          be quiet (do not print summary at end of \"execute\" command)\n";
+  print STDERR "   -q          be quiet (do not print summary at end of \"run\" command)\n";
   print STDERR "   -l LEVEL    set loglevel (warn, info, debug, trace)\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   execute     perform backup operations as defined in configuration\n";
+  print STDERR "   run         perform backup operations as defined in configuration\n";
   print STDERR "   dryrun      don't run btrfs commands, just show what would be executed\n";
   print STDERR "   info        print useful filesystem information\n";
   print STDERR "   tree        shows backup tree\n";
@@ -968,9 +968,9 @@ MAIN:
     exit 0;
   }
 
-  my ($action_execute, $action_info, $action_tree, $action_diff, $action_origin);
-  if(($command eq "execute") || ($command eq "dryrun")) {
-    $action_execute = 1;
+  my ($action_run, $action_info, $action_tree, $action_diff, $action_origin);
+  if(($command eq "run") || ($command eq "dryrun")) {
+    $action_run = 1;
     $dryrun = 1 if($command eq "dryrun");
   }
   elsif ($command eq "info") {
@@ -1292,7 +1292,7 @@ MAIN:
   }
 
 
-  if($action_execute)
+  if($action_run)
   {
     #
     # create snapshots
