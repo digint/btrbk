@@ -1075,7 +1075,7 @@ MAIN:
     my $gen_charlen = 0;
     foreach (values %$files) {
       my $len = length($_->{len});
-      my $gen = length(scalar(keys($_->{gen})));
+      my $gen = length(scalar(keys(%{$_->{gen}})));
       $len_charlen = $len if($len > $len_charlen);
       $gen_charlen = $gen if($gen > $gen_charlen);
     }
@@ -1087,7 +1087,7 @@ MAIN:
       print ($files->{$name}->{flags}->{inline}   ? 'i' : '.');
 
       # make nice table
-      my $gens = scalar(keys($files->{$name}->{gen}));
+      my $gens = scalar(keys(%{$files->{$name}->{gen}}));
       my $len = $files->{$name}->{len};
       print "  " . (' ' x ($gen_charlen - length($gens))) .  $gens;
       print "  " . (' ' x ($len_charlen - length($len))) .  $len;
@@ -1261,14 +1261,14 @@ MAIN:
         my $svol = $config_subvol->{svol} || die;
         print "|-- $svol\n";
         my $sroot_uuid;
-        foreach (values $vol_info{$sroot}) {
+        foreach (values %{$vol_info{$sroot}}) {
           if($_->{FS_PATH} eq "$sroot/$svol") {
             die if $sroot_uuid;
             $sroot_uuid = $_->{uuid};
           }
         }
         die unless $sroot_uuid;
-        foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values $vol_info{$sroot}))
+        foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$sroot}}))
         {
           next unless($_->{parent_uuid} eq $sroot_uuid);
           # next unless($_->{SUBVOL_PATH} =~ /^$snapdir/);  # don't print non-btrbk snapshots
@@ -1280,7 +1280,7 @@ MAIN:
             my $droot = $config_target->{droot} || die;
             next unless $vol_info{$droot};
             my $match = "$droot/$snapshot";
-            foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values $vol_info{$droot})) {
+            foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values %{$vol_info{$droot}})) {
               # TODO: also print the backups which do not have corresponding snapshot anymore
               print "|   |   |== $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
             }
