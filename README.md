@@ -122,7 +122,7 @@ Retention policy:
 /etc/cron.daily/btrbk:
 
     #!/bin/bash
-    /etc/btrbk/btrbk -c /etc/btrbk/btrbk-mylaptop.conf execute
+    /usr/sbin/btrbk -c /etc/btrbk/btrbk-mylaptop.conf run
 
 
 - This will create snapshots on a daily basis:
