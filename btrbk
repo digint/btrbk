@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.10";
+our $VERSION       = "0.11-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk>';
 
@@ -102,7 +102,7 @@ sub VERSION_MESSAGE
 
 sub HELP_MESSAGE
 {
-  print STDERR "usage: $0 [options] <command>\n";
+  print STDERR "usage: btrbk [options] <command>\n";
   print STDERR "\n";
   print STDERR "options:\n";
   print STDERR "   --help      display this help message\n";
@@ -941,7 +941,7 @@ MAIN:
   my @today = Today();
 
   my %opts;
-  unless(getopts('s:t:c:vql:p', \%opts)) {
+  unless(getopts('hc:vql:p', \%opts)) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 1;
