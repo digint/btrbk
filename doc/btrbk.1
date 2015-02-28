@@ -2,7 +2,7 @@
 .SH NAME
 btrbk \- backup tool for btrfs volumes
 .SH SYNOPSIS
-\fBbtrbk\fR [\-\-version] [\-\-help] [\-c <file>] [\-v] [\-q] [\-l <level>] <command> [<args>]
+\fBbtrbk\fR [\-\-version] [\-\-help] [\-c <file>] [\-p] [\-v] [\-q] [\-l <level>] <command> [<args>]
 .SH DESCRIPTION
 \fBbtrbk\fR is a backup tool for btrfs subvolumes, taking advantage of
 btrfs specific capabilities to create atomic snapshots and transfer
@@ -26,6 +26,10 @@ Prints the synopsis and a list of the commands.
 .TP
 \-c <file>
 Read the configuration from <file>.
+.TP
+\-p
+Preserve all backups. Skips deletion of old backups, even if specified
+in the configuration file.
 .TP
 \-v
 Verbose output. Identical to: \-l info.
@@ -57,7 +61,8 @@ found. If no common parent subvolume is found, a full backup is
 created.
 .PP
 In a last step, previous snapshots and backup subvolumes that are not
-preserved by the current retention policy will be deleted.
+preserved by the current retention policy will be deleted. This step
+will be skipped if the -p (preserve backups) option is present.
 .RE
 .PP
 .B dryrun

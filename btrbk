@@ -108,6 +108,7 @@ sub HELP_MESSAGE
   print STDERR "   --help      display this help message\n";
   print STDERR "   --version   display version information\n";
   print STDERR "   -c FILE     specify configuration file\n";
+  print STDERR "   -p          preserve all backups (do not delete any old targets)\n";
   print STDERR "   -v          be verbose (set loglevel=info)\n";
   print STDERR "   -q          be quiet (do not print summary at end of \"run\" command)\n";
   print STDERR "   -l LEVEL    set loglevel (warn, info, debug, trace)\n";
@@ -960,6 +961,7 @@ MAIN:
   }
   @config_src = ( $opts{c} ) if($opts{c});
   my $quiet = $opts{q};
+  my $preserve_backups = $opts{p};
 
   # check command line options
   if($opts{h} || (not $command)) {
@@ -1439,85 +1441,91 @@ MAIN:
     #
     # remove backups following a preserve daily/weekly/monthly scheme
     #
-    foreach my $config_vol (@{$config->{VOLUME}})
+    if($preserve_backups) {
+      INFO "Preserving all backups (option \"-p\" present)";
+    }
+    else
     {
-      next if($config_vol->{ABORTED});
-      my $sroot = $config_vol->{sroot} || die;
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+      foreach my $config_vol (@{$config->{VOLUME}})
       {
-        next if($config_subvol->{ABORTED});
-        my $svol = $config_subvol->{svol} || die;
-        my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
-        my $target_aborted = 0;
-        foreach my $config_target (@{$config_subvol->{TARGET}})
+        next if($config_vol->{ABORTED});
+        my $sroot = $config_vol->{sroot} || die;
+        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
         {
-          if($config_target->{ABORTED}) {
-            $target_aborted = 1;
-            next;
+          next if($config_subvol->{ABORTED});
+          my $svol = $config_subvol->{svol} || die;
+          my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+          my $target_aborted = 0;
+          foreach my $config_target (@{$config_subvol->{TARGET}})
+          {
+            if($config_target->{ABORTED}) {
+              $target_aborted = 1;
+              next;
+            }
+            my $droot = $config_target->{droot} || die;
+
+            #
+            # delete backups
+            #
+            INFO "Cleaning backups of subvolume \"$sroot/$svol\": $droot/$svol.*";
+            my @schedule;
+            foreach my $vol (keys %{$vol_info{$droot}}) {
+              if($vol =~ /^$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
+                push(@schedule, { name => "$droot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
+              }
+            }
+            my @delete = schedule_deletion(
+              schedule             => \@schedule,
+              today                => \@today,
+              preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
+              preserve_daily       => config_key($config_target, "target_preserve_daily"),
+              preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
+              preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+             );
+            my $ret = btrfs_subvolume_delete($config_target, @delete);
+            if(defined($ret)) {
+              INFO "Deleted $ret subvolumes in: $droot/$svol.*";
+              $config_target->{subvol_deleted} = \@delete;
+            }
+            else {
+              $config_target->{ABORTED} = "btrfs subvolume delete command failed";
+              $target_aborted = 1;
+            }
+            $config_target->{schedule} = \@schedule;
           }
-          my $droot = $config_target->{droot} || die;
 
           #
-          # delete backups
+          # delete snapshots
           #
-          INFO "Cleaning backups of subvolume \"$sroot/$svol\": $droot/$svol.*";
+          if($target_aborted) {
+            WARN "Skipping cleanup of snapshots for subvolume \"$sroot/$svol\", as at least one target aborted earlier";
+            next;
+          }
+          INFO "Cleaning snapshots: $sroot/$snapdir$svol.*";
           my @schedule;
-          foreach my $vol (keys %{$vol_info{$droot}}) {
-            if($vol =~ /^$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
-              push(@schedule, { name => "$droot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
+          foreach my $vol (keys %{$vol_info{$sroot}}) {
+            if($vol =~ /^$snapdir$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
+              push(@schedule, { name => "$sroot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
             }
           }
           my @delete = schedule_deletion(
             schedule             => \@schedule,
             today                => \@today,
-            preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
-            preserve_daily       => config_key($config_target, "target_preserve_daily"),
-            preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
-            preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+            preserve_day_of_week => config_key($config_subvol, "preserve_day_of_week"),
+            preserve_daily       => config_key($config_subvol, "snapshot_preserve_daily"),
+            preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
+            preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
            );
-          my $ret = btrfs_subvolume_delete($config_target, @delete);
+          my $ret = btrfs_subvolume_delete($config_subvol, @delete);
           if(defined($ret)) {
-            INFO "Deleted $ret subvolumes in: $droot/$svol.*";
-            $config_target->{subvol_deleted} = \@delete;
+            INFO "Deleted $ret subvolumes in: $sroot/$snapdir$svol.*";
+            $config_subvol->{subvol_deleted} = \@delete;
           }
           else {
-            $config_target->{ABORTED} = "btrfs subvolume delete command failed";
-            $target_aborted = 1;
+            $config_subvol->{ABORTED} = "btrfs subvolume delete command failed";
           }
-          $config_target->{schedule} = \@schedule;
+          $config_subvol->{schedule} = \@schedule;
         }
-
-        #
-        # delete snapshots
-        #
-        if($target_aborted) {
-          WARN "Skipping cleanup of snapshots for subvolume \"$sroot/$svol\", as at least one target aborted earlier";
-          next;
-        }
-        INFO "Cleaning snapshots: $sroot/$snapdir$svol.*";
-        my @schedule;
-        foreach my $vol (keys %{$vol_info{$sroot}}) {
-          if($vol =~ /^$snapdir$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
-            push(@schedule, { name => "$sroot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
-          }
-        }
-        my @delete = schedule_deletion(
-          schedule             => \@schedule,
-          today                => \@today,
-          preserve_day_of_week => config_key($config_subvol, "preserve_day_of_week"),
-          preserve_daily       => config_key($config_subvol, "snapshot_preserve_daily"),
-          preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
-          preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
-         );
-        my $ret = btrfs_subvolume_delete($config_subvol, @delete);
-        if(defined($ret)) {
-          INFO "Deleted $ret subvolumes in: $sroot/$snapdir$svol.*";
-          $config_subvol->{subvol_deleted} = \@delete;
-        }
-        else {
-          $config_subvol->{ABORTED} = "btrfs subvolume delete command failed";
-        }
-        $config_subvol->{schedule} = \@schedule;
       }
     }
 
