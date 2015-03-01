@@ -974,10 +974,13 @@ MAIN:
 
   my ($action_run, $action_info, $action_tree, $action_diff, $action_origin);
   my @subvol_args;
-  my $args_expected = 0;
+  my ($args_expected_min, $args_expected_max) = (0, 0);
   if(($command eq "run") || ($command eq "dryrun")) {
     $action_run = 1;
     $dryrun = 1 if($command eq "dryrun");
+    $args_expected_min = 0;
+    $args_expected_max = 9999;
+    @subvol_args = @ARGV;
   }
   elsif ($command eq "info") {
     $action_info = 1;
@@ -987,12 +990,12 @@ MAIN:
   }
   elsif ($command eq "diff") {
     $action_diff = 1;
-    $args_expected = 2;
+    $args_expected_min = $args_expected_max = 2;
     @subvol_args = @ARGV;
   }
   elsif ($command eq "origin") {
     $action_origin = 1;
-    $args_expected = 1;
+    $args_expected_min = $args_expected_max = 1;
     @subvol_args = @ARGV;
   }
   else {
@@ -1000,7 +1003,7 @@ MAIN:
     HELP_MESSAGE(0);
     exit 1;
   }
-  if($args_expected != scalar(@ARGV)) {
+  if(($args_expected_min > scalar(@ARGV)) || ($args_expected_max < scalar(@ARGV))) {
     ERROR "Incorrect number of arguments";
     HELP_MESSAGE(0);
     exit 1;
@@ -1185,13 +1188,29 @@ MAIN:
   #
   # fill vol_info hash, basic checks on configuration
   #
+  my $subvol_filter_count = undef;
   foreach my $config_vol (@{$config->{VOLUME}})
   {
     my $sroot = $config_vol->{sroot} || die;
-    $vol_info{$sroot} //= btr_subtree($sroot, $config_vol);
     foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
     {
       my $svol = $config_subvol->{svol} || die;
+
+      # filter subvolumes matching command line arguments
+      if($action_run && scalar(@subvol_args)) {
+        $subvol_filter_count //= 0;
+        if(grep(/^$sroot\/$svol$/, @subvol_args)) {
+          $subvol_filter_count++;
+        }
+        else {
+          DEBUG "No match on subvolume command line argument, skipping: $sroot/$svol";
+          $config_subvol->{ABORTED} = "No match on subvolume command line arguments";
+          $config_subvol->{ABORTED_NOERR} = 1;
+          next;
+        }
+      }
+
+      $vol_info{$sroot} //= btr_subtree($sroot, $config_vol);
       unless(subvol($sroot, $svol)) {
         $config_subvol->{ABORTED} = "Subvolume \"$svol\" not present in btrfs subvolume list for \"$sroot\"";
         WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
@@ -1208,6 +1227,10 @@ MAIN:
         }
       }
     }
+  }
+  if(defined($subvol_filter_count) && ($subvol_filter_count == 0)) {
+    ERROR "Subvolume command line arguments do not match any volume/subvolume declaration from configuration file, aborting.";
+    exit 1;
   }
   TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
@@ -1552,14 +1575,14 @@ MAIN:
       {
         if($config_vol->{ABORTED}) {
           print "!!! $config_vol->{sroot}: ABORTED: $config_vol->{ABORTED}\n";
-          $err_count++;
+          $err_count++ unless($config_vol->{ABORTED_NOERR});
         }
         foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
         {
           print "\n$config_vol->{sroot}/$config_subvol->{svol}\n";
           if($config_subvol->{ABORTED}) {
             print "!!! Subvolume \"$config_subvol->{svol}\" aborted: $config_subvol->{ABORTED}\n";
-            $err_count++;
+            $err_count++ unless($config_subvol->{ABORTED_NOERR});
           }
           # if($config_subvol->{schedule}) {
           #   foreach (sort { $a->{sort} cmp $b->{sort} } @{$config_subvol->{schedule}}) {
@@ -1574,7 +1597,7 @@ MAIN:
           {
             if($config_target->{ABORTED}) {
               print "!!! Target \"$config_target->{droot}\" aborted: $config_target->{ABORTED}\n";
-              $err_count++;
+              $err_count++ unless($config_target->{ABORTED_NOERR});
             }
             # if($config_target->{schedule}) {
             #   foreach (sort { $a->{sort} cmp $b->{sort} } @{$config_target->{schedule}}) {
@@ -1592,6 +1615,9 @@ MAIN:
       if($err_count) {
         print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
         print "Please check warning and error messages above.\n";
+      }
+      if($preserve_backups) {
+        print "\nNOTE: Preserved all backups (option -p present)\n";
       }
       if($dryrun) {
         print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";

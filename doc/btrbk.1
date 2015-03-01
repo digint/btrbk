@@ -44,9 +44,13 @@ and trace.
 .SH COMMANDS
 .PP
 .B run
+[subvolume...]
 .RS 4
-Perform backup operations as specified in the configuration
-file:
+Perform backup operations as specified in the configuration file. If
+the optional [subvolume...] arguments are present, backups are only
+performed for the specified subvolumes (which must match a
+volume/subvolume declaration in the configuration file), and the -p
+(preserve backups) option is implied.
 .PP
 First, btrbk reads information from the source/target btrfs volumes in
 order to do sanity checks and find out about parent/child as well as
@@ -66,6 +70,7 @@ will be skipped if the -p (preserve backups) option is present.
 .RE
 .PP
 .B dryrun
+[subvolume...]
 .RS 4
 Don't run btrfs commands, just show the snapshots and backup
 subvolumes that what would be created/deleted by the \fBrun\fR
