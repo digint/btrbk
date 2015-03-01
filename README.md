@@ -238,9 +238,18 @@ How to Contribute
 
 Your contributions are welcome!
 
-If you would like to contribute or found bugs, visit the [btrbk
-project page on GitHub](http://github.com/digint/btrbk), or contact
-the author via email.
+If you would like to contribute or found bugs:
+
+- visit the [btrbk project page on GitHub] and use the [issues
+  tracker] there
+- talk to us on Freenode in #btrbk
+- contact the author via email (the email address can be found in the
+  sources)
+
+Any feedback is appreciated!
+
+  [btrbk project page on GitHub]: http://github.com/digint/btrbk
+  [issues tracker]: http://github.com/digint/btrbk/issues
 
 
 License
