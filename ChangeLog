@@ -1,2 +1,8 @@
 * btrbk-0.10
   - initial revision
+
+* btrbk-0.11
+  - added option -p (preserve backups)
+  - added optional subvolume argument for run/dryrun actions, for
+    explicit selection of subvolumes to be processed
+  - bugfixes
