@@ -1368,7 +1368,7 @@ MAIN:
           next if($config_target->{ABORTED});
           my $droot = $config_target->{droot} || die;
           if(subvol($droot, $snapshot_name)) {
-            $config_target->{ABORTED} = "Snapshot already exists at destination: $droot/$snapshot_name";
+            $config_target->{ABORTED} = "Subvolume already exists at destination: $droot/$snapshot_name";
             WARN "Skipping target: $config_target->{ABORTED}";
             next;
           }
