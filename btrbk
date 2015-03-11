@@ -664,13 +664,16 @@ sub btr_subtree($;$)
     my $path =  $node->{path};
     if($volname) {
       # strip leading volume name
-      unless($path =~ s/^$volname\///) {
-        # if $vol is a sub-subvolume, strip whole prefix
-        unless($path =~ s/.+\/$volname\///) {
-          die("ambiguous btrfs subvolume info line");
-        }
+      if($path =~ s/^$volname\///) {
+        TRACE "btr_subtree: removed \"$&\" prefix of subvolume path: $path";
       }
-      TRACE "btr_subtree: removed \"$&\" prefix of subvolume path: $path";
+      elsif($path =~ s/^.+\/$volname\///) {
+        # $vol is a sub-subvolume, whole prefix stripped
+        TRACE "btr_subtree: removed \"$&\" prefix of sub-subvolume path: $path";
+      }
+      else {
+        die("ambiguous btrfs subvolume info line");
+      }
     }
     $node->{SUBVOL_PATH} = $path;
     TRACE "btr_subtree: set SUBVOL_PATH: $node->{SUBVOL_PATH}";
