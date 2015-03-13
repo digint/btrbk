@@ -1309,6 +1309,7 @@ MAIN:
     #
     # print snapshot tree
     #
+    # TODO: reverse tree: print all backups from $droot and their corresponding source snapshots
     foreach my $config_vol (@{$config->{VOLUME}})
     {
       my $sroot = $config_vol->{sroot} || die;
@@ -1318,29 +1319,28 @@ MAIN:
       {
         my $svol = $config_subvol->{svol} || die;
         print "|-- $svol\n";
-        my $sroot_uuid;
-        foreach (values %{$vol_info{$sroot}}) {
-          if($_->{FS_PATH} eq "$sroot/$svol") {
-            die if $sroot_uuid;
-            $sroot_uuid = $_->{uuid};
-          }
+        unless($vol_info{$sroot}->{$svol}) {
+          print "    !!! error: no subvolume \"$svol\" found in \"$sroot\"\n";
+          next;
         }
-        die unless $sroot_uuid;
+
+        my $sroot_uuid = $vol_info{$sroot}->{$svol}->{node}->{uuid} || die;
         foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$sroot}}))
         {
-          next unless($_->{parent_uuid} eq $sroot_uuid);
+          next unless($_->{node}->{parent_uuid} eq $sroot_uuid);
           # next unless($_->{SUBVOL_PATH} =~ /^$snapdir/);  # don't print non-btrbk snapshots
           print "|   ^-- $_->{SUBVOL_PATH}\n";
           my $snapshot = $_->{FS_PATH};
           $snapshot =~ s/^.*\///;
+          my $snapshot_uuid = $_->{node}->{uuid} || die;
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             my $droot = $config_target->{droot} || die;
             next unless $vol_info{$droot};
-            my $match = "$droot/$snapshot";
-            foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values %{$vol_info{$droot}})) {
-              # TODO: also print the backups which do not have corresponding snapshot anymore
-              print "|   |   |== $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
+
+            foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$droot}})) {
+              next unless($_->{node}->{received_uuid} eq $snapshot_uuid);
+              print "|   |   ^== $_->{FS_PATH}\n";
             }
           }
         }
