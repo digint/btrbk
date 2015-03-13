@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.11";
+our $VERSION       = "0.12-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk>';
 
@@ -80,6 +80,7 @@ my @config_target_types = qw(send-receive);
 
 my %vol_info;
 my %uuid_info;
+my %uuid_fs_map;
 
 my $dryrun;
 my $loglevel = 1;
@@ -165,7 +166,7 @@ sub subvol($$)
   my $root = shift || die;
   my $vol = shift || die;
   if($vol_info{$root} && $vol_info{$root}->{$vol}) {
-    return $vol_info{$root}->{$vol};
+    return $vol_info{$root}->{$vol}->{node};
   }
   return undef;
 }
@@ -528,18 +529,27 @@ sub btr_subvolume_list($;$@)
     # the output between ID and top level. The parent?s ID may be used at
     # mount time via the subvolrootid= option.
     die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) received_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
-    push @nodes, { id            => $1,
-                   gen           => $2,
-                   cgen          => $3,
-                   top_level     => $4,
-                   parent_uuid   => $5, # note: parent_uuid="-" if no parent
-                   received_uuid => $6,
-                   uuid          => $7,
-                   path          => $8
-                  };
+    my %node = (
+      id            => $1,
+      gen           => $2,
+      cgen          => $3,
+      top_level     => $4,
+      parent_uuid   => $5, # note: parent_uuid="-" if no parent
+      received_uuid => $6,
+      uuid          => $7,
+      path          => $8  # btrfs path, NOT filesystem path
+     );
+
+    # NOTE: "btrfs subvolume list <path>" prints <FS_TREE> prefix only if
+    # the subvolume is reachable within <path>. (as of btrfs-progs-3.18.2)
+    #
+    # NOTE: Be prepared for this to change in btrfs-progs!
+    $node{path} =~ s/^<FS_TREE>\///;     # remove "<FS_TREE>/" portion from "path".
+
+    push @nodes, \%node;
     # $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
   }
-  DEBUG "found " . scalar(@nodes) . " subvolumes in: $vol";
+  DEBUG "parsed " . scalar(@nodes) . " total subvolumes for filesystem at: $vol";
   return \@nodes;
 }
 
@@ -609,13 +619,15 @@ sub btr_tree($;$)
   my %id;
   my $subvol_list = btr_subvolume_list($vol, $config, subvol_only => 0);
   return undef unless(ref($subvol_list) eq "ARRAY");
+
+  TRACE "btr_tree: processing subvolume list of: $vol";
+
   foreach my $node (@$subvol_list)
   {
-    TRACE "btr_tree: processing subvolid=$node->{id}";
-
     $id{$node->{id}} = $node;
     $uuid_info{$node->{uuid}} = $node;
 
+    my $rel_path = $node->{path};
     if($node->{top_level} == 5)
     {
       # man btrfs-subvolume:
@@ -626,13 +638,20 @@ sub btr_tree($;$)
     }
     else
     {
-      # set SUBVOLUME / TOP_LEVEL node
+      # set SUBTREE / PARENT node
       die unless exists($id{$node->{top_level}});
-      die if exists($id{$node->{top_level}}->{SUBVOLUME}->{$node->{id}});
-      $id{$node->{top_level}}->{SUBVOLUME}->{$node->{id}} = $node;
-      $node->{TOP_LEVEL} = $id{$node->{top_level}};
+      my $parent = $id{$node->{top_level}};
+
+      die if exists($parent->{SUBTREE}->{$node->{id}});
+      $parent->{SUBTREE}->{$node->{id}} = $node;
+      $node->{PARENT} = $parent;
+
+      # "path" always starts with set REL_PATH
+      die unless($rel_path =~ s/^$parent->{path}\///);
     }
+    $node->{REL_PATH} = $rel_path;  # relative to {PARENT}->{path}
   }
+
   # set PARENT node
   foreach (values %id){
     $_->{PARENT} = $uuid_info{$_->{parent_uuid}} if($_->{parent_uuid} ne "-");
@@ -641,50 +660,67 @@ sub btr_tree($;$)
 }
 
 
-sub btr_subtree($;$)
+sub _subtree_list
 {
-  my $vol = shift || die;
+  my $tree = shift;
+  my $list = shift;
+  my $prefix = shift;
+
+  return $list unless $tree;  # silent ignore empty subtrees
+
+  foreach(values %$tree) {
+    my $path = $prefix . $_->{REL_PATH};
+    push(@$list, { SUBVOL_PATH => $path,
+                   node    => $_,
+                 });
+
+    # recurse into SUBTREE
+    _subtree_list($_->{SUBTREE}, $list, $path . '/');
+  }
+  return $list;
+}
+
+
+
+# returns hash of:
+#   SUBVOL_PATH  relative path to $fs_path
+#   FS_PATH      absolute path
+#   node         href to tree node
+sub btr_fs_info($;$)
+{
+  my $fs_path = shift || die;
   my $config = shift;
-  my $detail = btr_subvolume_detail($vol, $config);
-  unless($detail) {
-    WARN "Failed to build btrfs subtree for volume: $vol";
-    return undef;
+  my $detail = btr_subvolume_detail($fs_path, $config);
+  return undef unless($detail);
+
+  my $tree = btr_tree($fs_path, $config);
+  my $tree_root;
+  if($detail->{is_root}) {
+    $tree_root = $tree;
   }
-
-  my $volname = $detail->{name} || "";
-  my %tree;
-  my $subvol_list = btr_subvolume_list($vol, $config, subvol_only => 1);
-  return undef unless(ref($subvol_list) eq "ARRAY");
-  foreach my $node (@$subvol_list)
-  {
-    TRACE "btr_subtree: processing subvolid=$node->{id}";
-
-    # set FS_PATH
-    TRACE "btr_subtree: original path: $node->{path}";
-    my $path =  $node->{path};
-    if($volname) {
-      # strip leading volume name
-      if($path =~ s/^$volname\///) {
-        TRACE "btr_subtree: removed \"$&\" prefix of subvolume path: $path";
-      }
-      elsif($path =~ s/^.+\/$volname\///) {
-        # $vol is a sub-subvolume, whole prefix stripped
-        TRACE "btr_subtree: removed \"$&\" prefix of sub-subvolume path: $path";
-      }
-      else {
-        die("ambiguous btrfs subvolume info line");
-      }
+  else {
+    die unless $uuid_info{$detail->{uuid}};
+    $uuid_fs_map{$detail->{uuid}}->{$fs_path} = 1;
+    $tree_root = $uuid_info{$detail->{uuid}}->{SUBTREE};
+    unless($tree_root) {
+      DEBUG "No subvolumes found in: $fs_path";
+      return undef;
     }
-    $node->{SUBVOL_PATH} = $path;
-    TRACE "btr_subtree: set SUBVOL_PATH: $node->{SUBVOL_PATH}";
-
-    $node->{FS_PATH} =  $vol . "/" . $path;
-    TRACE "btr_subtree: set FS_PATH: $node->{FS_PATH}";
-
-    $tree{$node->{SUBVOL_PATH}} = $node;
-    $uuid_info{$node->{uuid}} = $node;
   }
-  return \%tree;
+
+  # recurse into $tree_root, returns list of href: { FS_PATH, node }
+  my $list = _subtree_list($tree_root, [], "");
+
+  # return a hash of relative subvolume path
+  my %ret;
+  foreach(@$list) {
+    my $subvol_path = $_->{SUBVOL_PATH};
+    die if exists $ret{$subvol_path};
+    $_->{FS_PATH} = $fs_path . '/' . $subvol_path;
+    $uuid_fs_map{$_->{node}->{uuid}}->{$fs_path . '/' . $subvol_path} = 1;
+    $ret{$subvol_path} = $_;
+  }
+  return \%ret;
 }
 
 
@@ -785,16 +821,16 @@ sub btrfs_send_receive($$$$;$)
 }
 
 
-sub get_children($$)
+sub get_snapshot_children($$)
 {
   my $sroot = shift || die;
   my $svol = shift || die;
-  my $svol_href = subvol($sroot, $svol);
-  die("subvolume info not present: $sroot/$svol") unless($svol_href);
+  my $svol_node = subvol($sroot, $svol);
+  die("subvolume info not present: $sroot/$svol") unless($svol_node);
   DEBUG "Getting snapshot children of: $sroot/$svol";
   my @ret;
   foreach (values %{$vol_info{$sroot}}) {
-    next unless($_->{parent_uuid} eq $svol_href->{uuid});
+    next unless($_->{node}->{parent_uuid} eq $svol_node->{uuid});
     DEBUG "Found snapshot child: $_->{SUBVOL_PATH}";
     push(@ret, $_);
   }
@@ -808,10 +844,10 @@ sub get_receive_targets_by_uuid($$)
   my $uuid = shift || die;
   die("root subvolume info not present: $droot") unless($vol_info{$droot});
   die("subvolume info not present: $uuid") unless($uuid_info{$uuid});
-  DEBUG "Getting receive targets in \"$droot/\" for: $uuid_info{$uuid}->{FS_PATH}";
+  DEBUG "Getting receive targets in \"$droot/\" for: $uuid_info{$uuid}->{path}";
   my @ret;
   foreach (values %{$vol_info{$droot}}) {
-    next unless($_->{received_uuid} eq $uuid);
+    next unless($_->{node}->{received_uuid} eq $uuid);
     DEBUG "Found receive target: $_->{SUBVOL_PATH}";
     push(@ret, $_);
   }
@@ -829,9 +865,9 @@ sub get_latest_common($$$)
   die("target subvolume info not present: $droot") unless($vol_info{$droot});
 
   # sort children of svol descending by generation
-  foreach my $child (sort { $b->{gen} <=> $a->{gen} } get_children($sroot, $svol)) {
+  foreach my $child (sort { $b->{node}->{gen} <=> $a->{node}->{gen} } get_snapshot_children($sroot, $svol)) {
     TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
-    foreach (get_receive_targets_by_uuid($droot, $child->{uuid})) {
+    foreach (get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
       TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
       DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
       return ($child, $_);
@@ -843,7 +879,7 @@ sub get_latest_common($$$)
 }
 
 
-sub origin_tree
+sub _origin_tree
 {
   my $prefix = shift;
   my $uuid = shift;
@@ -853,14 +889,20 @@ sub origin_tree
     push(@$lines, ["$prefix<orphaned>", $uuid]);
     return 0;
   }
-  push(@$lines, ["$prefix$node->{FS_PATH}", $uuid]);
+  if($uuid_fs_map{$uuid}) {
+    foreach(keys %{$uuid_fs_map{$uuid}}) {
+      push(@$lines, ["$prefix$_", $uuid]);
+    }
+  } else {
+    push(@$lines, ["$prefix<BTRFS_ROOT>/$node->{path}", $uuid]);
+  }
+
   $prefix =~ s/./ /g;
-#  $prefix =~ s/^ /\|/g;
   if($node->{received_uuid} ne '-') {
-    origin_tree("${prefix}^---", $node->{received_uuid}, $lines);
+    _origin_tree("${prefix}^---", $node->{received_uuid}, $lines);
   }
   if($node->{parent_uuid} ne '-') {
-    origin_tree("${prefix}", $node->{parent_uuid}, $lines);
+    _origin_tree("${prefix}", $node->{parent_uuid}, $lines);
   }
 }
 
@@ -1213,7 +1255,7 @@ MAIN:
         }
       }
 
-      $vol_info{$sroot} //= btr_subtree($sroot, $config_vol);
+      $vol_info{$sroot} //= btr_fs_info($sroot, $config_vol);
       unless(subvol($sroot, $svol)) {
         $config_subvol->{ABORTED} = "Subvolume \"$svol\" not present in btrfs subvolume list for \"$sroot\"";
         WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
@@ -1222,7 +1264,7 @@ MAIN:
       foreach my $config_target (@{$config_subvol->{TARGET}})
       {
         my $droot = $config_target->{droot} || die;
-        $vol_info{$droot} //= btr_subtree($droot, $config_target);
+        $vol_info{$droot} //= btr_fs_info($droot, $config_target);
         unless($vol_info{$droot}) {
           $config_target->{ABORTED} = "Failed to read btrfs subvolume list for \"$droot\"";
           WARN "Skipping target: $config_target->{ABORTED}";
@@ -1246,19 +1288,24 @@ MAIN:
     my $subvol = $subvol_args[0] || die;
     my $dump_uuid = 0;
 
-    my $uuid;
-    foreach(values %uuid_info) {
-      if($_->{FS_PATH} eq $subvol) {
-        $uuid = $_->{uuid};
-        last;
-      }
-    }
-    unless($uuid) {
-      ERROR "Not a configured backup target: $subvol";
+    my $detail = btr_subvolume_detail($subvol);
+    exit 1 unless($detail);
+
+    if($detail->{is_root}) {
+      ERROR "Subvolume is btrfs root: $subvol\n";
       exit 1;
     }
+    my $uuid = $detail->{uuid} || die;
+    my $node = $uuid_info{$uuid};
+
+    unless($node) {
+      DEBUG "Subvolume not parsed yet, fetching info: $subvol";
+      $vol_info{$subvol} //= btr_fs_info($subvol);
+      $node = $uuid_info{$uuid} || die;
+    }
+
     my $lines = [];
-    origin_tree("", $uuid, $lines);
+    _origin_tree("", $uuid, $lines);
 
     print "--------------------------------------------------------------------------------\n";
     print "Origin Tree\n\n";
@@ -1276,6 +1323,7 @@ MAIN:
       print ' ' x ($len - length($_->[0]) + 4) . "$_->[1]" if($dump_uuid);
       print "\n";
     }
+    exit 0;
   }
 
 
@@ -1284,6 +1332,7 @@ MAIN:
     #
     # print snapshot tree
     #
+    # TODO: reverse tree: print all backups from $droot and their corresponding source snapshots
     foreach my $config_vol (@{$config->{VOLUME}})
     {
       my $sroot = $config_vol->{sroot} || die;
@@ -1293,35 +1342,35 @@ MAIN:
       {
         my $svol = $config_subvol->{svol} || die;
         print "|-- $svol\n";
-        my $sroot_uuid;
-        foreach (values %{$vol_info{$sroot}}) {
-          if($_->{FS_PATH} eq "$sroot/$svol") {
-            die if $sroot_uuid;
-            $sroot_uuid = $_->{uuid};
-          }
+        unless($vol_info{$sroot}->{$svol}) {
+          print "    !!! error: no subvolume \"$svol\" found in \"$sroot\"\n";
+          next;
         }
-        die unless $sroot_uuid;
+
+        my $sroot_uuid = $vol_info{$sroot}->{$svol}->{node}->{uuid} || die;
         foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$sroot}}))
         {
-          next unless($_->{parent_uuid} eq $sroot_uuid);
+          next unless($_->{node}->{parent_uuid} eq $sroot_uuid);
           # next unless($_->{SUBVOL_PATH} =~ /^$snapdir/);  # don't print non-btrbk snapshots
           print "|   ^-- $_->{SUBVOL_PATH}\n";
           my $snapshot = $_->{FS_PATH};
           $snapshot =~ s/^.*\///;
+          my $snapshot_uuid = $_->{node}->{uuid} || die;
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             my $droot = $config_target->{droot} || die;
             next unless $vol_info{$droot};
-            my $match = "$droot/$snapshot";
-            foreach (sort { $a->{FS_PATH} cmp $b->{FS_PATH} } (values %{$vol_info{$droot}})) {
-              # TODO: also print the backups which do not have corresponding snapshot anymore
-              print "|   |   |== $_->{FS_PATH}\n" if($_->{FS_PATH} eq $match);
+
+            foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$droot}})) {
+              next unless($_->{node}->{received_uuid} eq $snapshot_uuid);
+              print "|   |   ^== $_->{FS_PATH}\n";
             }
           }
         }
       }
       print "\n";
     }
+    exit 0;
   }
 
 

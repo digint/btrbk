@@ -6,3 +6,8 @@
   - added optional subvolume argument for run/dryrun actions, for
     explicit selection of subvolumes to be processed
   - bugfixes
+
+* btrbk-0.12-dev
+  - cleaner and more generic parsing of btrfs subvolume list
+  - bugfix: subvolumes are also allowed for "snapshot_dir" (fixes
+    issues #1, #2)
