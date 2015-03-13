@@ -616,6 +616,12 @@ sub btr_tree($;$)
     $id{$node->{id}} = $node;
     $uuid_info{$node->{uuid}} = $node;
 
+    my $path = $node->{path};
+    $path =~ s/^<FS_TREE>\///;  # remove "<FS_TREE>/" portion, this does not help us at all
+    $node->{FIXED_PATH} = $path;
+
+    my $rel_path = $path;
+
     if($node->{top_level} == 5)
     {
       # man btrfs-subvolume:
@@ -628,11 +634,18 @@ sub btr_tree($;$)
     {
       # set SUBVOLUME / TOP_LEVEL node
       die unless exists($id{$node->{top_level}});
-      die if exists($id{$node->{top_level}}->{SUBVOLUME}->{$node->{id}});
-      $id{$node->{top_level}}->{SUBVOLUME}->{$node->{id}} = $node;
-      $node->{TOP_LEVEL} = $id{$node->{top_level}};
+      my $top_level = $id{$node->{top_level}};
+
+      die if exists($top_level->{SUBVOLUME}->{$node->{id}});
+      $top_level->{SUBVOLUME}->{$node->{id}} = $node;
+      $node->{TOP_LEVEL} = $top_level;
+
+      # "path" always starts with set REL_PATH
+      die unless($rel_path =~ s/^$top_level->{FIXED_PATH}\///);
     }
+    $node->{REL_PATH} = $rel_path;
   }
+
   # set PARENT node
   foreach (values %id){
     $_->{PARENT} = $uuid_info{$_->{parent_uuid}} if($_->{parent_uuid} ne "-");
