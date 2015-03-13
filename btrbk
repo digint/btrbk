@@ -528,15 +528,24 @@ sub btr_subvolume_list($;$@)
     # the output between ID and top level. The parent?s ID may be used at
     # mount time via the subvolrootid= option.
     die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) received_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
-    push @nodes, { id            => $1,
-                   gen           => $2,
-                   cgen          => $3,
-                   top_level     => $4,
-                   parent_uuid   => $5, # note: parent_uuid="-" if no parent
-                   received_uuid => $6,
-                   uuid          => $7,
-                   path          => $8
-                  };
+    my %node = (
+      id            => $1,
+      gen           => $2,
+      cgen          => $3,
+      top_level     => $4,
+      parent_uuid   => $5, # note: parent_uuid="-" if no parent
+      received_uuid => $6,
+      uuid          => $7,
+      path          => $8  # btrfs path, NOT filesystem path
+     );
+
+    # NOTE: "btrfs subvolume list <path>" prints <FS_TREE> prefix only if
+    # the subvolume is reachable within <path>. (as of btrfs-progs-3.18.2)
+    #
+    # NOTE: Be prepared for this to change in btrfs-progs!
+    $node{path} =~ s/^<FS_TREE>\///;     # remove "<FS_TREE>/" portion from "path".
+
+    push @nodes, \%node;
     # $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
   }
   DEBUG "found " . scalar(@nodes) . " subvolumes in: $vol";
@@ -616,12 +625,7 @@ sub btr_tree($;$)
     $id{$node->{id}} = $node;
     $uuid_info{$node->{uuid}} = $node;
 
-    my $path = $node->{path};
-    $path =~ s/^<FS_TREE>\///;  # remove "<FS_TREE>/" portion, this does not help us at all
-    $node->{FIXED_PATH} = $path;
-
-    my $rel_path = $path;
-
+    my $rel_path = $node->{path};
     if($node->{top_level} == 5)
     {
       # man btrfs-subvolume:
@@ -632,23 +636,23 @@ sub btr_tree($;$)
     }
     else
     {
-      # set SUBVOLUME / TOP_LEVEL node
+      # set SUBTREE / PARENT node
       die unless exists($id{$node->{top_level}});
-      my $top_level = $id{$node->{top_level}};
+      my $parent = $id{$node->{top_level}};
 
-      die if exists($top_level->{SUBVOLUME}->{$node->{id}});
-      $top_level->{SUBVOLUME}->{$node->{id}} = $node;
-      $node->{TOP_LEVEL} = $top_level;
+      die if exists($parent->{SUBTREE}->{$node->{id}});
+      $parent->{SUBTREE}->{$node->{id}} = $node;
+      $node->{PARENT} = $parent;
 
       # "path" always starts with set REL_PATH
-      die unless($rel_path =~ s/^$top_level->{FIXED_PATH}\///);
+      die unless($rel_path =~ s/^$parent->{path}\///);
     }
-    $node->{REL_PATH} = $rel_path;
+    $node->{REL_PATH} = $rel_path;  # relative to {PARENT}->{path}
 
     # !!! hack, remove
     $node->{SUBVOL_PATH} = $rel_path;
     TRACE "btr_tree: set SUBVOL_PATH: $node->{SUBVOL_PATH}";
-    $node->{FS_PATH} =  $vol . "/" . $path;
+    $node->{FS_PATH} =  $vol . "/" . $node->{path};  # !!!!! wrong!
     TRACE "btr_tree: set FS_PATH: $node->{FS_PATH}";
   }
 
@@ -657,16 +661,6 @@ sub btr_tree($;$)
     $_->{PARENT} = $uuid_info{$_->{parent_uuid}} if($_->{parent_uuid} ne "-");
   }
   return \%tree;
-}
-
-sub set_correct_tree_path($)
-{
-  my $tree = shift;
-
-  foreach my $node (values %$tree) {
-    if($node->{TOP_LEVEL}) {
-    }
-  }
 }
 
 
@@ -681,7 +675,7 @@ sub _subtree_list
   foreach(values %$subvols) {
     my $path = $prefix . $_->{REL_PATH};
     $tree->{$path} = $_;
-    _subtree_list($tree, $_->{SUBVOLUME}, $path . '/');
+    _subtree_list($tree, $_->{SUBTREE}, $path . '/');
   }
 }
 
@@ -697,7 +691,7 @@ sub btr_subtree($;$)
   }
 
   my $tree = btr_tree($vol, $config);
-  my $tree_root = $detail->{is_root} ? $tree : $uuid_info{$detail->{uuid}}->{SUBVOLUME};
+  my $tree_root = $detail->{is_root} ? $tree : $uuid_info{$detail->{uuid}}->{SUBTREE};
   die unless $tree_root;
 
   my $ret = {};
@@ -877,7 +871,7 @@ sub get_receive_targets_by_uuid($$)
   my @ret;
   foreach (values %{$vol_info{$droot}}) {
     next unless($_->{received_uuid} eq $uuid);
-    DEBUG "Found receive target: $_->{SUBVOL_PATH}";
+    DEBUG "Found receive target: $_->{REL_PATH}"; # TODO
     push(@ret, $_);
   }
   return @ret;
