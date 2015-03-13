@@ -7,7 +7,7 @@
     explicit selection of subvolumes to be processed
   - bugfixes
 
-* btrbk-0.12-dev
+* btrbk-0.12
   - cleaner and more generic parsing of btrfs subvolume list
   - bugfix: subvolumes are also allowed for "snapshot_dir" (fixes
     issues #1, #2)
