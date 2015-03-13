@@ -644,6 +644,12 @@ sub btr_tree($;$)
       die unless($rel_path =~ s/^$top_level->{FIXED_PATH}\///);
     }
     $node->{REL_PATH} = $rel_path;
+
+    # !!! hack, remove
+    $node->{SUBVOL_PATH} = $rel_path;
+    TRACE "btr_tree: set SUBVOL_PATH: $node->{SUBVOL_PATH}";
+    $node->{FS_PATH} =  $vol . "/" . $path;
+    TRACE "btr_tree: set FS_PATH: $node->{FS_PATH}";
   }
 
   # set PARENT node
@@ -653,8 +659,54 @@ sub btr_tree($;$)
   return \%tree;
 }
 
+sub set_correct_tree_path($)
+{
+  my $tree = shift;
+
+  foreach my $node (values %$tree) {
+    if($node->{TOP_LEVEL}) {
+    }
+  }
+}
+
+
+sub _subtree_list
+{
+  my $tree = shift;
+  my $subvols = shift;
+  my $prefix = shift;
+
+  return unless $subvols;
+
+  foreach(values %$subvols) {
+    my $path = $prefix . $_->{REL_PATH};
+    $tree->{$path} = $_;
+    _subtree_list($tree, $_->{SUBVOLUME}, $path . '/');
+  }
+}
+
 
 sub btr_subtree($;$)
+{
+  my $vol = shift || die;
+  my $config = shift;
+  my $detail = btr_subvolume_detail($vol, $config);
+  unless($detail) {
+    WARN "Failed to build btrfs subtree for volume: $vol";
+    return undef;
+  }
+
+  my $tree = btr_tree($vol, $config);
+  my $tree_root = $detail->{is_root} ? $tree : $uuid_info{$detail->{uuid}}->{SUBVOLUME};
+  die unless $tree_root;
+
+  my $ret = {};
+  _subtree_list($ret, $tree_root, "");
+
+  return $ret;
+}
+
+sub btr_subtree_old($;$)
 {
   my $vol = shift || die;
   my $config = shift;
