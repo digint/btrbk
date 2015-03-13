@@ -1,6 +1,19 @@
+#
 # Example btrbk configuration file
+#
+# Note that the options can be overridden in the
+# volume/subvolume/target sections. Refer to man btrbk.conf(5) for a
+# more detailed explanation of this.
+#
 
-# Create snapshot into subdirectory
+# Directory in which the btrfs snapshots are created. Relative to
+# <volume-directory> of the volume section.
+# If not set, the snapshots are directly created in:
+#   <volume>/<volume-directory>
+#
+# NOTE: btrbk does not autmatically create this directory, and the
+# snapshot creation will fail if it is not present.
+#
 snapshot_dir               _btrbk_snap
 
 # Always create snapshots, even if the target volume is unreachable
@@ -40,18 +53,23 @@ receive_log                no
 
 
 #
-# Volume section: "volume <vol_dir>"
-# <vol_dir>: Directory of a btrfs volume (or subvolume) containing the
-#            subvolume to be backuped (usually the mount-point of a
-#            btrfs filesystem mounted with subvolid=0 option)
+# Volume section: "volume <volume-directory>"
+#   <volume-directory> Directory of a btrfs volume (or subvolume)
+#                      containing the subvolume to be backuped
+#                      (usually the mount-point of a btrfs filesystem
+#                      mounted with subvolid=0 option)
 #
-# Subvolume section: "subvolume <subvol>
-# <subvol>:  Subvolume to be backuped, relative to <vol_dir> in
-#            volume section
+# Subvolume section: "subvolume <subvolume-name>
+
+#   <subvolume-name> Subvolume to be backuped, relative to
+#                    <volume-directory> in volume section
 #
-# Target section: "target <type> <vol_dir>"
-# <type>:    Backup type, currently only "send-receive"
-# <vol_dir>: Directory of a btrfs volume (or subvolume) receiving the backups
+# Target section: "target <type> <volume-directory>"
+
+#   <type>              Backup type, currently only "send-receive"
+
+#   <volume-directory> Directory of a btrfs volume (or subvolume)
+#                      receiving the backups
 #
 #
 # NOTE: The parser does not care about indentation, this is only for
