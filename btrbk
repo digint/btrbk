@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.12";
+our $VERSION       = "0.13-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk>';
 
@@ -87,7 +87,7 @@ my $loglevel = 1;
 
 my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
-my $file_match = qr/[0-9a-zA-Z_\-\.\/]+/;
+my $file_match = qr/[0-9a-zA-Z_@\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 my $ssh_prefix_match = qr/ssh:\/\/($ip_addr_match|$host_name_match)/;
 
 
