@@ -52,9 +52,9 @@ performed for the specified subvolumes (which must match a
 volume/subvolume declaration in the configuration file), and the -p
 (preserve backups) option is implied.
 .PP
-First, btrbk reads information from the source/target btrfs volumes in
-order to do sanity checks and find out about parent/child as well as
-received-from relationships.
+First, btrbk reads information from the source and target btrfs
+volumes in order to perform sanity checks and identify parent/child
+and received-from relationships.
 .PP
 If the checks succeed, btrbk creates snapshots for all the source
 subvolumes specified in the configuration file.
@@ -65,17 +65,17 @@ found. If no common parent subvolume is found, a full backup is
 created.
 .PP
 In a last step, previous snapshots and backup subvolumes that are not
-preserved by the current retention policy will be deleted. This step
-will be skipped if the -p (preserve backups) option is present.
+preserved by their configured retention policy will be deleted. This
+step will be skipped if the -p (preserve backups) option is present.
 .RE
 .PP
 .B dryrun
 [subvolume...]
 .RS 4
 Don't run btrfs commands, just show the snapshots and backup
-subvolumes that what would be created/deleted by the \fBrun\fR
-command. Use in conjunction with \fI\-l debug\fR to see the btrfs
-commands that would be executed.
+subvolumes that would be created/deleted by the \fBrun\fR command. Use
+in conjunction with \fI\-l debug\fR to see the btrfs commands that
+would be executed.
 .RE
 .PP
 .B info

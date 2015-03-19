@@ -117,7 +117,7 @@ sub HELP_MESSAGE
   print STDERR "   -l LEVEL    set loglevel (warn, info, debug, trace)\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   run         perform backup operations as defined in configuration\n";
+  print STDERR "   run         perform backup operations as defined in the configuration\n";
   print STDERR "   dryrun      don't run btrfs commands, just show what would be executed\n";
   print STDERR "   info        print useful filesystem information\n";
   print STDERR "   tree        shows backup tree\n";
