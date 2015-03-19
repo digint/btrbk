@@ -12,6 +12,7 @@
   - bugfix: subvolumes are also allowed for "snapshot_dir" (fixes
     issues #1, #2)
 
-* btrbk-current
-  - bugfix: allow '@' character for subvolume names (ubuntu prefixes
-    all subvolumes with '@' in its subvolume layout)
+* btrbk-0.13
+  - bugfix: allow '@' character for subvolume names (blocker for
+    ubuntu users, since ubuntu prefixes all subvolumes with '@' in its
+    subvolume layout)
