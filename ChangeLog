@@ -17,5 +17,6 @@
     ubuntu users, since ubuntu prefixes all subvolumes with '@' in its
     subvolume layout). Fixes issue #3
 
-* btrbk-current
-  - bugfix: correctly handle empty target subvolumes. Fixes issue #4
+* btrbk-0.14
+  - bugfix: correctly handle empty target subvolumes (blocker for all
+    new users). Fixes issue #4
