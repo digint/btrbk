@@ -15,4 +15,7 @@
 * btrbk-0.13
   - bugfix: allow '@' character for subvolume names (blocker for
     ubuntu users, since ubuntu prefixes all subvolumes with '@' in its
-    subvolume layout)
+    subvolume layout). Fixes issue #3
+
+* btrbk-current
+  - bugfix: correctly handle empty target subvolumes. Fixes issue #4

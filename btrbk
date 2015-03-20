@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.13";
+our $VERSION       = "0.14-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -686,6 +686,9 @@ sub _subtree_list
 #   SUBVOL_PATH  relative path to $fs_path
 #   FS_PATH      absolute path
 #   node         href to tree node
+#
+# returns an empty hash if the subvolume at $fs_path exists, but contains no subvolumes
+# returns undef if the subvolume at $fs_path does not exists
 sub btr_fs_info($;$)
 {
   my $fs_path = shift || die;
@@ -704,7 +707,7 @@ sub btr_fs_info($;$)
     $tree_root = $uuid_info{$detail->{uuid}}->{SUBTREE};
     unless($tree_root) {
       DEBUG "No subvolumes found in: $fs_path";
-      return undef;
+      return {};
     }
   }
 
