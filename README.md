@@ -50,7 +50,7 @@ Unzip the tarball, go to the btrbk directory and type:
 This will install the btrbk executable along with the man-pages and
 an example configuration file.
 
-  [download]: http://www.digint.ch/download/btrbk/releases
+  [download]: http://www.digint.ch/download/btrbk/releases/
 
 
 Synopsis
