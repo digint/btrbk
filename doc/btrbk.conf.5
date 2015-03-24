@@ -103,6 +103,14 @@ to \(lqsidecar\(rq, the file will be created in the backup directory,
 named \fI<backup_subvolume>.btrbk.log\fR. Note that this log file can
 become very big, as every change of every file is being
 logged. Consider this as a debugging feature. Defaults to \(lqno\(rq.
+.TP
+\fBbtrfs_progs_compat\fR  yes|no \fI*experimental*\fR
+Enable compatibility mode for btrfs-progs < 3.17 (\fIbtrfs
+--version\fR). This option can be set either globally or within a
+\fItarget\fR section.  If enabled, the latest common snapshots are
+determined by subvolume names instead of \fIreceived_uuid\fR, which
+can lead to false guesses if the snapshot or target subvolumes are
+manipulated by hand (moved, deleted).
 .PP
 Lines that contain a hash character (#) in the first column are
 treated as comments.

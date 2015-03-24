@@ -51,6 +51,10 @@ btrfs_commit_delete        after
 #receive_log               sidecar
 receive_log                no
 
+# Enable compatibility mode for btrfs-progs < 3.17.
+# Set this either globally or in a specific "target" section.
+#btrfs_progs_compat         yes
+
 
 #
 # Volume section: "volume <volume-directory>"

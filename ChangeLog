@@ -20,3 +20,7 @@
 * btrbk-0.14
   - bugfix: correctly handle empty target subvolumes (blocker for all
     new users). Fixes issue #4
+
+* btrbk-current
+  - added configuration option "btrfs_progs_compat", to be enabled if
+    using btrfs-progs < 3.17. Fixes issue #6

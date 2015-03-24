@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.14-dev";
+our $VERSION       = "0.15-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -74,6 +74,7 @@ my %config_options = (
   btrfs_commit_delete       => { default => undef,    accept => [ "after", "each", "no" ] },
   ssh_identity              => { default => undef,    accept_file => { absolute => 1 } },
   ssh_user                  => { default => "root",   accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
+  btrfs_progs_compat        => { default => undef,    accept => [ "yes", "no" ] },
  );
 
 my @config_target_types = qw(send-receive);
@@ -81,6 +82,7 @@ my @config_target_types = qw(send-receive);
 my %vol_info;
 my %uuid_info;
 my %uuid_fs_map;
+my %vol_btrfs_progs_compat;  # hacky, maps all subvolumes without received_uuid information
 
 my $dryrun;
 my $loglevel = 1;
@@ -511,10 +513,13 @@ sub btr_subvolume_list($;$@)
   my $vol = shift || die;
   my $config = shift;
   my %opts = @_;
+  my $btrfs_progs_compat = config_key($config, "btrfs_progs_compat");
   my $filter_option = "-a";
   $filter_option = "-o" if($opts{subvol_only});
+  my $display_options = "-c -u -q";
+  $display_options .= " -R" unless($btrfs_progs_compat);
   my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume list $filter_option -c -u -q -R $real_vol", 1);
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume list $filter_option $display_options $real_vol", 1);
   unless(defined($ret)) {
     WARN "Failed to fetch btrfs subvolume list for: $vol";
     return undef;
@@ -528,8 +533,24 @@ sub btr_subvolume_list($;$@)
     # the subvolid= option. If -p is given, then parent <ID> is added to
     # the output between ID and top level. The parent?s ID may be used at
     # mount time via the subvolrootid= option.
-    die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) received_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
-    my %node = (
+
+    # NOTE: btrfs-progs prior to v1.17 do not support the -R flag
+    my %node;
+    if($btrfs_progs_compat) {
+      die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
+      %node = (
+        id            => $1,
+        gen           => $2,
+        cgen          => $3,
+        top_level     => $4,
+        parent_uuid   => $5, # note: parent_uuid="-" if no parent
+        # received_uuid => $6,
+        uuid          => $6,
+        path          => $7  # btrfs path, NOT filesystem path
+     );
+    } else {
+      die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) received_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
+      %node = (
       id            => $1,
       gen           => $2,
       cgen          => $3,
@@ -539,6 +560,7 @@ sub btr_subvolume_list($;$@)
       uuid          => $7,
       path          => $8  # btrfs path, NOT filesystem path
      );
+    }
 
     # NOTE: "btrfs subvolume list <path>" prints <FS_TREE> prefix only if
     # the subvolume is reachable within <path>. (as of btrfs-progs-3.18.2)
@@ -723,6 +745,8 @@ sub btr_fs_info($;$)
     $uuid_fs_map{$_->{node}->{uuid}}->{$fs_path . '/' . $subvol_path} = 1;
     $ret{$subvol_path} = $_;
   }
+  $vol_btrfs_progs_compat{$fs_path} = config_key($config, "btrfs_progs_compat");  # missing received_uuid in node{}
+
   return \%ret;
 }
 
@@ -799,6 +823,7 @@ sub btrfs_send_receive($$$$;$)
   my $receive_option = "";
   $receive_option = "-v" if($changelog || ($loglevel >= 2));
   $receive_option = "-v -v" if($real_parent && $changelog);
+
   my $cmd = "$rsh_src /sbin/btrfs send $parent_option $real_src | $rsh_target /sbin/btrfs receive $receive_option $real_target/ 2>&1";
   my $ret = run_cmd($cmd);
   unless(defined($ret)) {
@@ -870,10 +895,25 @@ sub get_latest_common($$$)
   # sort children of svol descending by generation
   foreach my $child (sort { $b->{node}->{gen} <=> $a->{node}->{gen} } get_snapshot_children($sroot, $svol)) {
     TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
-    foreach (get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
-      TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
-      DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
-      return ($child, $_);
+    if($vol_btrfs_progs_compat{$droot}) {
+      # guess matches by subvolume name (node->received_uuid is not available if BTRFS_PROGS_COMPAT is set)
+      my $child_name = $child->{node}->{REL_PATH};
+      $child_name =~ s/^.*\///; # strip path
+      foreach my $backup (values %{$vol_info{$droot}}) {
+        my $backup_name = $backup->{node}->{REL_PATH};
+        $backup_name =~ s/^.*\///; # strip path
+        if($backup_name eq $child_name) {
+          DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  target=$backup->{FS_PATH}  (NOTE: guessed by subvolume name)");
+          return ($child, $backup);
+        }
+      }
+    }
+    else {
+      foreach (get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
+        TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
+        DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
+        return ($child, $_);
+      }
     }
     TRACE "get_latest_common: no matching targets found for: $child->{FS_PATH}";
   }
@@ -901,8 +941,12 @@ sub _origin_tree
   }
 
   $prefix =~ s/./ /g;
-  if($node->{received_uuid} ne '-') {
-    _origin_tree("${prefix}^---", $node->{received_uuid}, $lines);
+  if($node->{received_uuid}) {
+    if($node->{received_uuid} ne '-') {
+      _origin_tree("${prefix}^---", $node->{received_uuid}, $lines);
+    }
+  } else {
+    push(@$lines,  ["$prefix^---<missing_received_uuid>", $uuid]);  # printed if "btrfs_progs_compat" is set
   }
   if($node->{parent_uuid} ne '-') {
     _origin_tree("${prefix}", $node->{parent_uuid}, $lines);
@@ -1338,6 +1382,7 @@ MAIN:
     # TODO: reverse tree: print all backups from $droot and their corresponding source snapshots
     foreach my $config_vol (@{$config->{VOLUME}})
     {
+      my %droot_compat;
       my $sroot = $config_vol->{sroot} || die;
       print "$sroot\n";
       next unless $vol_info{$sroot};
@@ -1364,12 +1409,21 @@ MAIN:
             my $droot = $config_target->{droot} || die;
             next unless $vol_info{$droot};
 
-            foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$droot}})) {
-              next unless($_->{node}->{received_uuid} eq $snapshot_uuid);
-              print "|   |   ^== $_->{FS_PATH}\n";
+            if($vol_btrfs_progs_compat{$droot}) {
+              $droot_compat{$droot} = 1;
+            }
+            else {
+              foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$droot}})) {
+                next unless($_->{node}->{received_uuid} eq $snapshot_uuid);
+                print "|   |   ^== $_->{FS_PATH}\n";
+              }
             }
           }
         }
+      }
+      if(keys %droot_compat) {
+        print "NOTE: Received subvolumes (backups) will are not printed for targets:\n";
+        print "      - " . join("\n      - ", (sort keys %droot_compat));
       }
       print "\n";
     }

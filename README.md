@@ -32,12 +32,14 @@ man-pages properly installed, follow the instructions below.
 Prerequisites
 -------------
 
-- perl interpreter (probably already installed on your system)
-- [Date::Calc] (perl module, probably already installed on your system)
-- [btrfs-progs] (Btrfs filesystem utilities)
+- [btrfs-progs]: Btrfs filesystem utilities (use "btrfs_progs_compat"
+  option for hosts running version prior to v3.17)
+- Perl interpreter: probably already installed on your system
+- [Date::Calc]: Perl module, probably already installed on your system
 
-  [Date::Calc]:  http://search.cpan.org/perldoc?Date::Calc
   [btrfs-progs]: http://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
+  [Date::Calc]:  http://search.cpan.org/perldoc?Date::Calc
+
 
 Instructions
 ------------
