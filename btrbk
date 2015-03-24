@@ -61,7 +61,7 @@ my %config_options = (
   # NOTE: the parser always maps "no" to undef
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   snapshot_dir              => { default => undef,    accept_file => { relative => 1 }, append_trailing_slash => 1 },
-  receive_log               => { default => undef,    accept => [ "sidecar", "no" ], accept_file => { absolute => 1 } },
+  receive_log               => { default => undef,    accept => [ "sidecar", "no" ], accept_file => { absolute => 1 }, deprecated => "removed" },
   incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
   snapshot_create_always    => { default => undef,    accept => [ "yes", "no" ] },
   preserve_day_of_week      => { default => "sunday", accept => [ (keys %day_of_week_map) ] },
@@ -407,6 +407,10 @@ sub parse_config(@)
         DEBUG "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
         $value = undef if($value eq "no");  # we don't want to check for "no" all the time
         $cur->{$key} = $value;
+
+        if($config_options{$key}->{deprecated}) {
+          WARN "Found deprecated configuration option \"$key\" in \"$file\" line $.";
+        }
       }
       else
       {
@@ -800,7 +804,6 @@ sub btrfs_send_receive($$$$;$)
   my $src = shift || die;
   my $target = shift || die;
   my $parent = shift // "";
-  my $changelog = shift // "";
   my $config = shift;
   my ($rsh_src, $real_src) = get_rsh($src, $config);
   my ($rsh_target, $real_target) = get_rsh($target, $config);
@@ -811,39 +814,20 @@ sub btrfs_send_receive($$$$;$)
   $src_name =~ s/^.*\///;
   INFO ">>> $target/$src_name";
 
-  my @info;
-  push @info, "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
-  push @info, "[btrfs]   source: $src";
-  push @info, "[btrfs]   parent: $parent" if($parent);
-  push @info, "[btrfs]   target: $target";
-  push @info, "[btrfs]   log   : $changelog" if($changelog);
-  DEBUG $_ foreach(@info);
+  DEBUG "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
+  DEBUG "[btrfs]   source: $src";
+  DEBUG "[btrfs]   parent: $parent" if($parent);
+  DEBUG "[btrfs]   target: $target";
 
   my $parent_option = $real_parent ? "-p $real_parent" : "";
   my $receive_option = "";
-  $receive_option = "-v" if($changelog || ($loglevel >= 2));
-  $receive_option = "-v -v" if($real_parent && $changelog);
+  $receive_option = "-v" if($loglevel >= 3);
 
-  my $cmd = "$rsh_src /sbin/btrfs send $parent_option $real_src | $rsh_target /sbin/btrfs receive $receive_option $real_target/ 2>&1";
+  my $cmd = "$rsh_src /sbin/btrfs send $parent_option $real_src | $rsh_target /sbin/btrfs receive $receive_option $real_target/";
   my $ret = run_cmd($cmd);
   unless(defined($ret)) {
     ERROR "Failed to send/receive btrfs subvolume: $src " . ($real_parent ? "[$real_parent]" : "") . " -> $target";
     return undef;
-  }
-  if($changelog && (not $dryrun))
-  {
-    INFO "Writing btrfs-diff changelog: $changelog";
-    if(open(LOGFILE, '>>', $changelog)) {
-      print LOGFILE "<<< START btrfs_send_receive: $now >>>\n";
-      print LOGFILE "$_\n" foreach(@info);
-      print LOGFILE "[btrfs]   cmd   : $cmd\n";
-      print LOGFILE "[btrfs]   cmd output:\n" . $ret;
-      print LOGFILE "\n<<< END btrfs_send_receive: $now >>>\n";
-      close(LOGFILE);
-    }
-    else {
-      WARN "Failed to open changelog file: $!";
-    }
   }
   return 1;
 }
@@ -1531,10 +1515,8 @@ MAIN:
             INFO "Creating subvolume backup ($target_type) for: $sroot/$svol";
             INFO "Using previously created snapshot: $snapshot";
 
-            my $receive_log = config_key($config_target, "receive_log");
-            if($receive_log && ($receive_log eq "sidecar")) {
-              # log to sidecar of destination snapshot
-              $receive_log = "$droot/$snapshot_name.btrbk.log";
+            if(config_key($config_target, "receive_log")) {
+              WARN "Ignoring deprecated option \"receive_log\" for target: $droot"
             }
 
             my $incremental = config_key($config_target, "incremental");
@@ -1544,12 +1526,12 @@ MAIN:
               if($latest_common_src && $latest_common_target) {
                 my $parent_snap = $latest_common_src->{FS_PATH};
                 INFO "Incremental from parent snapshot: $parent_snap";
-                $success = btrfs_send_receive($snapshot, $droot, $parent_snap, $receive_log, $config_target);
+                $success = btrfs_send_receive($snapshot, $droot, $parent_snap, $config_target);
               }
               elsif($incremental ne "strict") {
                 INFO "No common parent subvolume present, creating full backup";
                 $config_target->{subvol_non_incremental} = 1;
-                $success = btrfs_send_receive($snapshot, $droot, undef, $receive_log, $config_target);
+                $success = btrfs_send_receive($snapshot, $droot, undef, $config_target);
               }
               else {
                 WARN "Backup to $droot failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
@@ -1558,7 +1540,7 @@ MAIN:
             else {
               INFO "Creating full backup (option \"incremental\" is not set)";
               $config_target->{subvol_non_incremental} = 1;
-              $success = btrfs_send_receive($snapshot, $droot, undef, $receive_log, $config_target);
+              $success = btrfs_send_receive($snapshot, $droot, undef, $config_target);
             }
           }
           else {

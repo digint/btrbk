@@ -97,13 +97,6 @@ have to make sure that the remote user is able to run /sbin/btrfs
 If set, make sure the deletion of snapshot and backup subvolumes are
 committed to disk when btrbk terminates. Defaults to \(lqno\(rq.
 .TP
-\fBreceive_log\fR  <file>|sidecar|no
-Dump verbose output of \fIbtrfs receive\fR to a specified file. If set
-to \(lqsidecar\(rq, the file will be created in the backup directory,
-named \fI<backup_subvolume>.btrbk.log\fR. Note that this log file can
-become very big, as every change of every file is being
-logged. Consider this as a debugging feature. Defaults to \(lqno\(rq.
-.TP
 \fBbtrfs_progs_compat\fR  yes|no \fI*experimental*\fR
 Enable compatibility mode for btrfs-progs < 3.17 (\fIbtrfs
 --version\fR). This option can be set either globally or within a

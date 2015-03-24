@@ -43,14 +43,6 @@ target_preserve_monthly    all
 # Make sure the deletion of subvolumes is committed to disk when btrbk terminates
 btrfs_commit_delete        after
 
-# Dump verbose output of "btrfs receive" to a specified file. If set
-# to "sidecar", the file will be named "<backup_subvolume>.btrbk.log".
-# Note that this log file can become very big, as every change of
-# every file is being logged.
-#receive_log               /var/log/btrbk_receive.log
-#receive_log               sidecar
-receive_log                no
-
 # Enable compatibility mode for btrfs-progs < 3.17.
 # Set this either globally or in a specific "target" section.
 #btrfs_progs_compat         yes
