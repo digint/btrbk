@@ -58,18 +58,19 @@ an example configuration file.
 Synopsis
 ========
 
-Please consult the [btrbk man-page] provided with this package for a
+Please consult the [btrbk(1) man-page] provided with this package for a
 full description of the command line options.
 
-  [btrbk man-page]: http://www.digint.ch/btrbk/doc/btrbk.html
+  [btrbk(1) man-page]: http://www.digint.ch/btrbk/doc/btrbk.html
 
 
 Configuration File
 ==================
 
-Before running `btrbk`, you will need to create a config file. You
-might want to take a look at the example configuration file provided
-with this package: `btrbk.conf.example`.
+Before running `btrbk`, you will need to create a configuration
+file. You might want to take a look at `btrbk.conf.example` provided
+with this package. For a detailed description, please consult the
+[btrbk.conf(5) man-page].
 
 When playing around with config-files, it is highly recommended to
 check the output using the `dryrun` command before executing the
@@ -80,6 +81,9 @@ backups:
 This will read all btrfs information on the source/target filesystems
 and show what actions would be performed (without writing anything to
 the disks).
+
+
+  [btrbk.conf(5) man-page]: http://www.digint.ch/btrbk/doc/btrbk.conf.html
 
 
 Example: laptop with usb-disk for backups
