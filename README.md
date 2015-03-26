@@ -82,7 +82,6 @@ This will read all btrfs information on the source/target filesystems
 and show what actions would be performed (without writing anything to
 the disks).
 
-
   [btrbk.conf(5) man-page]: http://www.digint.ch/btrbk/doc/btrbk.conf.html
 
 
@@ -118,10 +117,10 @@ Retention policy:
     snapshot_dir               btrbk_snapshots
 
     volume /mnt/btr_pool
-      subvolume  rootfs
+      subvolume rootfs
         target send-receive    /mnt/btr_backup/mylaptop
 
-      subvolume  home
+      subvolume home
         target send-receive    /mnt/btr_backup/mylaptop
 
 
@@ -155,7 +154,7 @@ this:
     ssh_identity               /etc/btrbk/ssh/id_rsa
 
     volume /mnt/btr_pool
-      subvolume  rootfs
+      subvolume rootfs
         target send-receive    /mnt/btr_backup/mylaptop
         target send-receive    ssh://myserver.mydomain.com/mnt/btr_backup/mylaptop
 
@@ -264,10 +263,10 @@ Your contributions are welcome!
 
 If you would like to contribute or found bugs:
 
-- visit the [btrbk project page on GitHub] and use the [issues
+- Visit the [btrbk project page on GitHub] and use the [issues
   tracker] there
-- talk to us on Freenode in #btrbk
-- contact the author via email (the email address can be found in the
+- Talk to us on Freenode in #btrbk
+- Contact the author via email (the email address can be found in the
   sources)
 
 Any feedback is appreciated!
