@@ -149,7 +149,9 @@ sub run_cmd($;$)
     chomp($ret);
     TRACE "Command output:\n$ret";
     if($?) {
-      WARN "Command execution failed (exitcode=$?): \"$cmd\"";
+      my $exitcode= $? >> 8;
+      my $signal = $? & 127;
+      WARN "Command execution failed (exitcode=$exitcode" . ($signal ? ", signal=$signal" : "") . "): \"$cmd\"";
       return undef;
     }
     else {
