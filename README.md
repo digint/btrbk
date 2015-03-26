@@ -190,6 +190,24 @@ This will pull backups from alpha/beta.mydomain.com and locally create:
 - `/mnt/btr_backup/beta/dbdata.YYYYMMDD`
 
 
+Example: local time-machine (daily snapshots)
+---------------------------------------------
+
+If all you want is a local time-machine of your home directory:
+
+/etc/btrbk/btrbk-timemachine.conf:
+
+    volume /mnt/btr_pool
+      subvolume home
+        snapshot_dir btrbk_snapshots
+        snapshot_create_always yes
+
+/etc/cron.daily/btrbk:
+
+    #!/bin/bash
+    /usr/sbin/btrbk -c /etc/btrbk/btrbk-timemachine.conf run
+
+
 Setting up SSH
 ==============
 
