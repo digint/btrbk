@@ -789,7 +789,7 @@ sub btrfs_subvolume_delete($@)
     push(@real_targets, $t);
   }
   die if(scalar(@targets) != scalar(@real_targets));
-  my $commit_delete = config_key($config, "btrfs_commit_delete");
+  my $commit_delete = config_key($config, "btrfs_commit_delete") // "";
   DEBUG "[btrfs] delete" . ($commit_delete ? " (commit-$commit_delete):" : ":");
   DEBUG "[btrfs]   subvolume: $_" foreach(@targets);
   my $options = "";
