@@ -16,12 +16,15 @@
 #
 snapshot_dir               _btrbk_snap
 
-# Always create snapshots, even if the target volume is unreachable
-snapshot_create_always     yes
-
 # Perform incremental backups (set to "strict" if you want to prevent
 # creation of initial backups if no parent is found)
 incremental                yes
+
+# Always create snapshots, even if the target volume is unreachable
+snapshot_create_always     yes
+
+# Resume missing backups of snapshots
+resume_missing             yes
 
 # ssh key for ssh volumes/targets
 ssh_identity               /etc/btrbk/ssh/id_ed25519
