@@ -802,7 +802,7 @@ sub btrfs_subvolume_delete($@)
 }
 
 
-sub btrfs_send_receive($$$$;$)
+sub btrfs_send_receive($$$;$)
 {
   my $src = shift || die;
   my $target = shift || die;
@@ -833,6 +833,49 @@ sub btrfs_send_receive($$$$;$)
     return undef;
   }
   return "$target/$src_name";
+}
+
+
+# sets $config->{ABORTED} on failure
+# sets $config->{subvol_received}
+sub macro_send_receive($@)
+{
+  my $config = shift || die;
+  my %info = @_;
+
+  my $incremental = config_key($config, "incremental");
+
+  INFO "Using previously created snapshot: $info{src}";
+
+  if($incremental)
+  {
+    # create backup from latest common
+    if($info{parent}) {
+      INFO "Incremental from parent snapshot: $info{parent}";
+    }
+    elsif($incremental ne "strict") {
+      INFO "No common parent subvolume present, creating full backup";
+    }
+    else {
+      WARN "Backup to $info{target} failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+      $config->{ABORTED} = "No common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+      return undef;
+    }
+  }
+  else {
+    INFO "Option \"incremental\" is not set, creating full backup";
+    delete $info{parent};
+  }
+
+  $info{received_name} = btrfs_send_receive($info{src}, $info{target}, $info{parent}, $config);
+  if($info{received_name}) {
+    $config->{subvol_received} //= [];
+    push(@{$config->{subvol_received}}, \%info);
+    return 1;
+  } else {
+    $config->{ABORTED} = "btrfs send/receive command failed";
+  }
+  return undef;
 }
 
 
@@ -1525,84 +1568,75 @@ MAIN:
           my $droot       = $config_target->{droot}       || die;
           my $target_type = $config_target->{target_type} || die;
 
-          my $success = 0;
           if($target_type eq "send-receive")
           {
             if(config_key($config_target, "receive_log")) {
               WARN "Ignoring deprecated option \"receive_log\" for target: $droot"
             }
 
-            my $incremental = config_key($config_target, "incremental");
-            if($incremental) # TODO: fix this
+            my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
+            my $parent_snap;
+            $parent_snap = $latest_common_src->{FS_PATH} if($latest_common_src);
+
+            # resume missing backups (resume_missing)
+            if(config_key($config_target, "resume_missing"))
             {
-              my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
+              INFO "Checking for missing backups of subvolume \"$sroot/$svol\": $droot/";
+              my $found_missing = 0;
+              foreach my $child (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_snapshot_children($sroot, $svol)) {
+                if(scalar get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
+                  DEBUG "Found matching receive target for: $child->{FS_PATH}";
+                }
+                else {
+                  DEBUG "No matching receive targets found for: $child->{FS_PATH}";
 
-              # resume missing backups (resume_missing)
-              # TODO: non-incremental
-              if(config_key($config_target, "resume_missing")) {
-                INFO "Checking for missing backups of subvolume \"$sroot/$svol\": $droot/";
-                my $found_missing = 0;
-                foreach my $child (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_snapshot_children($sroot, $svol)) {
-                  if(scalar get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
-                    DEBUG "Found matching receive target for: $child->{FS_PATH}";
-                  }
-                  else {
-                    DEBUG "No matching receive targets found for: $child->{FS_PATH}";
-                    INFO "Resuming backup of: $child->{FS_PATH}";
-                    if(my $received_name = btrfs_send_receive($child->{FS_PATH}, $droot, $latest_common_src->{FS_PATH}, $config_target)) {
-                      $latest_common_src = $child;
-                      DEBUG("Updated latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}");
-
-                      $config_target->{subvol_created_resume} //= [];
-                      push(@{$config_target->{subvol_created_resume}}, $received_name);
+                  # check if the target would be preserved
+                  my ($date, undef) = get_date_tag($child->{SUBVOL_PATH});
+                  next unless($date);
+                  unless(scalar schedule_deletion(
+                    schedule             => [ { name => $child->{FS_PATH}, sort => $child->{SUBVOL_PATH}, date => $date } ],
+                    today                => \@today,
+                    preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
+                    preserve_daily       => config_key($config_target, "target_preserve_daily"),
+                    preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
+                    preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+                   ))
+                  {
+                    INFO "Resuming subvolume backup of: $child->{FS_PATH}";
+                    if(macro_send_receive($config_target,
+                                          src    => $child->{FS_PATH},
+                                          target => $droot,
+                                          parent => $parent_snap,
+                                          resume => 1,     # propagated to $config_target->{subvol_received}
+                                         )) {
+                      $parent_snap = $child->{FS_PATH};
+                      DEBUG("Updated latest common snapshots for: $sroot/$svol: src=$parent_snap");
                     }
                     else {
-                      $config_target->{ABORTED} = "btrfs send/receive command failed";
+                      ERROR("Error while resuming backups, aborting resume chain");
+                      last;
                     }
                     $found_missing++;
                   }
                 }
-
-                unless($found_missing) {
-                  INFO "No missing backups found";
-                }
               }
 
-              # create backup from latest common
-              INFO "Creating subvolume backup ($target_type) for: $sroot/$svol";
-              INFO "Using previously created snapshot: $snapshot";
-
-              if($latest_common_src && $latest_common_target) {
-                my $parent_snap = $latest_common_src->{FS_PATH};
-                INFO "Incremental from parent snapshot: $parent_snap";
-                $success = btrfs_send_receive($snapshot, $droot, $parent_snap, $config_target);
-              }
-              elsif($incremental ne "strict") {
-                INFO "No common parent subvolume present, creating full backup";
-                $config_target->{subvol_non_incremental} = 1;
-                $success = btrfs_send_receive($snapshot, $droot, undef, $config_target);
-              }
-              else {
-                WARN "Backup to $droot failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+              unless($found_missing) {
+                INFO "No missing backups found";
               }
             }
-            else {
-              # TODO: fix this
-              WARN "Option resume_missing not supported for non-incremental backups" if(config_key($config_target, "resume_missing"));
 
-              INFO "Creating full backup (option \"incremental\" is not set)";
-              $config_target->{subvol_non_incremental} = 1;
-              $success = btrfs_send_receive($snapshot, $droot, undef, $config_target);
-            }
+            # finally create the latest backup
+            INFO "Creating subvolume backup (send-receive) for: $sroot/$svol";
+            macro_send_receive($config_target,
+                               src    => $snapshot,
+                               target => $droot,
+                               parent => $parent_snap
+                              );
           }
           else {
             ERROR "Unknown target type \"$target_type\", skipping: $sroot/$svol";
-          }
-          if($success) {
-            $config_target->{subvol_created} = "$droot/$snapshot_name";
-          }
-          else {
-            $config_target->{ABORTED} = "btrfs send/receive command failed";
+            $config_target->{ABORTED} = "Unknown target type \"$target_type\"";
           }
         }
       }
@@ -1744,24 +1778,26 @@ MAIN:
           }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
-            if($config_target->{ABORTED}) {
-              print "!!! Target \"$config_target->{droot}\" aborted: $config_target->{ABORTED}\n";
-              $err_count++ unless($config_target->{ABORTED_NOERR});
-            }
             # if($config_target->{schedule}) {
             #   foreach (sort { $a->{sort} cmp $b->{sort} } @{$config_target->{schedule}}) {
             #     print(($_->{preserve} ? "===" : "---") . " $_->{name}\n");
             #   }
             # }
 
-            # print the resumed backups (resume_missing)
-            print "%>> $_\n" foreach(@{$config_target->{subvol_created_resume} // []});
-
-            my $create_mode = ($config_target->{subvol_non_incremental} ? "***" : ">>>");
-            print "$create_mode $config_target->{subvol_created}\n" if($config_target->{subvol_created});
+            foreach(@{$config_target->{subvol_received} // []}) {
+              next unless $_;
+              my $create_mode = $_->{parent} ? ">>>" : "***";
+              substr($create_mode, 0, 1, '%') if($_->{resume});
+              print "$create_mode $_->{received_name}\n";
+            }
 
             if($config_target->{subvol_deleted}) {
               print "--- $_\n" foreach(sort { $b cmp $a} @{$config_target->{subvol_deleted}});
+            }
+
+            if($config_target->{ABORTED}) {
+              print "!!! Target \"$config_target->{droot}\" aborted: $config_target->{ABORTED}\n";
+              $err_count++ unless($config_target->{ABORTED_NOERR});
             }
           }
         }
