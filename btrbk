@@ -842,10 +842,9 @@ sub macro_send_receive($@)
 {
   my $config = shift || die;
   my %info = @_;
-
   my $incremental = config_key($config, "incremental");
 
-  INFO "Using previously created snapshot: $info{src}";
+  INFO "Receiving from snapshot: $info{src}";
 
   if($incremental)
   {
@@ -1006,10 +1005,16 @@ sub schedule_deletion(@)
   my $preserve_daily       = $args{preserve_daily}       // die;
   my $preserve_weekly      = $args{preserve_weekly}      // die;
   my $preserve_monthly     = $args{preserve_monthly}     // die;
+  my $log_verbose          = $args{log_verbose};
 
-  INFO "Filter scheme: preserving all within $preserve_daily days";
-  INFO "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
-  INFO "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
+  if($log_verbose) {
+    INFO "Filter scheme: preserving all within $preserve_daily days";
+    INFO "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
+    INFO "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
+  }
+  else {
+    DEBUG "Filter scheme: $preserve_day_of_week: $preserve_daily:$preserve_weekly:$preserve_monthly";
+  }
 
   # first, do our calendar calculations
   # note: our week starts on $preserve_day_of_week
@@ -1059,10 +1064,10 @@ sub schedule_deletion(@)
   foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)
   {
     if($href->{preserve}) {
-      INFO "=== $href->{sort}: $href->{preserve}";
+      INFO "=== $href->{sort}: $href->{preserve}" if($log_verbose);
     }
     else {
-      INFO "<<< $href->{sort}";
+      INFO "<<< $href->{sort}" if($log_verbose);
       push(@delete, $href->{name});
     }
   }
@@ -1593,7 +1598,7 @@ MAIN:
                   # check if the target would be preserved
                   my ($date, undef) = get_date_tag($child->{SUBVOL_PATH});
                   next unless($date);
-                  unless(scalar schedule_deletion(
+                  if(scalar schedule_deletion(
                     schedule             => [ { name => $child->{FS_PATH}, sort => $child->{SUBVOL_PATH}, date => $date } ],
                     today                => \@today,
                     preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
@@ -1602,7 +1607,11 @@ MAIN:
                     preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
                    ))
                   {
-                    INFO "Resuming subvolume backup of: $child->{FS_PATH}";
+                    DEBUG "Target would have been deleted by target_perserve rules, skipping resume of: $child->{FS_PATH}";
+                  }
+                  else
+                  {
+                    INFO "Resuming subvolume backup (send-receive) for: $child->{FS_PATH}";
                     if(macro_send_receive($config_target,
                                           src    => $child->{FS_PATH},
                                           target => $droot,
@@ -1621,7 +1630,9 @@ MAIN:
                 }
               }
 
-              unless($found_missing) {
+              if($found_missing) {
+                INFO "Resumed $found_missing backups";
+              } else {
                 INFO "No missing backups found";
               }
             }
@@ -1686,6 +1697,7 @@ MAIN:
               preserve_daily       => config_key($config_target, "target_preserve_daily"),
               preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
               preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+              log_verbose          => 1,
              );
             my $ret = btrfs_subvolume_delete($config_target, @delete);
             if(defined($ret)) {
@@ -1720,6 +1732,7 @@ MAIN:
             preserve_daily       => config_key($config_subvol, "snapshot_preserve_daily"),
             preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
             preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
+            log_verbose          => 1,
            );
           my $ret = btrfs_subvolume_delete($config_subvol, @delete);
           if(defined($ret)) {
