@@ -836,6 +836,19 @@ sub btrfs_send_receive($$$$;$)
 }
 
 
+sub get_date_tag($)
+{
+  my $name = shift;
+  $name =~ s/_([0-9]+)$//;
+  my $postfix_counter = $1;
+  my $date = undef;
+  if($name =~ /\.([0-9]{4})([0-9]{2})([0-9]{2})$/) {
+    $date = [ $1, $2, $3 ];
+  }
+  return ($date, $postfix_counter);
+}
+
+
 sub get_snapshot_children($$)
 {
   my $sroot = shift || die;
@@ -1628,9 +1641,9 @@ MAIN:
             INFO "Cleaning backups of subvolume \"$sroot/$svol\": $droot/$svol.*";
             my @schedule;
             foreach my $vol (keys %{$vol_info{$droot}}) {
-              if($vol =~ /^$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
-                push(@schedule, { name => "$droot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
-              }
+              my ($date, undef) = get_date_tag($vol);
+              next unless($date && ($vol =~ /^svol\./));
+              push(@schedule, { name => "$droot/$vol", sort => $vol, date => $date });
             }
             my @delete = schedule_deletion(
               schedule             => \@schedule,
@@ -1662,9 +1675,9 @@ MAIN:
           INFO "Cleaning snapshots: $sroot/$snapdir$svol.*";
           my @schedule;
           foreach my $vol (keys %{$vol_info{$sroot}}) {
-            if($vol =~ /^$snapdir$svol\.([0-9]{4})([0-9]{2})([0-9]{2})/) {
-              push(@schedule, { name => "$sroot/$vol", sort => $vol, date => [ $1, $2, $3 ] });
-            }
+            my ($date, undef) = get_date_tag($vol);
+            next unless($date && ($vol =~ /^$snapdir$svol\./));
+            push(@schedule, { name => "$sroot/$vol", sort => $vol, date => $date });
           }
           my @delete = schedule_deletion(
             schedule             => \@schedule,
