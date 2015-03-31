@@ -832,7 +832,7 @@ sub btrfs_send_receive($$$;$)
     ERROR "Failed to send/receive btrfs subvolume: $src " . ($real_parent ? "[$real_parent]" : "") . " -> $target";
     return undef;
   }
-  return "$target/$src_name";
+  return 1;
 }
 
 
@@ -846,6 +846,13 @@ sub macro_send_receive($@)
 
   INFO "Receiving from snapshot: $info{src}";
 
+  # add info to $config->{subvol_received}
+  my $src_name = $info{src};
+  $src_name =~ s/^.*\///;
+  $info{received_name} = "$info{target}/$src_name";
+  $config->{subvol_received} //= [];
+  push(@{$config->{subvol_received}}, \%info);
+
   if($incremental)
   {
     # create backup from latest common
@@ -857,6 +864,7 @@ sub macro_send_receive($@)
     }
     else {
       WARN "Backup to $info{target} failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+      $info{ERROR} = 1;
       $config->{ABORTED} = "No common parent subvolume found, and option \"incremental\" is set to \"strict\"";
       return undef;
     }
@@ -866,15 +874,13 @@ sub macro_send_receive($@)
     delete $info{parent};
   }
 
-  $info{received_name} = btrfs_send_receive($info{src}, $info{target}, $info{parent}, $config);
-  if($info{received_name}) {
-    $config->{subvol_received} //= [];
-    push(@{$config->{subvol_received}}, \%info);
+  if(btrfs_send_receive($info{src}, $info{target}, $info{parent}, $config)) {
     return 1;
   } else {
+    $info{ERROR} = 1;
     $config->{ABORTED} = "btrfs send/receive command failed";
+    return undef;
   }
-  return undef;
 }
 
 
@@ -1586,9 +1592,12 @@ MAIN:
             # resume missing backups (resume_missing)
             if(config_key($config_target, "resume_missing"))
             {
-              INFO "Checking for missing backups of subvolume \"$sroot/$svol\": $droot/";
+              INFO "Checking for missing backups of subvolume \"$sroot/$svol\" in: $droot/";
               my $found_missing = 0;
-              foreach my $child (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_snapshot_children($sroot, $svol)) {
+              foreach my $child (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_snapshot_children($sroot, $svol))
+              {
+                last if($config_target->{ABORTED});
+
                 if(scalar get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
                   DEBUG "Found matching receive target for: $child->{FS_PATH}";
                 }
@@ -1611,6 +1620,7 @@ MAIN:
                   }
                   else
                   {
+                    $found_missing++;
                     INFO "Resuming subvolume backup (send-receive) for: $child->{FS_PATH}";
                     if(macro_send_receive($config_target,
                                           src    => $child->{FS_PATH},
@@ -1622,10 +1632,9 @@ MAIN:
                       DEBUG("Updated latest common snapshots for: $sroot/$svol: src=$parent_snap");
                     }
                     else {
-                      ERROR("Error while resuming backups, aborting resume chain");
-                      last;
+                      # note: ABORTED flag is already set by macro_send_receive()
+                      ERROR("Error while resuming backups, aborting");
                     }
-                    $found_missing++;
                   }
                 }
               }
@@ -1636,6 +1645,9 @@ MAIN:
                 INFO "No missing backups found";
               }
             }
+
+            # skip creation if resume_missing failed
+            next if($config_target->{ABORTED});
 
             # finally create the latest backup
             INFO "Creating subvolume backup (send-receive) for: $sroot/$svol";
@@ -1798,9 +1810,10 @@ MAIN:
             # }
 
             foreach(@{$config_target->{subvol_received} // []}) {
-              next unless $_;
-              my $create_mode = $_->{parent} ? ">>>" : "***";
+              my $create_mode = "***";
+              $create_mode = ">>>" if($_->{parent});
               substr($create_mode, 0, 1, '%') if($_->{resume});
+              $create_mode = "!!!" if($_->{ERROR});
               print "$create_mode $_->{received_name}\n";
             }
 
