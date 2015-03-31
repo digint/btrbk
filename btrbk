@@ -64,6 +64,7 @@ my %config_options = (
   receive_log               => { default => undef,    accept => [ "sidecar", "no" ], accept_file => { absolute => 1 }, deprecated => "removed" },
   incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
   snapshot_create_always    => { default => undef,    accept => [ "yes", "no" ] },
+  resume_missing            => { default => undef,    accept => [ "yes", "no" ] },
   preserve_day_of_week      => { default => "sunday", accept => [ (keys %day_of_week_map) ] },
   snapshot_preserve_daily   => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
   snapshot_preserve_weekly  => { default => 0,        accept => [ "all" ], accept_numeric => 1  },
@@ -831,7 +832,7 @@ sub btrfs_send_receive($$$$;$)
     ERROR "Failed to send/receive btrfs subvolume: $src " . ($real_parent ? "[$real_parent]" : "") . " -> $target";
     return undef;
   }
-  return 1;
+  return "$target/$src_name";
 }
 
 
@@ -1514,17 +1515,50 @@ MAIN:
           my $success = 0;
           if($target_type eq "send-receive")
           {
-            INFO "Creating subvolume backup ($target_type) for: $sroot/$svol";
-            INFO "Using previously created snapshot: $snapshot";
-
             if(config_key($config_target, "receive_log")) {
               WARN "Ignoring deprecated option \"receive_log\" for target: $droot"
             }
 
             my $incremental = config_key($config_target, "incremental");
-            if($incremental)
+            if($incremental) # TODO: fix this
             {
               my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
+
+              # resume missing backups (resume_missing)
+              # TODO: non-incremental
+              if(config_key($config_target, "resume_missing")) {
+                INFO "Checking for missing backups of subvolume \"$sroot/$svol\": $droot/";
+                my $found_missing = 0;
+                foreach my $child (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_snapshot_children($sroot, $svol)) {
+                  if(scalar get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
+                    DEBUG "Found matching receive target for: $child->{FS_PATH}";
+                  }
+                  else {
+                    DEBUG "No matching receive targets found for: $child->{FS_PATH}";
+                    INFO "Resuming backup of: $child->{FS_PATH}";
+                    if(my $received_name = btrfs_send_receive($child->{FS_PATH}, $droot, $latest_common_src->{FS_PATH}, $config_target)) {
+                      $latest_common_src = $child;
+                      DEBUG("Updated latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}");
+
+                      $config_target->{subvol_created_resume} //= [];
+                      push(@{$config_target->{subvol_created_resume}}, $received_name);
+                    }
+                    else {
+                      $config_target->{ABORTED} = "btrfs send/receive command failed";
+                    }
+                    $found_missing++;
+                  }
+                }
+
+                unless($found_missing) {
+                  INFO "No missing backups found";
+                }
+              }
+
+              # create backup from latest common
+              INFO "Creating subvolume backup ($target_type) for: $sroot/$svol";
+              INFO "Using previously created snapshot: $snapshot";
+
               if($latest_common_src && $latest_common_target) {
                 my $parent_snap = $latest_common_src->{FS_PATH};
                 INFO "Incremental from parent snapshot: $parent_snap";
@@ -1540,6 +1574,9 @@ MAIN:
               }
             }
             else {
+              # TODO: fix this
+              WARN "Option resume_missing not supported for non-incremental backups" if(config_key($config_target, "resume_missing"));
+
               INFO "Creating full backup (option \"incremental\" is not set)";
               $config_target->{subvol_non_incremental} = 1;
               $success = btrfs_send_receive($snapshot, $droot, undef, $config_target);
@@ -1663,6 +1700,12 @@ MAIN:
       print "Backup Summary ($version_info)\n\n";
       print "    Date:   " . localtime($start_time) . "\n";
       print "    Config: $config->{SRC_FILE}\n";
+      print "\nLegend:\n";
+      print "    +++  created subvolume (snapshot)\n";
+      print "    ---  deleted subvolume\n";
+      print "    ***  received subvolume (non-incremental)\n";
+      print "    >>>  received subvolume (incremental)\n";
+      print "    %>>  received subvolume (incremental, resume_missing)\n";
       print "--------------------------------------------------------------------------------";
       foreach my $config_vol (@{$config->{VOLUME}})
       {
@@ -1697,8 +1740,13 @@ MAIN:
             #     print(($_->{preserve} ? "===" : "---") . " $_->{name}\n");
             #   }
             # }
+
+            # print the resumed backups (resume_missing)
+            print "%>> $_\n" foreach(@{$config_target->{subvol_created_resume} // []});
+
             my $create_mode = ($config_target->{subvol_non_incremental} ? "***" : ">>>");
             print "$create_mode $config_target->{subvol_created}\n" if($config_target->{subvol_created});
+
             if($config_target->{subvol_deleted}) {
               print "--- $_\n" foreach(sort { $b cmp $a} @{$config_target->{subvol_deleted}});
             }
