@@ -1,32 +1,38 @@
-* btrbk-0.10
-  - initial revision
+btrbk-current
 
-* btrbk-0.11
-  - added option -p (preserve backups)
-  - added optional subvolume argument for run/dryrun actions, for
-    explicit selection of subvolumes to be processed
-  - bugfixes
+  * Added configuration option "btrfs_progs_compat", to be enabled if
+    using btrfs-progs < 3.17 (closes: #6).
+  * Added configuration option "resume_missing", for automatic resume
+    of missing backups (closes: #8).
+  * Removed configuration option "receive_log" in favor of printing
+    errors from "btrfs receive".
+  * Bugfix: show correct exit code on external command failure.
+  * Bugfix: no crash if "commit_delete" option is set to "no"
 
-* btrbk-0.12
-  - cleaner and more generic parsing of btrfs subvolume list
-  - bugfix: subvolumes are also allowed for "snapshot_dir" (fixes
-    issues #1, #2)
+btrbk-0.14
 
-* btrbk-0.13
-  - bugfix: allow '@' character for subvolume names (blocker for
+  * Bugfix: correctly handle empty target subvolumes (blocker for all
+    new users; closes: #4).
+
+btrbk-0.13
+
+  * Bugfix: allow '@' character for subvolume names (blocker for
     ubuntu users, since ubuntu prefixes all subvolumes with '@' in its
-    subvolume layout). Fixes issue #3
+    subvolume layout; closes: #3).
 
-* btrbk-0.14
-  - bugfix: correctly handle empty target subvolumes (blocker for all
-    new users). Fixes issue #4
+btrbk-0.12
 
-* btrbk-current
-  - added configuration option "btrfs_progs_compat", to be enabled if
-    using btrfs-progs < 3.17. Fixes issue #6
-  - added configuration option "resume_missing", for automatic resume
-    of missing backups
-  - removed configuration option "receive_log" in favor of printing
-    errors from "btrfs receive"
-  - bugfix: show correct exit code on external command failure
-  - bugfix: no crash if "commit_delete" option is set to "no"
+  * Cleaner and more generic parsing of btrfs subvolume list.
+  * Bugfix: subvolumes are also allowed for "snapshot_dir" (closes:
+    #1, #2).
+
+btrbk-0.11
+
+  * Added option -p (preserve backups).
+  * Added optional subvolume argument for run/dryrun actions, for
+    explicit selection of subvolumes to be processed.
+  * Bugfixes
+
+btrbk-0.10
+
+  * Initial revision.
