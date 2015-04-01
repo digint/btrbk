@@ -17,7 +17,7 @@ Key Features:
 - Configurable retention policy
 - Backups to multiple destinations
 - Transfer via ssh
-- Resume of backups (if backup disk was not attached for a while)
+- Resume of backups (if backup target was not reachable for a while)
 - Display file changes between two backups
 
 btrbk is intended to be run as a cron job.
@@ -36,24 +36,38 @@ Prerequisites
 - [btrfs-progs]: Btrfs filesystem utilities (use "btrfs_progs_compat"
   option for hosts running version prior to v3.17)
 - Perl interpreter: probably already installed on your system
-- [Date::Calc]: Perl module, probably already installed on your system
+- [Date::Calc]: Perl module
 
   [btrfs-progs]: http://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
   [Date::Calc]:  http://search.cpan.org/perldoc?Date::Calc
 
-
 Instructions
 ------------
 
-First, [download] the newest stable btrbk source.
-Unzip the tarball, go to the btrbk directory and type:
+In order to install the btrbk executable along with the man-pages and
+an example configuration file, choose one of the following methods:
+
+### Generic Linux System
+
+Download and unpack the newest stable [btrbk source tarball] and type:
 
     sudo make install
 
-This will install the btrbk executable along with the man-pages and
-an example configuration file.
+### Debian Based Distros
 
-  [download]: http://www.digint.ch/download/btrbk/releases/
+Download the newest stable [btrbk debian package], and
+
+    sudo apt-get install btrbk-<version>.deb
+
+### Gentoo Linux
+
+Grab the digint portage overlay from:
+`git://dev.tty0.ch/portage/digint-overlay.git`
+
+    emerge btrbk
+
+  [btrbk source tarball]: http://www.digint.ch/download/btrbk/releases/
+  [btrbk debian package]: http://www.digint.ch/download/btrbk/packages/debian/
 
 
 Synopsis
@@ -265,10 +279,10 @@ Your contributions are welcome!
 If you would like to contribute or found bugs:
 
 - Visit the [btrbk project page on GitHub] and use the [issues
-  tracker] there
-- Talk to us on Freenode in #btrbk
+  tracker] there.
+- Talk to us on Freenode in `#btrbk`.
 - Contact the author via email (the email address can be found in the
-  sources)
+  sources).
 
 Any feedback is appreciated!
 
