@@ -1469,33 +1469,24 @@ MAIN:
         }
 
         my $sroot_uuid = $vol_info{$sroot}->{$svol}->{node}->{uuid} || die;
-        foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$sroot}}))
+        foreach my $snapshot (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$sroot}}))
         {
-          next unless($_->{node}->{parent_uuid} eq $sroot_uuid);
-          # next unless($_->{SUBVOL_PATH} =~ /^$snapdir/);  # don't print non-btrbk snapshots
-          print "|   ^-- $_->{SUBVOL_PATH}\n";
-          my $snapshot = $_->{FS_PATH};
-          $snapshot =~ s/^.*\///;
-          my $snapshot_uuid = $_->{node}->{uuid} || die;
+          next unless($snapshot->{node}->{parent_uuid} eq $sroot_uuid);
+          # next unless($snapshot->{SUBVOL_PATH} =~ /^$snapdir/);  # don't print non-btrbk snapshots
+          print "|   ^-- $snapshot->{SUBVOL_PATH}\n";
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             my $droot = $config_target->{droot} || die;
             next unless $vol_info{$droot};
-
-            if($vol_btrfs_progs_compat{$droot}) {
-              $droot_compat{$droot} = 1;
-            }
-            else {
-              foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$droot}})) {
-                next unless($_->{node}->{received_uuid} eq $snapshot_uuid);
-                print "|   |   ^== $_->{FS_PATH}\n";
-              }
+            $droot_compat{$droot} = 1 if($vol_btrfs_progs_compat{$droot});
+            foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
+              print "|   |   ^== $_->{FS_PATH}\n";
             }
           }
         }
       }
       if(keys %droot_compat) {
-        print "NOTE: Received subvolumes (backups) will are not printed for targets:\n";
+        print "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:\n";
         print "      - " . join("\n      - ", (sort keys %droot_compat));
       }
       print "\n";
