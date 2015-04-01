@@ -24,5 +24,9 @@
 * btrbk-current
   - added configuration option "btrfs_progs_compat", to be enabled if
     using btrfs-progs < 3.17. Fixes issue #6
+  - added configuration option "resume_missing", for automatic resume
+    of missing backups
   - removed configuration option "receive_log" in favor of printing
     errors from "btrfs receive"
+  - bugfix: show correct exit code on external command failure
+  - bugfix: no crash if "commit_delete" option is set to "no"

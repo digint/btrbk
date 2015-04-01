@@ -23,7 +23,8 @@ incremental                yes
 # Always create snapshots, even if the target volume is unreachable
 snapshot_create_always     yes
 
-# Resume missing backups of snapshots
+# Resume missing backups if the target volume is reachable again.
+# Useful in conjunction with "snapshot_create_always".
 resume_missing             yes
 
 # ssh key for ssh volumes/targets
