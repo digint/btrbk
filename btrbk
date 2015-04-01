@@ -903,13 +903,13 @@ sub get_snapshot_children($$)
   my $svol = shift || die;
   my $svol_node = subvol($sroot, $svol);
   die("subvolume info not present: $sroot/$svol") unless($svol_node);
-  DEBUG "Getting snapshot children of: $sroot/$svol";
   my @ret;
   foreach (values %{$vol_info{$sroot}}) {
     next unless($_->{node}->{parent_uuid} eq $svol_node->{uuid});
-    DEBUG "Found snapshot child: $_->{SUBVOL_PATH}";
+    TRACE "get_snapshot_children: Found snapshot child: $_->{SUBVOL_PATH}";
     push(@ret, $_);
   }
+  DEBUG "Found " . scalar(@ret) . " snapshot children of: $sroot/$svol";
   return @ret;
 }
 
@@ -920,13 +920,13 @@ sub get_receive_targets_by_uuid($$)
   my $uuid = shift || die;
   die("root subvolume info not present: $droot") unless($vol_info{$droot});
   die("subvolume info not present: $uuid") unless($uuid_info{$uuid});
-  DEBUG "Getting receive targets in \"$droot/\" for: $uuid_info{$uuid}->{path}";
   my @ret;
   foreach (values %{$vol_info{$droot}}) {
     next unless($_->{node}->{received_uuid} eq $uuid);
-    DEBUG "Found receive target: $_->{SUBVOL_PATH}";
+    TRACE "get_receive_targets_by_uuid: Found receive target: $_->{SUBVOL_PATH}";
     push(@ret, $_);
   }
+  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot/\" for: $uuid_info{$uuid}->{path}";
   return @ret;
 }
 
@@ -1033,15 +1033,12 @@ sub schedule_deletion(@)
     INFO "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
     INFO "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
   }
-  else {
-    DEBUG "Filter scheme: $preserve_day_of_week: $preserve_daily:$preserve_weekly:$preserve_monthly";
-  }
 
   # first, do our calendar calculations
   # note: our week starts on $preserve_day_of_week
   my $delta_days_to_eow_from_today = $day_of_week_map{$preserve_day_of_week} - Day_of_Week(@today) - 1;
   $delta_days_to_eow_from_today = $delta_days_to_eow_from_today + 7 if($delta_days_to_eow_from_today < 0);
-  DEBUG "last day before next $preserve_day_of_week is in $delta_days_to_eow_from_today days";
+  TRACE "last day before next $preserve_day_of_week is in $delta_days_to_eow_from_today days";
   foreach my $href (@$schedule)
   {
     my @date = @{$href->{date}};
@@ -1092,6 +1089,7 @@ sub schedule_deletion(@)
       push(@delete, $href->{name});
     }
   }
+  DEBUG "Preserving " . (@$schedule - @delete) . "/" . @$schedule . " items" unless($log_verbose);
   return @delete;
 }
 
@@ -1608,15 +1606,18 @@ MAIN:
               INFO "Checking for missing backups of subvolume \"$sroot/$svol\" in: $droot/";
               my $found_missing = 0;
               # sort children of svol ascending by generation
-             foreach my $child (sort { $a->{node}->{gen} <=> $b->{node}->{gen} } get_snapshot_children($sroot, $svol))
+              foreach my $child (sort { $a->{node}->{gen} <=> $b->{node}->{gen} } get_snapshot_children($sroot, $svol))
               {
                 last if($config_target->{ABORTED});
 
+                DEBUG "Checking for missing receive targets for \"$child->{FS_PATH}\" in: $droot/";
+
+                # TODO: fix for btrfs_progs_compat
                 if(scalar get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
-                  DEBUG "Found matching receive target for: $child->{FS_PATH}";
+                  DEBUG "Found matching receive target, skipping: $child->{FS_PATH}";
                 }
                 else {
-                  DEBUG "No matching receive targets found for: $child->{FS_PATH}";
+                  DEBUG "No matching receive targets found, checking schedule for: $child->{FS_PATH}";
 
                   # check if the target would be preserved
                   my ($date, undef) = get_date_tag($child->{SUBVOL_PATH});
@@ -1793,11 +1794,11 @@ MAIN:
       print "    Date:   " . localtime($start_time) . "\n";
       print "    Config: $config->{SRC_FILE}\n";
       print "\nLegend:\n";
-      print "    +++  created subvolume (snapshot)\n";
-      print "    ---  deleted subvolume\n";
+      print "    +++  created subvolume (source snapshot)\n";
+      print "    ---  deleted subvolume (source snapshot)\n";
       print "    ***  received subvolume (non-incremental)\n";
       print "    >>>  received subvolume (incremental)\n";
-      print "    %>>  received subvolume (incremental, resume_missing)\n";
+      # print "    %>>  received subvolume (incremental, resume_missing)\n";
       print "--------------------------------------------------------------------------------";
       foreach my $config_vol (@{$config->{VOLUME}})
       {
@@ -1832,7 +1833,7 @@ MAIN:
             foreach(@{$config_target->{subvol_received} // []}) {
               my $create_mode = "***";
               $create_mode = ">>>" if($_->{parent});
-              substr($create_mode, 0, 1, '%') if($_->{resume});
+              # substr($create_mode, 0, 1, '%') if($_->{resume});
               $create_mode = "!!!" if($_->{ERROR});
               print "$create_mode $_->{received_name}\n";
             }
