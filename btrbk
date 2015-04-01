@@ -914,19 +914,40 @@ sub get_snapshot_children($$)
 }
 
 
-sub get_receive_targets_by_uuid($$)
+sub get_receive_targets($$)
 {
   my $droot = shift || die;
-  my $uuid = shift || die;
+  my $src_href = shift || die;
   die("root subvolume info not present: $droot") unless($vol_info{$droot});
-  die("subvolume info not present: $uuid") unless($uuid_info{$uuid});
   my @ret;
-  foreach (values %{$vol_info{$droot}}) {
-    next unless($_->{node}->{received_uuid} eq $uuid);
-    TRACE "get_receive_targets_by_uuid: Found receive target: $_->{SUBVOL_PATH}";
-    push(@ret, $_);
+
+  if($vol_btrfs_progs_compat{$droot})
+  {
+    # guess matches by subvolume name (node->received_uuid is not available if BTRFS_PROGS_COMPAT is set)
+    DEBUG "Fallback to compatibility mode (get_receive_targets)";
+    my $src_name = $src_href->{node}->{REL_PATH};
+    $src_name =~ s/^.*\///; # strip path
+    foreach my $target (values %{$vol_info{$droot}}) {
+      my $target_name = $target->{node}->{REL_PATH};
+      $target_name =~ s/^.*\///; # strip path
+      if($target_name eq $src_name) {
+        TRACE "get_receive_targets: by-name: Found receive target: $target->{SUBVOL_PATH}";
+        push(@ret, $target);
+      }
+    }
   }
-  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot/\" for: $uuid_info{$uuid}->{path}";
+  else
+  {
+    # find matches by comparing uuid / received_uuid
+    my $uuid = $src_href->{node}->{uuid};
+    die("subvolume info not present: $uuid") unless($uuid_info{$uuid});
+    foreach (values %{$vol_info{$droot}}) {
+      next unless($_->{node}->{received_uuid} eq $uuid);
+      TRACE "get_receive_targets: by-uuid: Found receive target: $_->{SUBVOL_PATH}";
+      push(@ret, $_);
+    }
+  }
+  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot/\" for: $src_href->{FS_PATH}";
   return @ret;
 }
 
@@ -958,25 +979,10 @@ sub get_latest_common($$$;$)
       return ($child, undef);
     }
 
-    if($vol_btrfs_progs_compat{$droot}) {
-      # guess matches by subvolume name (node->received_uuid is not available if BTRFS_PROGS_COMPAT is set)
-      my $child_name = $child->{node}->{REL_PATH};
-      $child_name =~ s/^.*\///; # strip path
-      foreach my $backup (values %{$vol_info{$droot}}) {
-        my $backup_name = $backup->{node}->{REL_PATH};
-        $backup_name =~ s/^.*\///; # strip path
-        if($backup_name eq $child_name) {
-          DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=$backup->{FS_PATH}  (NOTE: guessed by subvolume name)");
-          return ($child, $backup);
-        }
-      }
-    }
-    else {
-      foreach (get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
-        TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
-        DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
-        return ($child, $_);
-      }
+    foreach (get_receive_targets($droot, $child)) {
+      TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
+      DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
+      return ($child, $_);
     }
     TRACE "get_latest_common: no matching targets found for: $child->{FS_PATH}";
   }
@@ -1613,7 +1619,7 @@ MAIN:
                 DEBUG "Checking for missing receive targets for \"$child->{FS_PATH}\" in: $droot/";
 
                 # TODO: fix for btrfs_progs_compat
-                if(scalar get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
+                if(scalar get_receive_targets($droot, $child)) {
                   DEBUG "Found matching receive target, skipping: $child->{FS_PATH}";
                 }
                 else {
