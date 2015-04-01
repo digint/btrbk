@@ -941,7 +941,8 @@ sub get_latest_common($$$;$)
   die("source subvolume info not present: $sroot") unless($vol_info{$sroot});
   die("target subvolume info not present: $droot") unless($vol_info{$droot});
 
-  TRACE "get_latest_common: threshold_gen=$threshold_gen" if($threshold_gen);
+  my $debug_src = "$sroot/$svol";
+  $debug_src .= "@" . $threshold_gen if($threshold_gen);
 
   # sort children of svol descending by generation
   foreach my $child (sort { $b->{node}->{gen} <=> $a->{node}->{gen} } get_snapshot_children($sroot, $svol)) {
@@ -949,6 +950,12 @@ sub get_latest_common($$$;$)
     if($threshold_gen && ($child->{node}->{gen} >= $threshold_gen)) {
       TRACE "get_latest_common: skipped gen=$child->{node}->{gen} >= $threshold_gen: $child->{SUBVOL_PATH}";
       next;
+    }
+
+    if($child->{RECEIVE_TARGET_PRESENT} && ($child->{RECEIVE_TARGET_PRESENT} eq $droot)) {
+      # little hack to keep track of previously received subvolumes
+      DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=<previously received>");
+      return ($child, undef);
     }
 
     if($vol_btrfs_progs_compat{$droot}) {
@@ -959,7 +966,7 @@ sub get_latest_common($$$;$)
         my $backup_name = $backup->{node}->{REL_PATH};
         $backup_name =~ s/^.*\///; # strip path
         if($backup_name eq $child_name) {
-          DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  target=$backup->{FS_PATH}  (NOTE: guessed by subvolume name)");
+          DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=$backup->{FS_PATH}  (NOTE: guessed by subvolume name)");
           return ($child, $backup);
         }
       }
@@ -967,13 +974,13 @@ sub get_latest_common($$$;$)
     else {
       foreach (get_receive_targets_by_uuid($droot, $child->{node}->{uuid})) {
         TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
-        DEBUG("Latest common snapshots for: $sroot/$svol: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
+        DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
         return ($child, $_);
       }
     }
     TRACE "get_latest_common: no matching targets found for: $child->{FS_PATH}";
   }
-  DEBUG("No common snapshots for \"$sroot/$svol\" found in src=$sroot/  target=$droot/");
+  DEBUG("No common snapshots for \"$debug_src\" found in src=$sroot/  target=$droot/");
   return (undef, undef);
 }
 
@@ -1628,12 +1635,8 @@ MAIN:
                   else
                   {
                     $found_missing++;
-
-                    unless($parent_snap) {
-                      my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{node}->{gen});
-                      $parent_snap = $latest_common_src->{FS_PATH} if($latest_common_src);
-                      DEBUG("Set latest common snapshots for: $child->{FS_PATH}: src=$parent_snap");
-                    }
+                    my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{node}->{gen});
+                    $parent_snap = $latest_common_src->{FS_PATH} if($latest_common_src);
 
                     INFO "Resuming subvolume backup (send-receive) for: $child->{FS_PATH}";
                     if(macro_send_receive($config_target,
@@ -1641,11 +1644,10 @@ MAIN:
                                           target => $droot,
                                           parent => $parent_snap,
                                           resume => 1,     # propagated to $config_target->{subvol_received}
-                                         )) {
-
-                      # NOTE: we assume that the previous snapshot is automatically the parent for the next one.
-                      $parent_snap = $child->{FS_PATH};
-                      DEBUG("Updated latest common snapshots for: $sroot/$svol: src=$parent_snap");
+                                         ))
+                    {
+                      # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
+                      $child->{RECEIVE_TARGET_PRESENT} = $droot;
                     }
                     else {
                       # note: ABORTED flag is already set by macro_send_receive()
@@ -1665,8 +1667,10 @@ MAIN:
             # skip creation if resume_missing failed
             next if($config_target->{ABORTED});
 
-            # finally create the latest backup
+            # finally receive the previously created snapshot
             INFO "Creating subvolume backup (send-receive) for: $sroot/$svol";
+            my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
+            $parent_snap = $latest_common_src ? $latest_common_src->{FS_PATH} : undef;
             macro_send_receive($config_target,
                                src    => $snapshot,
                                target => $droot,
