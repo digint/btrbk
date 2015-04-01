@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.15
 
   * Added configuration option "btrfs_progs_compat", to be enabled if
     using btrfs-progs < 3.17 (closes: #6).
