@@ -57,7 +57,7 @@ Download and unpack the newest stable [btrbk source tarball] and type:
 
 Download the newest stable [btrbk debian package], and
 
-    sudo apt-get install btrbk-<version>.deb
+    sudo dpkg --install btrbk_<version>_all.deb
 
 ### Gentoo Linux
 
