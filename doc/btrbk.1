@@ -62,7 +62,8 @@ subvolumes specified in the configuration file.
 Then, for each specified target, btrbk creates a new backup subvolume,
 incremental from the latest common snapshot / backup subvolume
 found. If no common parent subvolume is found, a full backup is
-created.
+created. This is also done for all missing backups if the
+\fIresume_missing\fR option is set.
 .PP
 In a last step, previous snapshots and backup subvolumes that are not
 preserved by their configured retention policy will be deleted. This

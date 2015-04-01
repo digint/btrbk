@@ -14,9 +14,10 @@ Key Features:
 
 - Atomic snapshots
 - Incremental backups
+- Configurable retention policy
 - Backups to multiple destinations
 - Transfer via ssh
-- Configurable retention policy
+- Resume of backups (if backup disk was not attached for a while)
 - Display file changes between two backups
 
 btrbk is intended to be run as a cron job.
