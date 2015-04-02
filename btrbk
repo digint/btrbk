@@ -906,7 +906,7 @@ sub get_snapshot_children($$)
   my @ret;
   foreach (values %{$vol_info{$sroot}}) {
     next unless($_->{node}->{parent_uuid} eq $svol_node->{uuid});
-    TRACE "get_snapshot_children: Found snapshot child: $_->{SUBVOL_PATH}";
+    TRACE "get_snapshot_children: found: $_->{FS_PATH}";
     push(@ret, $_);
   }
   DEBUG "Found " . scalar(@ret) . " snapshot children of: $sroot/$svol";
@@ -1023,7 +1023,7 @@ sub _origin_tree
 }
 
 
-sub schedule_deletion(@)
+sub schedule(@)
 {
   my %args = @_;
   my $schedule             = $args{schedule}             || die;
@@ -1085,18 +1085,20 @@ sub schedule_deletion(@)
 
   # assemble results
   my @delete;
+  my @preserve;
   foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)
   {
     if($href->{preserve}) {
       INFO "=== $href->{sort}: $href->{preserve}" if($log_verbose);
+      push(@preserve, $href->{name});
     }
     else {
       INFO "<<< $href->{sort}" if($log_verbose);
       push(@delete, $href->{name});
     }
   }
-  DEBUG "Preserving " . (@$schedule - @delete) . "/" . @$schedule . " items" unless($log_verbose);
-  return @delete;
+  DEBUG "Preserving " . @preserve . "/" . @$schedule . " items" unless($log_verbose);
+  return (\@preserve, \@delete);
 }
 
 
@@ -1583,6 +1585,8 @@ MAIN:
         my $snapshot      = $config_subvol->{snapshot}      || die;
         my $snapshot_name = $config_subvol->{snapshot_name} || die;
 
+        my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
           next if($config_target->{ABORTED});
@@ -1595,69 +1599,74 @@ MAIN:
               WARN "Ignoring deprecated option \"receive_log\" for target: $droot"
             }
 
-            my $parent_snap = "";
-
             # resume missing backups (resume_missing)
+            my @schedule;
             if(config_key($config_target, "resume_missing"))
             {
               INFO "Checking for missing backups of subvolume \"$sroot/$svol\" in: $droot/";
-              my $found_missing = 0;
-              # sort children of svol ascending by generation
-              foreach my $child (sort { $a->{node}->{gen} <=> $b->{node}->{gen} } get_snapshot_children($sroot, $svol))
-              {
-                last if($config_target->{ABORTED});
 
+              # sort children of svol ascending by generation
+              foreach my $child (get_snapshot_children($sroot, $svol))
+              {
                 DEBUG "Checking for missing receive targets for \"$child->{FS_PATH}\" in: $droot/";
 
-                # TODO: fix for btrfs_progs_compat
                 if(scalar get_receive_targets($droot, $child)) {
                   DEBUG "Found matching receive target, skipping: $child->{FS_PATH}";
                 }
                 else {
-                  DEBUG "No matching receive targets found, checking schedule for: $child->{FS_PATH}";
+                  DEBUG "No matching receive targets found, adding resume candidate: $child->{FS_PATH}";
 
                   # check if the target would be preserved
                   my ($date, undef) = get_date_tag($child->{SUBVOL_PATH});
-                  next unless($date);
-                  if(scalar schedule_deletion(
-                    schedule             => [ { name => $child->{FS_PATH}, sort => $child->{SUBVOL_PATH}, date => $date } ],
-                    today                => \@today,
-                    preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
-                    preserve_daily       => config_key($config_target, "target_preserve_daily"),
-                    preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
-                    preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
-                   ))
-                  {
-                    DEBUG "Target would have been deleted by target_perserve rules, skipping resume of: $child->{FS_PATH}";
-                  }
-                  else
-                  {
-                    $found_missing++;
-                    my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{node}->{gen});
-                    $parent_snap = $latest_common_src->{FS_PATH} if($latest_common_src);
-
-                    INFO "Resuming subvolume backup (send-receive) for: $child->{FS_PATH}";
-                    if(macro_send_receive($config_target,
-                                          src    => $child->{FS_PATH},
-                                          target => $droot,
-                                          parent => $parent_snap,
-                                          resume => 1,     # propagated to $config_target->{subvol_received}
-                                         ))
-                    {
-                      # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
-                      $child->{RECEIVE_TARGET_PRESENT} = $droot;
-                    }
-                    else {
-                      # note: ABORTED flag is already set by macro_send_receive()
-                      ERROR("Error while resuming backups, aborting");
-                    }
-                  }
+                  my $child_vol = $child->{SUBVOL_PATH};
+                  next unless($date && ($child_vol =~ s/^$snapdir$svol\.//));
+                  push(@schedule, { name => $child, sort => $child_vol, date => $date }),
                 }
               }
 
-              if($found_missing) {
-                INFO "Resumed $found_missing backups";
-              } else {
+              if(scalar @schedule)
+              {
+                DEBUG "Checking schedule for " . @schedule . " candidates";
+                # add all present backups to schedule
+                foreach my $vol (keys %{$vol_info{$droot}}) {
+                  my ($date, undef) = get_date_tag($vol);
+                  next unless($date && ($vol =~ s/^$svol\.//));  # use only the date suffix for sorting
+                  push(@schedule, { name => "TARGET", sort => $vol, date => $date });
+                }
+
+                my ($preserve, undef) = schedule(
+                  schedule             => \@schedule,
+                  today                => \@today,
+                  preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
+                  preserve_daily       => config_key($config_target, "target_preserve_daily"),
+                  preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
+                  preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+                 );
+                my @resume = grep ! /TARGET/, @$preserve;   # remove target subvolumes from list
+
+                foreach my $child (sort { $a->{node}->{gen} <=> $b->{node}->{gen} } @resume) {
+                  my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{node}->{gen});
+
+                  INFO "Resuming subvolume backup (send-receive) for: $child->{FS_PATH}";
+                  if(macro_send_receive($config_target,
+                                        src    => $child->{FS_PATH},
+                                        target => $droot,
+                                        parent => $latest_common_src ? $latest_common_src->{FS_PATH} : undef,
+                                        resume => 1,     # propagated to $config_target->{subvol_received}
+                                       ))
+                  {
+                    # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
+                    $child->{RECEIVE_TARGET_PRESENT} = $droot;
+                  }
+                  else {
+                    # note: ABORTED flag is already set by macro_send_receive()
+                    ERROR("Error while resuming backups, aborting");
+                    last;
+                  }
+                }
+              }
+              else
+              {
                 INFO "No missing backups found";
               }
             }
@@ -1668,11 +1677,10 @@ MAIN:
             # finally receive the previously created snapshot
             INFO "Creating subvolume backup (send-receive) for: $sroot/$svol";
             my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
-            $parent_snap = $latest_common_src ? $latest_common_src->{FS_PATH} : undef;
             macro_send_receive($config_target,
                                src    => $snapshot,
                                target => $droot,
-                               parent => $parent_snap
+                               parent => $latest_common_src ? $latest_common_src->{FS_PATH} : undef,
                               );
           }
           else {
@@ -1717,10 +1725,10 @@ MAIN:
             my @schedule;
             foreach my $vol (keys %{$vol_info{$droot}}) {
               my ($date, undef) = get_date_tag($vol);
-              next unless($date && ($vol =~ /^svol\./));
+              next unless($date && ($vol =~ /^$svol\./));
               push(@schedule, { name => "$droot/$vol", sort => $vol, date => $date });
             }
-            my @delete = schedule_deletion(
+            my (undef, $delete) = schedule(
               schedule             => \@schedule,
               today                => \@today,
               preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
@@ -1729,10 +1737,10 @@ MAIN:
               preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
               log_verbose          => 1,
              );
-            my $ret = btrfs_subvolume_delete($config_target, @delete);
+            my $ret = btrfs_subvolume_delete($config_target, @$delete);
             if(defined($ret)) {
               INFO "Deleted $ret subvolumes in: $droot/$svol.*";
-              $config_target->{subvol_deleted} = \@delete;
+              $config_target->{subvol_deleted} = $delete;
             }
             else {
               $config_target->{ABORTED} = "btrfs subvolume delete command failed";
@@ -1755,7 +1763,7 @@ MAIN:
             next unless($date && ($vol =~ /^$snapdir$svol\./));
             push(@schedule, { name => "$sroot/$vol", sort => $vol, date => $date });
           }
-          my @delete = schedule_deletion(
+          my (undef, $delete) = schedule(
             schedule             => \@schedule,
             today                => \@today,
             preserve_day_of_week => config_key($config_subvol, "preserve_day_of_week"),
@@ -1764,10 +1772,10 @@ MAIN:
             preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
             log_verbose          => 1,
            );
-          my $ret = btrfs_subvolume_delete($config_subvol, @delete);
+          my $ret = btrfs_subvolume_delete($config_subvol, @$delete);
           if(defined($ret)) {
             INFO "Deleted $ret subvolumes in: $sroot/$snapdir$svol.*";
-            $config_subvol->{subvol_deleted} = \@delete;
+            $config_subvol->{subvol_deleted} = $delete;
           }
           else {
             $config_subvol->{ABORTED} = "btrfs subvolume delete command failed";
