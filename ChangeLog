@@ -1,3 +1,7 @@
+btrbk-0.16
+
+  * Bugfix: correctly check retention policy for missing backups
+
 btrbk-0.15
 
   * Added configuration option "btrfs_progs_compat", to be enabled if

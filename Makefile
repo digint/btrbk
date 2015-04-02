@@ -1,5 +1,5 @@
 PN        = btrbk
-VERSION   = 0.15
+VERSION   = 0.16
 
 PREFIX   ?= /usr
 CONFDIR   = /etc
