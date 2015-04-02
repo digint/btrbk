@@ -66,6 +66,10 @@ Grab the digint portage overlay from:
 
     emerge btrbk
 
+### Arch Linux
+
+btrbk is in AUR: https://aur.archlinux.org/packages/btrbk/
+
   [btrbk source tarball]: http://www.digint.ch/download/btrbk/releases/
   [btrbk debian package]: http://www.digint.ch/download/btrbk/packages/debian/
 
