@@ -888,7 +888,7 @@ sub get_date_tag($)
 {
   my $name = shift;
   $name =~ s/_([0-9]+)$//;
-  my $postfix_counter = $1;
+  my $postfix_counter = $1 // 0;
   my $date = undef;
   if($name =~ /\.([0-9]{4})([0-9]{2})([0-9]{2})$/) {
     $date = [ $1, $2, $3 ];
@@ -1040,12 +1040,19 @@ sub schedule(@)
     INFO "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
   }
 
+  # sort the schedule, ascending by date
+  my @sorted_schedule = sort { ($a->{date}->[0] <=> $b->{date}->[0]) ||
+                               ($a->{date}->[1] <=> $b->{date}->[1]) ||
+                               ($a->{date}->[2] <=> $b->{date}->[2]) ||
+                               ($a->{date_ext}  <=> $a->{date_ext})
+                             } @$schedule;
+
   # first, do our calendar calculations
   # note: our week starts on $preserve_day_of_week
   my $delta_days_to_eow_from_today = $day_of_week_map{$preserve_day_of_week} - Day_of_Week(@today) - 1;
   $delta_days_to_eow_from_today = $delta_days_to_eow_from_today + 7 if($delta_days_to_eow_from_today < 0);
   TRACE "last day before next $preserve_day_of_week is in $delta_days_to_eow_from_today days";
-  foreach my $href (@$schedule)
+  foreach my $href (@sorted_schedule)
   {
     my @date = @{$href->{date}};
     my $delta_days = Delta_Days(@date, @today);
@@ -1063,7 +1070,7 @@ sub schedule(@)
   # filter daily, weekly, monthly
   my %first_in_delta_weeks;
   my %last_weekly_in_delta_months;
-  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule) {
+  foreach my $href (@sorted_schedule) {
     if($preserve_daily && (($preserve_daily eq "all") || ($href->{delta_days} <= $preserve_daily))) {
       $href->{preserve} ||= "preserved daily: $href->{delta_days} days ago";
     }
@@ -1086,15 +1093,15 @@ sub schedule(@)
   # assemble results
   my @delete;
   my @preserve;
-  foreach my $href (sort { $a->{sort} cmp $b->{sort} } @$schedule)
+  foreach my $href (@sorted_schedule)
   {
     if($href->{preserve}) {
-      INFO "=== $href->{sort}: $href->{preserve}" if($log_verbose);
-      push(@preserve, $href->{name});
+      INFO "=== $href->{name}: $href->{preserve}" if($href->{name});
+      push(@preserve, $href->{value});
     }
     else {
-      INFO "<<< $href->{sort}" if($log_verbose);
-      push(@delete, $href->{name});
+      INFO "<<< $href->{name}" if($href->{name});
+      push(@delete, $href->{value});
     }
   }
   DEBUG "Preserving " . @preserve . "/" . @$schedule . " items" unless($log_verbose);
@@ -1600,16 +1607,15 @@ MAIN:
             }
 
             # resume missing backups (resume_missing)
-            my @schedule;
             if(config_key($config_target, "resume_missing"))
             {
               INFO "Checking for missing backups of subvolume \"$sroot/$svol\" in: $droot/";
+              my @schedule;
+              my $found_missing = 0;
 
               # sort children of svol ascending by generation
               foreach my $child (get_snapshot_children($sroot, $svol))
               {
-                DEBUG "Checking for missing receive targets for \"$child->{FS_PATH}\" in: $droot/";
-
                 if(scalar get_receive_targets($droot, $child)) {
                   DEBUG "Found matching receive target, skipping: $child->{FS_PATH}";
                 }
@@ -1617,21 +1623,21 @@ MAIN:
                   DEBUG "No matching receive targets found, adding resume candidate: $child->{FS_PATH}";
 
                   # check if the target would be preserved
-                  my ($date, undef) = get_date_tag($child->{SUBVOL_PATH});
-                  my $child_vol = $child->{SUBVOL_PATH};
-                  next unless($date && ($child_vol =~ s/^$snapdir$svol\.//));
-                  push(@schedule, { name => $child, sort => $child_vol, date => $date }),
+                  my ($date, $date_ext) = get_date_tag($child->{SUBVOL_PATH});
+                  next unless($date && ($child->{SUBVOL_PATH} =~ /^$snapdir$svol\./));
+                  push(@schedule, { value => $child, date => $date, date_ext => $date_ext }),
                 }
               }
 
               if(scalar @schedule)
               {
-                DEBUG "Checking schedule for " . @schedule . " candidates";
-                # add all present backups to schedule
+                DEBUG "Checking schedule for resume candidates";
+                # add all present backups to schedule, with no value
+                # these are needed for correct results of schedule()
                 foreach my $vol (keys %{$vol_info{$droot}}) {
-                  my ($date, undef) = get_date_tag($vol);
+                  my ($date, $date_ext) = get_date_tag($vol);
                   next unless($date && ($vol =~ s/^$svol\.//));  # use only the date suffix for sorting
-                  push(@schedule, { name => "TARGET", sort => $vol, date => $date });
+                  push(@schedule, { value => undef, date => $date, date_ext => $date_ext });
                 }
 
                 my ($preserve, undef) = schedule(
@@ -1642,12 +1648,12 @@ MAIN:
                   preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
                   preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
                  );
-                my @resume = grep ! /TARGET/, @$preserve;   # remove target subvolumes from list
+                my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
 
                 foreach my $child (sort { $a->{node}->{gen} <=> $b->{node}->{gen} } @resume) {
-                  my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{node}->{gen});
-
                   INFO "Resuming subvolume backup (send-receive) for: $child->{FS_PATH}";
+                  $found_missing++;
+                  my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{node}->{gen});
                   if(macro_send_receive($config_target,
                                         src    => $child->{FS_PATH},
                                         target => $droot,
@@ -1665,8 +1671,10 @@ MAIN:
                   }
                 }
               }
-              else
-              {
+
+              if($found_missing) {
+                INFO "Resumed $found_missing backups";
+              } else {
                 INFO "No missing backups found";
               }
             }
@@ -1724,9 +1732,9 @@ MAIN:
             INFO "Cleaning backups of subvolume \"$sroot/$svol\": $droot/$svol.*";
             my @schedule;
             foreach my $vol (keys %{$vol_info{$droot}}) {
-              my ($date, undef) = get_date_tag($vol);
+              my ($date, $date_ext) = get_date_tag($vol);
               next unless($date && ($vol =~ /^$svol\./));
-              push(@schedule, { name => "$droot/$vol", sort => $vol, date => $date });
+              push(@schedule, { value => "$droot/$vol", name => $vol, date => $date, date_ext => $date_ext });
             }
             my (undef, $delete) = schedule(
               schedule             => \@schedule,
@@ -1746,7 +1754,6 @@ MAIN:
               $config_target->{ABORTED} = "btrfs subvolume delete command failed";
               $target_aborted = 1;
             }
-            $config_target->{schedule} = \@schedule;
           }
 
           #
@@ -1759,9 +1766,9 @@ MAIN:
           INFO "Cleaning snapshots: $sroot/$snapdir$svol.*";
           my @schedule;
           foreach my $vol (keys %{$vol_info{$sroot}}) {
-            my ($date, undef) = get_date_tag($vol);
+            my ($date, $date_ext) = get_date_tag($vol);
             next unless($date && ($vol =~ /^$snapdir$svol\./));
-            push(@schedule, { name => "$sroot/$vol", sort => $vol, date => $date });
+            push(@schedule, { value => "$sroot/$vol", name => $vol, date => $date, date_ext => $date_ext });
           }
           my (undef, $delete) = schedule(
             schedule             => \@schedule,
@@ -1780,7 +1787,6 @@ MAIN:
           else {
             $config_subvol->{ABORTED} = "btrfs subvolume delete command failed";
           }
-          $config_subvol->{schedule} = \@schedule;
         }
       }
     }
@@ -1818,23 +1824,12 @@ MAIN:
             print "!!! Subvolume \"$config_subvol->{svol}\" aborted: $config_subvol->{ABORTED}\n";
             $err_count++ unless($config_subvol->{ABORTED_NOERR});
           }
-          # if($config_subvol->{schedule}) {
-          #   foreach (sort { $a->{sort} cmp $b->{sort} } @{$config_subvol->{schedule}}) {
-          #     print(($_->{preserve} ? "===" : "---") . " $_->{name}\n");
-          #   }
-          # }
           print "+++ $config_subvol->{snapshot}\n" if($config_subvol->{snapshot});
           if($config_subvol->{subvol_deleted}) {
             print "--- $_\n" foreach(sort { $b cmp $a} @{$config_subvol->{subvol_deleted}});
           }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
-            # if($config_target->{schedule}) {
-            #   foreach (sort { $a->{sort} cmp $b->{sort} } @{$config_target->{schedule}}) {
-            #     print(($_->{preserve} ? "===" : "---") . " $_->{name}\n");
-            #   }
-            # }
-
             foreach(@{$config_target->{subvol_received} // []}) {
               my $create_mode = "***";
               $create_mode = ">>>" if($_->{parent});
