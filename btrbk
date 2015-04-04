@@ -1806,7 +1806,7 @@ MAIN:
       print "    Config: $config->{SRC_FILE}\n";
       print "\nLegend:\n";
       print "    +++  created subvolume (source snapshot)\n";
-      print "    ---  deleted subvolume (source snapshot)\n";
+      print "    ---  deleted subvolume\n";
       print "    ***  received subvolume (non-incremental)\n";
       print "    >>>  received subvolume (incremental)\n";
       # print "    %>>  received subvolume (incremental, resume_missing)\n";
