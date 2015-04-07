@@ -1529,16 +1529,21 @@ MAIN:
         }
         else
         {
-          # find new snapshot name
-          my $postfix_counter = -1;
-          my $postfix;
-          do {
-            $postfix_counter++;
-            $postfix = '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
-            TRACE "Testing source snapshot name: $snapdir$svol$postfix";
-          } while(subvol($sroot, "$snapdir$svol$postfix")); # NOTE: $snapdir always has trailing slash!
-          $snapshot      = "$sroot/$snapdir$svol$postfix";
-          $snapshot_name = "$svol$postfix";
+          # find unique snapshot name
+          my @lookup = keys %{$vol_info{$sroot}};
+          @lookup = grep s/^$snapdir// , @lookup;
+          foreach (@{$config_subvol->{TARGET}}){
+            push(@lookup, keys %{$vol_info{$_->{droot}}});
+          }
+          @lookup = grep /^$svol\.$timestamp(_[0-9]+)?$/ ,@lookup;
+          TRACE "Present snapshot names for \"$sroot/$svol\": " . join(', ', @lookup);
+          @lookup = map { /_([0-9]+)$/ ? $1 : 0 } @lookup;
+          @lookup = sort { $b <=> $a } @lookup;
+          my $postfix_counter = $lookup[0] // -1;
+          $postfix_counter++;
+
+          $snapshot_name = $svol . '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
+          $snapshot = "$sroot/$snapdir$snapshot_name";
         }
 
         my $create_snapshot = config_key($config_subvol, "snapshot_create_always");
