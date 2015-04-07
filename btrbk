@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.16";
+our $VERSION       = "0.17-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -169,7 +169,7 @@ sub run_cmd($;$)
 sub subvol($$)
 {
   my $root = shift || die;
-  my $vol = shift || die;
+  my $vol = shift // die;
   if($vol_info{$root} && $vol_info{$root}->{$vol}) {
     return $vol_info{$root}->{$vol}->{node};
   }
@@ -247,7 +247,7 @@ sub check_file($$$$)
     ERROR "Ambiguous file for option \"$key\" in \"$config_file\" line $.: $file";
     return undef;
   }
-  return $file;
+  return 1;
 }
 
 
@@ -900,7 +900,7 @@ sub get_date_tag($)
 sub get_snapshot_children($$)
 {
   my $sroot = shift || die;
-  my $svol = shift || die;
+  my $svol = shift // die;
   my $svol_node = subvol($sroot, $svol);
   die("subvolume info not present: $sroot/$svol") unless($svol_node);
   my @ret;
@@ -955,7 +955,7 @@ sub get_receive_targets($$)
 sub get_latest_common($$$;$)
 {
   my $sroot = shift || die;
-  my $svol = shift || die;
+  my $svol = shift // die;
   my $droot = shift || die;
   my $threshold_gen = shift;  # skip all snapshot children with generation >= $threshold_gen
 
@@ -1368,7 +1368,7 @@ MAIN:
     my $sroot = $config_vol->{sroot} || die;
     foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
     {
-      my $svol = $config_subvol->{svol} || die;
+      my $svol = $config_subvol->{svol} // die;
 
       # filter subvolumes matching command line arguments
       if($action_run && scalar(@subvol_args)) {
@@ -1470,7 +1470,7 @@ MAIN:
       next unless $vol_info{$sroot};
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
-        my $svol = $config_subvol->{svol} || die;
+        my $svol = $config_subvol->{svol} // die;
         print "|-- $svol\n";
         unless($vol_info{$sroot}->{$svol}) {
           print "    !!! error: no subvolume \"$svol\" found in \"$sroot\"\n";
@@ -1518,7 +1518,7 @@ MAIN:
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
         next if($config_subvol->{ABORTED});
-        my $svol = $config_subvol->{svol} || die;
+        my $svol = $config_subvol->{svol} // die;
         my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
         my $snapshot;
         my $snapshot_name;
@@ -1588,7 +1588,7 @@ MAIN:
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
         next if($config_subvol->{ABORTED});
-        my $svol          = $config_subvol->{svol}          || die;
+        my $svol          = $config_subvol->{svol}          // die;
         my $snapshot      = $config_subvol->{snapshot}      || die;
         my $snapshot_name = $config_subvol->{snapshot_name} || die;
 
@@ -1715,7 +1715,7 @@ MAIN:
         foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
         {
           next if($config_subvol->{ABORTED});
-          my $svol = $config_subvol->{svol} || die;
+          my $svol = $config_subvol->{svol} // die;
           my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
           my $target_aborted = 0;
           foreach my $config_target (@{$config_subvol->{TARGET}})

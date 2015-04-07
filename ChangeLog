@@ -1,3 +1,7 @@
+btrbk-current
+
+  * Bugfix: allow "0" as subvolume name (closes: #10)
+
 btrbk-0.16
 
   * Bugfix: correctly check retention policy for missing backups
