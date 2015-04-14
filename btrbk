@@ -751,35 +751,35 @@ sub _subtree_list
 
 
 # returns hash of:
-#   SUBVOL_PATH  relative path to $fs_path
-#   FS_PATH      absolute path
+#   SUBVOL_PATH  relative path to URL
+#   URL          absolute path
 #   node         href to tree node
 #
-# returns an empty hash if the subvolume at $fs_path exists, but contains no subvolumes
-# returns undef if the subvolume at $fs_path does not exists
+# returns an empty hash if the subvolume at $url exists, but contains no subvolumes
+# returns undef if the subvolume at $url does not exists
 sub btr_fs_info($;$)
 {
-  my $fs_path = shift || die;
+  my $url = shift || die;
   my $config = shift;
-  my $detail = vinfo($fs_path, $config);
+  my $detail = vinfo($url, $config);
   return undef unless($detail);
 
-  my $tree = btr_tree($fs_path, $config);
+  my $tree = btr_tree($url, $config);
   my $tree_root;
   if($detail->{is_root}) {
     $tree_root = $tree;
   }
   else {
     die unless $uuid_info{$detail->{uuid}};
-    $uuid_fs_map{$detail->{uuid}}->{$fs_path} = 1;
+    $uuid_fs_map{$detail->{uuid}}->{$url} = 1;
     $tree_root = $uuid_info{$detail->{uuid}}->{SUBTREE};
     unless($tree_root) {
-      DEBUG "No subvolumes found in: $fs_path";
+      DEBUG "No subvolumes found in: $url";
       return {};
     }
   }
 
-  # recurse into $tree_root, returns list of href: { FS_PATH, node }
+  # recurse into $tree_root, returns list of href: { URL, node }
   my $list = _subtree_list($tree_root, [], "");
 
   # return a hash of relative subvolume path
@@ -787,11 +787,11 @@ sub btr_fs_info($;$)
   foreach(@$list) {
     my $subvol_path = $_->{SUBVOL_PATH};
     die if exists $ret{$subvol_path};
-    $_->{FS_PATH} = $fs_path . '/' . $subvol_path;
-    $uuid_fs_map{$_->{node}->{uuid}}->{$fs_path . '/' . $subvol_path} = 1;
+    $_->{URL} = $url . '/' . $subvol_path;
+    $uuid_fs_map{$_->{node}->{uuid}}->{$url . '/' . $subvol_path} = 1;
     $ret{$subvol_path} = $_;
   }
-  $vol_btrfs_progs_compat{$fs_path} = config_key($config, "btrfs_progs_compat");  # missing received_uuid in node{}
+  $vol_btrfs_progs_compat{$url} = config_key($config, "btrfs_progs_compat");  # missing received_uuid in node{}
 
   return \%ret;
 }
@@ -945,7 +945,7 @@ sub get_snapshot_children($$)
   my @ret;
   foreach (values %{$vol_info{$sroot}}) {
     next unless($_->{node}->{parent_uuid} eq $svol_node->{uuid});
-    TRACE "get_snapshot_children: found: $_->{FS_PATH}";
+    TRACE "get_snapshot_children: found: $_->{URL}";
     push(@ret, $_);
   }
   DEBUG "Found " . scalar(@ret) . " snapshot children of: $sroot/$svol";
@@ -986,7 +986,7 @@ sub get_receive_targets($$)
       push(@ret, $_);
     }
   }
-  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot/\" for: $src_href->{FS_PATH}";
+  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot/\" for: $src_href->{URL}";
   return @ret;
 }
 
@@ -1014,16 +1014,16 @@ sub get_latest_common($$$;$)
 
     if($child->{RECEIVE_TARGET_PRESENT} && ($child->{RECEIVE_TARGET_PRESENT} eq $droot)) {
       # little hack to keep track of previously received subvolumes
-      DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=<previously received>");
+      DEBUG("Latest common snapshots for: $debug_src: src=$child->{URL}  target=<previously received>");
       return ($child, undef);
     }
 
     foreach (get_receive_targets($droot, $child)) {
-      TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
-      DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
+      TRACE "get_latest_common: found receive target: $_->{URL}";
+      DEBUG("Latest common snapshots for: $debug_src: src=$child->{URL}  target=$_->{URL}");
       return ($child, $_);
     }
-    TRACE "get_latest_common: no matching targets found for: $child->{FS_PATH}";
+    TRACE "get_latest_common: no matching targets found for: $child->{URL}";
   }
   DEBUG("No common snapshots for \"$debug_src\" found in src=$sroot/  target=$droot/");
   return (undef, undef);
@@ -1532,7 +1532,7 @@ MAIN:
             next unless $vol_info{$droot};
             $droot_compat{$droot} = 1 if($vol_btrfs_progs_compat{$droot});
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
-              print "|   |   ^== $_->{FS_PATH}\n";
+              print "|   |   ^== $_->{URL}\n";
             }
           }
         }
@@ -1665,10 +1665,10 @@ MAIN:
               foreach my $child (get_snapshot_children($sroot, $svol))
               {
                 if(scalar get_receive_targets($droot, $child)) {
-                  DEBUG "Found matching receive target, skipping: $child->{FS_PATH}";
+                  DEBUG "Found matching receive target, skipping: $child->{URL}";
                 }
                 else {
-                  DEBUG "No matching receive targets found, adding resume candidate: $child->{FS_PATH}";
+                  DEBUG "No matching receive targets found, adding resume candidate: $child->{URL}";
 
                   # check if the target would be preserved
                   my ($date, $date_ext) = get_date_tag($child->{SUBVOL_PATH});
@@ -1699,13 +1699,13 @@ MAIN:
                 my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
 
                 foreach my $child (sort { $a->{node}->{gen} <=> $b->{node}->{gen} } @resume) {
-                  INFO "Resuming subvolume backup (send-receive) for: $child->{FS_PATH}";
+                  INFO "Resuming subvolume backup (send-receive) for: $child->{URL}";
                   $found_missing++;
                   my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{node}->{gen});
                   if(macro_send_receive($config_target,
-                                        src    => $child->{FS_PATH},
+                                        src    => $child->{URL},
                                         target => $droot,
-                                        parent => $latest_common_src ? $latest_common_src->{FS_PATH} : undef,
+                                        parent => $latest_common_src ? $latest_common_src->{URL} : undef,
                                         resume => 1,     # propagated to $config_target->{subvol_received}
                                        ))
                   {
@@ -1736,7 +1736,7 @@ MAIN:
             macro_send_receive($config_target,
                                src    => $snapshot,
                                target => $droot,
-                               parent => $latest_common_src ? $latest_common_src->{FS_PATH} : undef,
+                               parent => $latest_common_src ? $latest_common_src->{URL} : undef,
                               );
           }
           else {
