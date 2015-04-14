@@ -207,7 +207,7 @@ sub get_rsh($$)
   my $url = shift // die;
   my $config = shift;
   if($config && ($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/)) {
-    my ($ssh_host, $file) = ($1, $2);
+    my ($ssh_host, $path) = ($1, $2);
     my $ssh_user     = config_key($config, "ssh_user");
     my $ssh_identity = config_key($config, "ssh_identity");
     my $ssh_options = "";
@@ -218,7 +218,7 @@ sub get_rsh($$)
       WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
     }
     my $rsh = "/usr/bin/ssh $ssh_options " . $ssh_user . '@' . $ssh_host;
-    return ($rsh, $file);
+    return ($rsh, $path);
   }
   return ("", $url);
 }
@@ -468,64 +468,63 @@ sub btr_filesystem_show_all_local()
 
 sub btr_filesystem_show($;$)
 {
-  my $vol = shift || die;
+  my $url = shift || die;
   my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs filesystem show $real_vol", 1);
+  my ($rsh, $path) = get_rsh($url, $config);
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem show $path", 1);
   return $ret;
 }
 
 
 sub btr_filesystem_df($;$)
 {
-  my $vol = shift || die;
+  my $url = shift || die;
   my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs filesystem df $real_vol", 1);
+  my ($rsh, $path) = get_rsh($url, $config);
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem df $path", 1);
   return $ret;
 }
 
 
 sub btr_filesystem_usage($;$)
 {
-  my $vol = shift || die;
+  my $url = shift || die;
   my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs filesystem usage $real_vol", 1);
+  my ($rsh, $path) = get_rsh($url, $config);
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem usage $path", 1);
   return $ret;
 }
 
 
 sub btr_subvolume_detail($;$)
 {
-  my $vol = shift || die;
+  my $url = shift || die;
   my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume show $real_vol 2>/dev/null", 1);
+  my ($rsh, $path) = get_rsh($url, $config);
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume show $path 2>/dev/null", 1);
   if($ret)
   {
     my $fs_path;
     if($ret =~ /^($file_match)/) {
       $fs_path = $1;
-      DEBUG "Real path for subvolume \"$vol\" is: $fs_path" if($fs_path ne $real_vol);
+      DEBUG "Real path for subvolume \"$url\" is: $fs_path" if($fs_path ne $path);
       return undef unless(check_file($fs_path, { absolute => 1 }));
     }
     else {
-      $fs_path = $real_vol;
-      WARN "No real path provided by \"btrfs subvolume show\" for subvolume \"$vol\", using: $real_vol";
+      $fs_path = $path;
+      WARN "No real path provided by \"btrfs subvolume show\" for subvolume \"$url\", using: $path";
     }
-    my %detail = ( FS_PATH => $fs_path,
-                   RSH     => $rsh,   # !!! TODO: use this everywhere
-                   # FS_PATH_ORIGINAL => $real_vol,
+    my %detail = ( FS_PATH  => $fs_path,
+                   URL      => $url,
                   );
 
     if($ret eq "$fs_path is btrfs root") {
-      DEBUG "found btrfs root: $vol";
+      DEBUG "found btrfs root: $url";
       $detail{id}      = 5;
       $detail{is_root} = 1;
     }
     elsif($ret =~ /^$fs_path/) {
-      TRACE "btr_detail: found btrfs subvolume: $vol";
+      TRACE "btr_detail: found btrfs subvolume: $url";
       my %trans = (
         name          => "Name",
         uuid          => "uuid",
@@ -545,19 +544,19 @@ sub btr_subvolume_detail($;$)
           WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
         }
       }
-      DEBUG "parsed " . scalar(keys %detail) . " subvolume detail items: $vol";
-      TRACE "btr_detail for $vol: " . Dumper \%detail;
+      DEBUG "parsed " . scalar(keys %detail) . " subvolume detail items: $url";
+      TRACE "btr_detail for $url: " . Dumper \%detail;
     }
     return \%detail;
   }
-  WARN "Failed to fetch subvolume detail for: $vol";
+  WARN "Failed to fetch subvolume detail for: $url";
   return undef;
 }
 
 
 sub btr_subvolume_list($;$@)
 {
-  my $vol = shift || die;
+  my $url = shift || die;
   my $config = shift;
   my %opts = @_;
   my $btrfs_progs_compat = config_key($config, "btrfs_progs_compat");
@@ -565,10 +564,10 @@ sub btr_subvolume_list($;$@)
   $filter_option = "-o" if($opts{subvol_only});
   my $display_options = "-c -u -q";
   $display_options .= " -R" unless($btrfs_progs_compat);
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
+  my ($rsh, $real_vol) = get_rsh($url, $config);
   my $ret = run_cmd("$rsh /sbin/btrfs subvolume list $filter_option $display_options $real_vol", 1);
   unless(defined($ret)) {
-    WARN "Failed to fetch btrfs subvolume list for: $vol";
+    WARN "Failed to fetch btrfs subvolume list for: $url";
     return undef;
   }
   my @nodes;
@@ -618,20 +617,20 @@ sub btr_subvolume_list($;$@)
     push @nodes, \%node;
     # $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
   }
-  DEBUG "parsed " . scalar(@nodes) . " total subvolumes for filesystem at: $vol";
+  DEBUG "parsed " . scalar(@nodes) . " total subvolumes for filesystem at: $url";
   return \@nodes;
 }
 
 
 sub btr_subvolume_find_new($$;$)
 {
-  my $vol = shift || die;
+  my $url = shift || die;
   my $lastgen = shift // die;
   my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
+  my ($rsh, $real_vol) = get_rsh($url, $config);
   my $ret = run_cmd("$rsh /sbin/btrfs subvolume find-new $real_vol $lastgen");
   unless(defined($ret)) {
-    ERROR "Failed to fetch modified files for: $vol";
+    ERROR "Failed to fetch modified files for: $url";
     return undef;
   }
 
@@ -682,14 +681,14 @@ sub btr_subvolume_find_new($$;$)
 
 sub btr_tree($;$)
 {
-  my $vol = shift || die;
+  my $url = shift || die;
   my $config = shift;
   my %tree;
   my %id;
-  my $subvol_list = btr_subvolume_list($vol, $config, subvol_only => 0);
+  my $subvol_list = btr_subvolume_list($url, $config, subvol_only => 0);
   return undef unless(ref($subvol_list) eq "ARRAY");
 
-  TRACE "btr_tree: processing subvolume list of: $vol";
+  TRACE "btr_tree: processing subvolume list of: $url";
 
   foreach my $node (@$subvol_list)
   {
