@@ -1398,22 +1398,20 @@ MAIN:
     exit 0;
   }
 
-  #
-  # fill vol_info hash, basic checks on configuration
-  #
-  my $subvol_filter_count = undef;
-  foreach my $config_vol (@{$config->{VOLUME}})
-  {
-    my $sroot = $config_vol->{sroot} || die;
-    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-    {
-      my $svol = $config_subvol->{svol} // die;
-      vinfo($sroot, $config_vol);
-      vinfo("$sroot/$svol", $config_vol);
 
-      # filter subvolumes matching command line arguments
-      if($action_run && scalar(@subvol_args)) {
-        $subvol_filter_count //= 0;
+  #
+  # filter subvolumes matching command line arguments
+  #
+  if($action_run && scalar(@subvol_args))
+  {
+    my $filter_count = undef;
+    foreach my $config_vol (@{$config->{VOLUME}})
+    {
+      my $subvol_filter_count = 0;
+      my $sroot = $config_vol->{sroot} || die;
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+      {
+        my $svol = $config_subvol->{svol} // die;
         if(grep(/^$sroot\/$svol$/, @subvol_args)) {
           $subvol_filter_count++;
         }
@@ -1424,6 +1422,33 @@ MAIN:
           next;
         }
       }
+      if($subvol_filter_count == 0) {
+        $config_vol->{ABORTED} = "No match on subvolume command line arguments";
+        $config_vol->{ABORTED_NOERR} = 1;
+      }
+      $filter_count += $subvol_filter_count;
+    }
+    if($filter_count == 0) {
+      ERROR "Subvolume command line arguments do not match any volume/subvolume declaration from configuration file, aborting.";
+      exit 1;
+    }
+  }
+
+
+  #
+  # fill vol_info hash, basic checks on configuration
+  #
+  foreach my $config_vol (@{$config->{VOLUME}})
+  {
+    next if($config_vol->{ABORTED});
+    my $sroot = $config_vol->{sroot} || die;
+    vinfo($sroot, $config_vol);
+
+    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+    {
+      next if($config_subvol->{ABORTED});
+      my $svol = $config_subvol->{svol} // die;
+      vinfo("$sroot/$svol", $config_vol);
 
       $vol_info{$sroot} //= btr_fs_info($sroot, $config_vol);
       unless(subvol($sroot, $svol)) {
@@ -1443,10 +1468,6 @@ MAIN:
         }
       }
     }
-  }
-  if(defined($subvol_filter_count) && ($subvol_filter_count == 0)) {
-    ERROR "Subvolume command line arguments do not match any volume/subvolume declaration from configuration file, aborting.";
-    exit 1;
   }
   TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
