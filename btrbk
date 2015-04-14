@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.17-dev";
+our $VERSION       = "0.17.0-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -80,7 +80,8 @@ my %config_options = (
 
 my @config_target_types = qw(send-receive);
 
-my %vol_info;
+my %vol_detail;
+my %vol_info;  # !!! TODO: rename
 my %uuid_info;
 my %uuid_fs_map;
 my %vol_btrfs_progs_compat;  # hacky, maps all subvolumes without received_uuid information
@@ -177,6 +178,30 @@ sub subvol($$)
 }
 
 
+sub vinfo($;$)
+{
+  my $url = shift // die;
+  my $config = shift;
+  if($vol_detail{$url}) {
+    DEBUG "vinfo cache hit: $url";
+    return $vol_detail{$url};
+  }
+
+  my $detail = btr_subvolume_detail($url, $config);
+
+  unless($detail) {
+    $vol_detail{$url} = { ABORTED => "Failed to fetch subvolume detail for: $url" };
+    return undef;
+  }
+
+  $vol_detail{$url} = $detail;
+  DEBUG "vinfo updated for: $url";
+  TRACE(Data::Dumper->Dump([$detail], ["vinfo{$url}"]));
+
+  return $detail;
+}
+
+
 sub get_rsh($$)
 {
   my $url = shift // die;
@@ -213,10 +238,10 @@ sub config_key($$)
 }
 
 
-sub check_file($$$$)
+sub check_file($$;$$)
 {
-  my $file = shift;
-  my $accept = shift;
+  my $file = shift // die;
+  my $accept = shift || die;
   my $key = shift;  # only for error text
   my $config_file = shift;  # only for error text
 
@@ -479,11 +504,27 @@ sub btr_subvolume_detail($;$)
   my $ret = run_cmd("$rsh /sbin/btrfs subvolume show $real_vol 2>/dev/null", 1);
   if($ret)
   {
-    if($ret eq "$real_vol is btrfs root") {
-      DEBUG "found btrfs root: $vol";
-      return { id => 5, is_root => 1 };
+    my $fs_path;
+    if($ret =~ /^($file_match)/) {
+      $fs_path = $1;
+      DEBUG "Real path for subvolume \"$vol\" is: $fs_path" if($fs_path ne $real_vol);
+      return undef unless(check_file($fs_path, { absolute => 1 }));
     }
-    elsif($ret =~ /^$real_vol/) {
+    else {
+      $fs_path = $real_vol;
+      WARN "No real path provided by \"btrfs subvolume show\" for subvolume \"$vol\", using: $real_vol";
+    }
+    my %detail = ( FS_PATH => $fs_path,
+                   RSH     => $rsh,   # !!! TODO: use this everywhere
+                   # FS_PATH_ORIGINAL => $real_vol,
+                  );
+
+    if($ret eq "$fs_path is btrfs root") {
+      DEBUG "found btrfs root: $vol";
+      $detail{id}      = 5;
+      $detail{is_root} = 1;
+    }
+    elsif($ret =~ /^$fs_path/) {
       TRACE "btr_detail: found btrfs subvolume: $vol";
       my %trans = (
         name          => "Name",
@@ -497,7 +538,6 @@ sub btr_subvolume_detail($;$)
         top_level     => "Top Level",
         flags         => "Flags",
        );
-      my %detail;
       foreach (keys %trans) {
         if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
           $detail{$_} = $1;
@@ -507,8 +547,8 @@ sub btr_subvolume_detail($;$)
       }
       DEBUG "parsed " . scalar(keys %detail) . " subvolume detail items: $vol";
       TRACE "btr_detail for $vol: " . Dumper \%detail;
-      return \%detail;
     }
+    return \%detail;
   }
   WARN "Failed to fetch subvolume detail for: $vol";
   return undef;
@@ -722,7 +762,7 @@ sub btr_fs_info($;$)
 {
   my $fs_path = shift || die;
   my $config = shift;
-  my $detail = btr_subvolume_detail($fs_path, $config);
+  my $detail = vinfo($fs_path, $config);
   return undef unless($detail);
 
   my $tree = btr_tree($fs_path, $config);
@@ -1206,13 +1246,13 @@ MAIN:
     my $target_vol = $subvol_args[1] || die;
     # FIXME: allow ssh:// src/dest (does not work since the configuration is not yet read).
 
-    my $src_detail = btr_subvolume_detail($src_vol);
+    my $src_detail = vinfo($src_vol);
     unless($src_detail) { exit 1; }
     if($src_detail->{is_root})  { ERROR "subvolume at \"$src_vol\" is btrfs root!"; exit 1; }
     unless($src_detail->{cgen}) { ERROR "subvolume at \"$src_vol\" does not provide cgen"; exit 1; }
 #    if($src_detail->{parent_uuid} eq "-") { ERROR "subvolume at \"$src_vol\" has no parent, aborting."; exit 1; }
 
-    my $target_detail = btr_subvolume_detail($target_vol);
+    my $target_detail = vinfo($target_vol);
     unless($target_detail) { exit 1; }
     unless($src_detail->{cgen}) { ERROR "subvolume at \"$src_vol\" does not provide cgen"; exit 1; }
 #    if($src_detail->{parent_uuid} eq "-") { ERROR "subvolume at \"$src_vol\" has no parent, aborting."; exit 1; }
@@ -1369,6 +1409,8 @@ MAIN:
     foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
     {
       my $svol = $config_subvol->{svol} // die;
+      vinfo($sroot, $config_vol);
+      vinfo("$sroot/$svol", $config_vol);
 
       # filter subvolumes matching command line arguments
       if($action_run && scalar(@subvol_args)) {
@@ -1393,6 +1435,7 @@ MAIN:
       foreach my $config_target (@{$config_subvol->{TARGET}})
       {
         my $droot = $config_target->{droot} || die;
+        vinfo($droot, $config_target);
         $vol_info{$droot} //= btr_fs_info($droot, $config_target);
         unless($vol_info{$droot}) {
           $config_target->{ABORTED} = "Failed to read btrfs subvolume list for \"$droot\"";
@@ -1417,7 +1460,7 @@ MAIN:
     my $subvol = $subvol_args[0] || die;
     my $dump_uuid = 0;
 
-    my $detail = btr_subvolume_detail($subvol);
+    my $detail = vinfo($subvol);
     exit 1 unless($detail);
 
     if($detail->{is_root}) {
@@ -1429,6 +1472,7 @@ MAIN:
 
     unless($node) {
       DEBUG "Subvolume not parsed yet, fetching info: $subvol";
+      vinfo($subvol);
       $vol_info{$subvol} //= btr_fs_info($subvol);
       $node = $uuid_info{$uuid} || die;
     }
