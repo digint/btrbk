@@ -187,18 +187,42 @@ sub vinfo($;$)
     return $vol_detail{$url};
   }
 
-  my $detail = btr_subvolume_detail($url, $config);
+  my %info = ( URL  => $url,
+               PATH => $url,
+              );
 
-  unless($detail) {
-    $vol_detail{$url} = { ABORTED => "Failed to fetch subvolume detail for: $url" };
-    return undef;
+  if($config && ($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/)) {
+    my %remote = (
+      URL          => $url,
+      HOST         => $1,
+      PATH         => $2,
+      RSH_TYPE     => "ssh",
+      SSH_USER     => config_key($config, "ssh_user"),
+      SSH_IDENTITY => config_key($config, "ssh_identity"),
+     );
+    my $ssh_options = "";
+    if($remote{SSH_IDENTITY}) {
+      $ssh_options .= "-i $remote{SSH_IDENTITY} ";
+    }
+    else {
+      WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
+    }
+    $remote{RSH} = "/usr/bin/ssh $ssh_options" . $remote{SSH_USER} . '@' . $remote{HOST};
+
+    $info{PATH} = $remote{PATH};
+    $info{REMOTE}  = \%remote;
   }
 
-  $vol_detail{$url} = $detail;
-  DEBUG "vinfo updated for: $url";
-  TRACE(Data::Dumper->Dump([$detail], ["vinfo{$url}"]));
+  my $detail = btr_subvolume_detail($info{PATH}, $info{REMOTE});
+  $detail ||= { ERROR => "Failed to fetch subvolume detail for: $url" };
 
-  return $detail;
+  %info = ( %$detail, %info );
+
+  $vol_detail{$url} = \%info;
+  DEBUG "vinfo updated for: $url";
+  TRACE(Data::Dumper->Dump([\%info], ["vinfo{$url}"]));
+
+  return \%info;
 }
 
 
@@ -498,32 +522,31 @@ sub btr_filesystem_usage($;$)
 
 sub btr_subvolume_detail($;$)
 {
-  my $url = shift || die;
-  my $config = shift;
-  my ($rsh, $path) = get_rsh($url, $config);
+  my $path = shift // die;
+  my $opts = shift || {};
+  my $rsh = $opts->{RSH} || "";
+  my $url = $opts->{URL} || $path;  # used only for logging
   my $ret = run_cmd("$rsh /sbin/btrfs subvolume show $path 2>/dev/null", 1);
   if($ret)
   {
-    my $fs_path;
+    my $real_path;
     if($ret =~ /^($file_match)/) {
-      $fs_path = $1;
-      DEBUG "Real path for subvolume \"$url\" is: $fs_path" if($fs_path ne $path);
-      return undef unless(check_file($fs_path, { absolute => 1 }));
+      $real_path = $1;
+      DEBUG "Real path for subvolume \"$url\" is: $real_path" if($real_path ne $path);
+      return undef unless(check_file($real_path, { absolute => 1 }));
     }
     else {
-      $fs_path = $path;
+      $real_path = $path;
       WARN "No real path provided by \"btrfs subvolume show\" for subvolume \"$url\", using: $path";
     }
-    my %detail = ( FS_PATH  => $fs_path,
-                   URL      => $url,
-                  );
+    my %detail = ( REAL_PATH  => $real_path );
 
-    if($ret eq "$fs_path is btrfs root") {
+    if($ret eq "$real_path is btrfs root") {
       DEBUG "found btrfs root: $url";
       $detail{id}      = 5;
       $detail{is_root} = 1;
     }
-    elsif($ret =~ /^$fs_path/) {
+    elsif($ret =~ /^$real_path/) {
       TRACE "btr_detail: found btrfs subvolume: $url";
       my %trans = (
         name          => "Name",
