@@ -13,7 +13,7 @@ generated. The retention policy as well as other options can be
 defined for each backup.
 .PP
 The options specified always apply to the last section encountered,
-overriding the same option of the next higher section. This means that
+superseding the values set in upper-level sections. This means that
 global options must be set before any sections are defined.
 .PP
 The sections are:
@@ -44,14 +44,15 @@ allowed.
 The configuration options are:
 .TP
 \fBsnapshot_dir\fR  <directory>
-Directory in which the btrfs snapshots are created. Relative to
+Directory in which the btrfs snapshots are created, relative to
 \fI<volume-directory>\fR of the \fIvolume\fR section. Note that btrbk
 does not autmatically create this directory, and the snapshot creation
 will fail if it is not present.
 .TP
-\fBincremental\fR  yes|no|strict
-Perform incremental backups. Defaults to \(lqyes\(rq. If set to
-\(lqstrict\(rq, non-incremental (initial) backups are never created.
+\fBsnapshot_name\fR  <basename>
+Base name of the created snapshot (and backup). Defaults to
+\fI<subvolume-name>\fR. This option is only valid in the \fItarget\fR
+section.
 .TP
 \fBsnapshot_create_always\fR  yes|no
 If set, the snapshots are always created, even if the backup subvolume
@@ -61,6 +62,10 @@ make sure that the backups are created as soon as the target subvolume
 is reachable again. Useful for laptop filesystems in order to make
 sure the snapshots are created even if you are on the road. Defaults
 to \(lqno\(rq.
+.TP
+\fBincremental\fR  yes|no|strict
+Perform incremental backups. Defaults to \(lqyes\(rq. If set to
+\(lqstrict\(rq, non-incremental (initial) backups are never created.
 .TP
 \fBresume_missing\fR  yes|no
 If set, the backups in the target directory are compared to the source

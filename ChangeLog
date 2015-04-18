@@ -1,12 +1,12 @@
 btrbk-current
-
-  * Bugfix: allow "0" as subvolume name (closes: #10)
+  * Added configuration option "snapshot_name" (closes: #5).
+  * Bugfix: allow "0" as subvolume name (closes: #10).
   * Bugfix: check source AND targets for determining snapshot postfix
-    (closes: #11)
+    (closes: #11).
 
 btrbk-0.16
 
-  * Bugfix: correctly check retention policy for missing backups
+  * Bugfix: correctly check retention policy for missing backups.
 
 btrbk-0.15
 
