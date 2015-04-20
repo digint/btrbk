@@ -1714,43 +1714,52 @@ MAIN:
     # print snapshot tree
     #
     # TODO: reverse tree: print all backups from $droot and their corresponding source snapshots
+    my @out;
     foreach my $config_vol (@{$config->{VOLUME}})
     {
       my %droot_compat;
       my $sroot = vinfo($config_vol->{url});
-      print "$sroot->{URL}\n";
-      next unless $sroot->{ERROR};  # !!! TODO: check this
+      push @out, "$sroot->{PRINT}";
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
         my $svol = vinfo($sroot, $config_subvol->{rel_path}) || die;
-        print "|-- $svol->{URL}\n";
+        push @out, "|-- $svol->{PRINT}";
         unless(vinfo($sroot, $config_subvol->{rel_path})) {  # !!! TODO: maybe check uuid here?
-          print "    !!! error: no subvolume \"$config_subvol->{rel_path}\" found in \"$sroot->{URL}\"\n";
+          push @out, "    !!! error: no subvolume \"$config_subvol->{rel_path}\" found in \"$sroot->{PRINT}\"";
           next;
         }
-
-        foreach my $snapshot (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$sroot->{SUBVOL_INFO}}))
+        foreach my $snapshot (sort { $a->{PATH} cmp $b->{PATH} } (values %{$sroot->{SUBVOL_INFO}}))
         {
           next unless($snapshot->{parent_uuid} eq $svol->{uuid});
           # next unless($snapshot->{SUBVOL_PATH} =~ /^$snapdir/);  # don't print non-btrbk snapshots
-          print "|   ^-- $snapshot->{SUBVOL_PATH}\n";
+          push @out, "|   ^-- $snapshot->{PATH}";
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             my $droot = vinfo($config_target->{url});
             next unless $droot->{SUBVOL_INFO};
-            $droot_compat{$droot} = 1 if($droot->{BTRFS_PROGS_COMPAT});
+            $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
-              print "|   |   ^== $_->{URL}\n";
+              push @out, "|   |   ^== $_->{PRINT}";
             }
           }
         }
       }
       if(keys %droot_compat) {
-        print "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:\n";
-        print "      - " . join("\n      - ", (sort keys %droot_compat));
+        push @out, "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:";
+        push @out, "      - " . join("\n      - ", (sort keys %droot_compat));
       }
-      print "\n";
+      push @out, "";
     }
+    print "--------------------------------------------------------------------------------\n";
+    print "Backup Tree\n\n";
+    print "    Date:   " . localtime($start_time) . "\n";
+    print "    Config: $config->{SRC_FILE}\n";
+    print "\nLegend:\n";
+    print "    ^---  snapshot\n";
+    print "    ^===  received subvolume (backup)\n";
+    print "--------------------------------------------------------------------------------\n";
+
+    print join("\n", @out);
     exit 0;
   }
 
