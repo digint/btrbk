@@ -265,9 +265,7 @@ sub vinfo_child($$)
   my %info = (
     NAME         => $name,
     URL          => "$parent->{URL}/$rel_path",
-    REAL_URL     => "$parent->{REAL_URL}/$rel_path",
     PATH         => "$parent->{PATH}/$rel_path",
-    REAL_PATH    => "$parent->{REAL_PATH}/$rel_path",
     PRINT        => "$parent->{PRINT}/$rel_path",
    );
   foreach (qw( HOST
@@ -295,12 +293,8 @@ sub vinfo_set_detail($$)
   # check and add detail data to vinfo hash
   foreach(keys %$detail) {
     if((defined $vol->{$_}) && ($vol->{$_} ne $detail->{$_})) {
-      if($_ eq "REAL_PATH") {
-        DEBUG "Subvolume REAL_PATH changed (symlink): old=\"$vol->{REAL_PATH}\", new=\"$detail->{REAL_PATH}\"";
-      } else {
         WARN "Subvolume detail key \"$_\" is already present, with a different value: old=\"$vol->{$_}\", new=\"$detail->{$_}\"";
         WARN "Using new value for \"$_\": $detail->{$_}";
-      }
     }
     $vol->{$_} = $detail->{$_};
   }
