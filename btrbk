@@ -2041,7 +2041,51 @@ MAIN:
     #
     unless($quiet)
     {
+      my @out;
       my $err_count = 0;
+      foreach my $config_vol (@{$config->{VOLUME}})
+      {
+        my $sroot = vinfo($config_vol->{url});
+        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+        {
+          my $svol = vinfo_child($sroot, $config_subvol->{rel_path});  # we need {PRINT}, even on errors
+          push @out, "$svol->{PRINT}";
+          if($config_vol->{ABORTED}) {
+            push @out, "!!! $sroot->{PRINT}: ABORTED: $config_vol->{ABORTED}";
+            $err_count++ unless($config_vol->{ABORTED_NOERR});
+          }
+          if($config_subvol->{ABORTED}) {
+            push @out, "!!! Subvolume \"$svol->{PRINT}\" aborted: $config_subvol->{ABORTED}";
+            $err_count++ unless($config_subvol->{ABORTED_NOERR});
+          }
+          push @out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
+          if($config_subvol->{SUBVOL_DELETED}) {
+            push @out, "--- $_" foreach(sort { $b cmp $a} @{$config_subvol->{SUBVOL_DELETED}});
+          }
+          foreach my $config_target (@{$config_subvol->{TARGET}})
+          {
+            my $droot = vinfo($config_target->{url});
+            foreach(@{$config_target->{SUBVOL_RECEIVED} // []}) {
+              my $create_mode = "***";
+              $create_mode = ">>>" if($_->{parent});
+              # substr($create_mode, 0, 1, '%') if($_->{resume});
+              $create_mode = "!!!" if($_->{ERROR});
+              push @out, "$create_mode $_->{received_name}";
+            }
+
+            if($config_target->{SUBVOL_DELETED}) {
+              push @out, "--- $_" foreach(sort { $b cmp $a} @{$config_target->{SUBVOL_DELETED}});
+            }
+
+            if($config_target->{ABORTED}) {
+              push @out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
+              $err_count++ unless($config_target->{ABORTED_NOERR});
+            }
+          }
+          push @out, "";
+        }
+      }
+
       print "--------------------------------------------------------------------------------\n";
       print "Backup Summary ($version_info)\n\n";
       print "    Date:   " . localtime($start_time) . "\n";
@@ -2052,47 +2096,10 @@ MAIN:
       print "    ***  received subvolume (non-incremental)\n";
       print "    >>>  received subvolume (incremental)\n";
       # print "    %>>  received subvolume (incremental, resume_missing)\n";
-      print "--------------------------------------------------------------------------------";
-      foreach my $config_vol (@{$config->{VOLUME}})
-      {
-        my $sroot = vinfo($config_vol->{url});
-        if($config_vol->{ABORTED}) {
-          print "!!! $config_vol->{url}: ABORTED: $config_vol->{ABORTED}\n";
-          $err_count++ unless($config_vol->{ABORTED_NOERR});
-        }
-        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-        {
-          my $svol = vinfo($sroot, $config_subvol->{rel_path}) || die;
-          print "\n$svol->{PRINT}\n";
-          if($config_subvol->{ABORTED}) {
-            print "!!! Subvolume \"$config_subvol->{rel_path}\" aborted: $config_subvol->{ABORTED}\n";
-            $err_count++ unless($config_subvol->{ABORTED_NOERR});
-          }
-          print "+++ $config_subvol->{SNAPSHOT}->{PRINT}\n" if($config_subvol->{SNAPSHOT});
-          if($config_subvol->{SUBVOL_DELETED}) {
-            print "--- $_\n" foreach(sort { $b cmp $a} @{$config_subvol->{SUBVOL_DELETED}});
-          }
-          foreach my $config_target (@{$config_subvol->{TARGET}})
-          {
-            foreach(@{$config_target->{SUBVOL_RECEIVED} // []}) {
-              my $create_mode = "***";
-              $create_mode = ">>>" if($_->{parent});
-              # substr($create_mode, 0, 1, '%') if($_->{resume});
-              $create_mode = "!!!" if($_->{ERROR});
-              print "$create_mode $_->{received_name}\n";
-            }
+      print "--------------------------------------------------------------------------------\n";
 
-            if($config_target->{SUBVOL_DELETED}) {
-              print "--- $_\n" foreach(sort { $b cmp $a} @{$config_target->{SUBVOL_DELETED}});
-            }
+      print join("\n", @out);
 
-            if($config_target->{ABORTED}) {
-              print "!!! Target \"$config_target->{url}\" aborted: $config_target->{ABORTED}\n";
-              $err_count++ unless($config_target->{ABORTED_NOERR});
-            }
-          }
-        }
-      }
       if($err_count) {
         print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
         print "Please check warning and error messages above.\n";
