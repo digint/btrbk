@@ -201,7 +201,7 @@ sub vinfo_root($$)
 {
   my $url = shift // die;
   my $config = shift || die;
-  die if($vinfo_root{$url});
+  return $vinfo_root{$url} if($vinfo_root{$url});
 
   my $name = $url;
   $name =~ s/^.*\///;
@@ -321,12 +321,14 @@ sub vinfo_set_detail($$)
 sub vinfo_read_detail($)
 {
   my $vol = shift || die;
+  return $vol if($vol->{VINFO_DETAIL_READ});
 
   my $detail = btr_subvolume_detail($vol);
   unless($detail) {
     WARN "Failed to fetch subvolume detail for: $vol->{PRINT}";
     return undef;
   }
+  $vol->{VINFO_DETAIL_READ} = 1;
   return vinfo_set_detail($vol, $detail);
 }
 
@@ -906,6 +908,8 @@ sub _subtree_list
 sub vinfo_read_subvolumes($)
 {
   my $vol = shift || die;
+  return $vol if($vol->{VINFO_SUBVOLUMES_READ});
+
   my $url = $vol->{URL} || die;
 
   my $tree = btr_tree($vol);  # populates %uuid_info
@@ -947,6 +951,7 @@ sub vinfo_read_subvolumes($)
   }
 
   DEBUG "Added " . scalar(keys %ret) . " subvolume children to: $vol->{PRINT}";
+  $vol->{VINFO_SUBVOLUMES_READ} = 1;
 
   TRACE(Data::Dumper->Dump([\%ret], ["SUBVOL_INFO{$vol->{URL}}"]));
   return \%ret;
@@ -1583,6 +1588,7 @@ MAIN:
   # fill vinfo hash, basic checks on configuration
   #
   my %snapshot_check;
+  my %backup_check;
   foreach my $config_vol (@{$config->{VOLUME}})
   {
     next if($config_vol->{ABORTED});
@@ -1641,12 +1647,12 @@ MAIN:
 
         # check for duplicate snapshot locations
         my $snapshot_backup_target = "$droot->{REAL_URL}/$snapshot_basename";
-        if(my $prev = $snapshot_check{$snapshot_backup_target}) {
-          ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snapshot_target";
-          ERROR "Please fix \"snapshot_name\" configuration options!";
+        if(my $prev = $backup_check{$snapshot_backup_target}) {
+          ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same backup target: $snapshot_target";
+          ERROR "Please fix \"snapshot_name\" or \"target\" configuration options!";
           exit 1;
         }
-        $snapshot_check{$snapshot_backup_target} = $svol->{PRINT};
+        $backup_check{$snapshot_backup_target} = $svol->{PRINT};
 
         unless(vinfo_read_subvolumes($droot)) {
           $config_target->{ABORTED} = "Failed to fetch subvolume list";
