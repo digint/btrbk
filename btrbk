@@ -972,27 +972,25 @@ sub btrfs_snapshot($$)
 
 sub btrfs_subvolume_delete($@)
 {
-  my $config = shift;
-  my @targets = @_;
-  return 0 unless(scalar(@targets));
-  my @real_targets;
-  my $rsh;
-  foreach (@targets) {
-    my ($r, $t) = get_rsh($_, $config);
-    die if($rsh && ($rsh ne $r)); # make sure all targets share same ssh host
-    $rsh = $r;
-    push(@real_targets, $t);
+  my $targets = shift // die;
+  my %opts = @_;
+  my $commit = $opts{commit};
+  die if($commit && ($commit ne "after") && ($commit ne "each"));
+  $targets = [ $targets ] unless(ref($targets));
+  return 0 unless(scalar(@$targets));
+  my $rsh = $targets->[0]->{RSH} || "";
+  foreach (@$targets) {
+    # make sure all targets share same RSH
+    my $rsh_check = $_->{RSH} || "";
+    die if($rsh ne $rsh_check);
   }
-  die if(scalar(@targets) != scalar(@real_targets));
-  my $commit_delete = config_key($config, "btrfs_commit_delete") // "";
-  DEBUG "[btrfs] delete" . ($commit_delete ? " (commit-$commit_delete):" : ":");
-  DEBUG "[btrfs]   subvolume: $_" foreach(@targets);
+  DEBUG "[btrfs] delete" . ($commit ? " (commit-$commit):" : ":");
+  DEBUG "[btrfs]   subvolume: $_->{PRINT}" foreach(@$targets);
   my $options = "";
-  $options = "--commit-after " if($commit_delete eq "after");
-  $options = "--commit-each "  if($commit_delete eq "each");
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume delete $options" . join(' ', @real_targets));
-  ERROR "Failed to delete btrfs subvolumes: " . join(' ', @targets) unless(defined($ret));
-  return defined($ret) ? scalar(@targets) : undef;
+  $options = "--commit-$commit " if($commit);
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume delete $options" . join(' ', map( { $_->{PATH} } @$targets)));
+  ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{URL} } @$targets)) unless(defined($ret));
+  return defined($ret) ? scalar(@$targets) : undef;
 }
 
 
@@ -1971,12 +1969,14 @@ MAIN:
             #
             # delete backups
             #
-            INFO "Cleaning backups of subvolume \"$svol->{URL}\": $droot->{URL}/$snapshot_basename.*";
+            INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
             my @schedule;
-            foreach my $vol (keys %{$droot->{SUBVOL_INFO}}) {
-              my ($date, $date_ext) = get_date_tag($vol);
-              next unless($date && ($vol =~ /^\Q$svol.\E/));
-              push(@schedule, { value => "$droot->{URL}/$vol", name => $vol, date => $date, date_ext => $date_ext });
+            foreach my $vol (values %{$droot->{SUBVOL_INFO}}) {
+              #!!! TODO: check received_from
+              next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapshot_basename.\E/);
+              my ($date, $date_ext) = get_date_tag($vol->{NAME});
+              next unless($date);
+              push(@schedule, { value => $vol, name => $vol->{PRINT}, date => $date, date_ext => $date_ext });
             }
             my (undef, $delete) = schedule(
               schedule             => \@schedule,
@@ -1987,7 +1987,7 @@ MAIN:
               preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
               log_verbose          => 1,
              );
-            my $ret = btrfs_subvolume_delete($config_target, @$delete);
+            my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_target, "btrfs_commit_delete"));
             if(defined($ret)) {
               INFO "Deleted $ret subvolumes in: $droot->{URL}/$snapshot_basename.*";
               $config_target->{SUBVOL_DELETED} = $delete;
@@ -2007,10 +2007,12 @@ MAIN:
           }
           INFO "Cleaning snapshots: $sroot->{URL}/$snapdir/$snapshot_basename.*";
           my @schedule;
-          foreach my $vol (keys %{$sroot->{SUBVOL_INFO}}) {
-            my ($date, $date_ext) = get_date_tag($vol);
-            next unless($date && ($vol =~ /^\Q$snapdir\/$snapshot_basename.\E/));
-            push(@schedule, { value => "$sroot->{URL}/$vol", name => $vol, date => $date, date_ext => $date_ext });
+          foreach my $vol (values %{$sroot->{SUBVOL_INFO}}) {
+            # !!! TODO: skip symlinks
+            next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapdir\/$snapshot_basename.\E/);
+            my ($date, $date_ext) = get_date_tag($vol->{NAME});
+            next unless($date);
+            push(@schedule, { value => $vol, name => $vol->{PRINT}, date => $date, date_ext => $date_ext });
           }
           my (undef, $delete) = schedule(
             schedule             => \@schedule,
@@ -2021,7 +2023,7 @@ MAIN:
             preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
             log_verbose          => 1,
            );
-          my $ret = btrfs_subvolume_delete($config_subvol, @$delete);
+          my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_subvol, "btrfs_commit_delete"));
           if(defined($ret)) {
             INFO "Deleted $ret subvolumes in: $sroot->{URL}/$snapdir/$snapshot_basename.*";
             $config_subvol->{SUBVOL_DELETED} = $delete;
@@ -2060,7 +2062,7 @@ MAIN:
           }
           push @out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
           if($config_subvol->{SUBVOL_DELETED}) {
-            push @out, "--- $_" foreach(sort { $b cmp $a} @{$config_subvol->{SUBVOL_DELETED}});
+            push @out, "--- $_->{PRINT}" foreach(sort { $b->{PATH} cmp $a->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
           }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
@@ -2074,7 +2076,7 @@ MAIN:
             }
 
             if($config_target->{SUBVOL_DELETED}) {
-              push @out, "--- $_" foreach(sort { $b cmp $a} @{$config_target->{SUBVOL_DELETED}});
+              push @out, "--- $_->{PRINT}" foreach(sort { $b->{PATH} cmp $a->{PATH} } @{$config_target->{SUBVOL_DELETED}});
             }
 
             if($config_target->{ABORTED}) {
