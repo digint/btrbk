@@ -82,6 +82,7 @@ my %config_options = (
 my @config_target_types = qw(send-receive);
 
 my %vinfo_root;
+my %vinfo_cache;
 my %uuid_info;
 my %uuid_fs_map;
 
@@ -166,6 +167,16 @@ sub run_cmd($;$)
 }
 
 
+sub vinfo_update_lookup_tables($)
+{
+  my $vol = shift || die;
+  $vinfo_cache{$vol->{URL}} = $vol;
+  $vinfo_cache{$vol->{REAL_URL}} = $vol if($vol->{REAL_URL});
+  $uuid_fs_map{$vol->{uuid}}->{$vol->{URL}} = $vol if($vol->{uuid});
+  $uuid_fs_map{$vol->{uuid}}->{$vol->{REAL_URL}} = $vol if($vol->{uuid} && $vol->{REAL_URL});
+}
+
+
 sub vinfo($;$)
 {
   my $root = shift // die;  # url or vinfo hash
@@ -235,10 +246,11 @@ sub vinfo_root($$)
   my $btrfs_progs_compat = config_key($config, "btrfs_progs_compat");
   $info{BTRFS_PROGS_COMPAT} = $btrfs_progs_compat if($btrfs_progs_compat);
 
-  DEBUG "vinfo root created for: $url";
-  TRACE(Data::Dumper->Dump([\%info], ["vinfo{$url}"]));
   $vinfo_root{$url} = \%info;
+  vinfo_update_lookup_tables(\%info);
 
+  TRACE "vinfo root created for: $url";
+  TRACE(Data::Dumper->Dump([\%info], ["vinfo{$url}"]));
   return \%info;
 }
 
@@ -267,6 +279,7 @@ sub vinfo_child($$)
   {
     $info{$_} = $parent->{$_} if(exists $parent->{$_});
   }
+  vinfo_update_lookup_tables(\%info);
 
   TRACE "vinfo child \"$rel_path\" created for: $info{URL}";
   TRACE(Data::Dumper->Dump([\%info], ["vinfo{$info{URL}}"]));
@@ -300,6 +313,7 @@ sub vinfo_set_detail($$)
 
   TRACE "vinfo updated for: $vol->{URL}";
   TRACE(Data::Dumper->Dump([$vol], ["vinfo{$vol->{URL}}"]));
+  vinfo_update_lookup_tables($vol);
   return $vol;
 }
 
@@ -749,7 +763,6 @@ sub btr_subvolume_list($;@)
     $node{path} =~ s/^<FS_TREE>\///;     # remove "<FS_TREE>/" portion from "path".
 
     push @nodes, \%node;
-    # $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
   }
   DEBUG "Parsed " . scalar(@nodes) . " total subvolumes for filesystem at: $vol_print";
   return \@nodes;
@@ -895,7 +908,7 @@ sub vinfo_read_subvolumes($)
   my $vol = shift || die;
   my $url = $vol->{URL} || die;
 
-  my $tree = btr_tree($vol);
+  my $tree = btr_tree($vol);  # populates %uuid_info
   return undef unless($tree);
 
   my $tree_root;
@@ -904,11 +917,10 @@ sub vinfo_read_subvolumes($)
   }
   else {
     die unless $uuid_info{$vol->{uuid}};
-    $uuid_fs_map{$vol->{uuid}}->{$vol->{URL}} = 1;
     $tree_root = $uuid_info{$vol->{uuid}}->{SUBTREE};
     unless($tree_root) {
       DEBUG "No subvolumes found in: $vol->{PRINT}";
-      $vol->{SUBVOL_INFO} = {};
+      $vol->{SUBVOL_INFO} //= {};
       return $vol;
     }
   }
@@ -931,7 +943,6 @@ sub vinfo_read_subvolumes($)
     vinfo_set_detail($subvol, $detail);
     vinfo_add_child($vol, $subvol, $subvol_path);
 
-    $uuid_fs_map{$subvol->{uuid}}->{$subvol->{URL}} = 1;
     $ret{$subvol_path} = $subvol;
   }
 
@@ -1169,7 +1180,7 @@ sub get_latest_common($$$;$)
     }
     TRACE "get_latest_common: no matching targets found for: $child->{URL}";
   }
-  DEBUG("No common snapshots for \"$debug_src\" found in src=$sroot->{URL}/  target=$droot->{URL}/");
+  DEBUG("No common snapshots for \"$debug_src\" found in src=\"$sroot->{URL}/\", target=\"$droot->{URL}/\"");
   return (undef, undef);
 }
 
@@ -1185,9 +1196,7 @@ sub _origin_tree
     return 0;
   }
   if($uuid_fs_map{$uuid}) {
-    foreach(keys %{$uuid_fs_map{$uuid}}) {
-      push(@$lines, ["$prefix$_", $uuid]);
-    }
+    push(@$lines, ["$prefix" . join(" === ", sort keys %{$uuid_fs_map{$uuid}}), $uuid]);
   } else {
     push(@$lines, ["$prefix<BTRFS_ROOT>/$node->{path}", $uuid]);
   }
@@ -1657,24 +1666,27 @@ MAIN:
     my $url = $subvol_args[0] || die;
     my $dump_uuid = 0;
 
-    my $vol = vinfo($url);
-    exit 1 unless($vol);
+    my $vol = $vinfo_cache{$url};
+    unless($vol) {
+      # specified volume is not in config
+      DEBUG "Subvolume not parsed yet, fetching info: $url";
+      $vol = vinfo_root($url, { CONTEXT => "cmdline" });
+      unless(vinfo_read_detail($vol)) {
+        ERROR "Failed to fetch subvolume detail: $url";
+        exit 1;
+      }
+      unless(vinfo_read_subvolumes($vol)) {
+        ERROR "Failed to fetch subvolume list: $url";
+        exit 1;
+      }
+    }
 
     if($vol->{is_root}) {
       ERROR "Subvolume is btrfs root: $url\n";
       exit 1;
     }
-    my $uuid = $vol->{uuid} || die;
-    my $node = $uuid_info{$uuid};
-
-    unless($node) {  # !!! TODO: fix this
-      DEBUG "Subvolume not parsed yet, fetching info: $url";
-# !!!      $vol_info{$url} //= btr_fs_info($vol);
-      $node = $uuid_info{$uuid} || die;
-    }
-
     my $lines = [];
-    _origin_tree("", $uuid, $lines);
+    _origin_tree("", $vol->{uuid}, $lines);
 
     print "--------------------------------------------------------------------------------\n";
     print "Origin Tree\n\n";
