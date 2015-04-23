@@ -254,7 +254,7 @@ sub vinfo_root($)
 {
   my $vol = shift;
 
-  my $detail = btr_subvolume_detail($vol);
+  my $detail = btrfs_subvolume_detail($vol);
   return undef unless $detail;
   vinfo_set_detail($vol, $detail);
 
@@ -543,13 +543,13 @@ sub parse_config(@)
 }
 
 
-sub btr_filesystem_show_all_local()
+sub btrfs_filesystem_show_all_local()
 {
   return run_cmd("/sbin/btrfs filesystem show", 1);
 }
 
 
-sub btr_filesystem_show($)
+sub btrfs_filesystem_show($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
@@ -559,7 +559,7 @@ sub btr_filesystem_show($)
 }
 
 
-sub btr_filesystem_df($)
+sub btrfs_filesystem_df($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
@@ -569,7 +569,7 @@ sub btr_filesystem_df($)
 }
 
 
-sub btr_filesystem_usage($)
+sub btrfs_filesystem_usage($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
@@ -579,62 +579,60 @@ sub btr_filesystem_usage($)
 }
 
 
-sub btr_subvolume_detail($)
+sub btrfs_subvolume_detail($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
   my $ret = run_cmd("$rsh /sbin/btrfs subvolume show $path 2>/dev/null", 1);
-  if($ret)
-  {
-    my $real_path;
-    if($ret =~ /^($file_match)/) {
-      $real_path = $1;
-      DEBUG "Real path for subvolume \"$vol->{PRINT}\" is: $real_path" if($real_path ne $path);
-      return undef unless(check_file($real_path, { absolute => 1 }));
-    }
-    else {
-      $real_path = $path;
-      WARN "No real path provided by \"btrfs subvolume show\" for subvolume \"$vol->{PRINT}\", using: $path";
-    }
-    my %detail = ( REAL_PATH  => $real_path );
+  return undef unless(defined($ret));
 
-    if($ret eq "$real_path is btrfs root") {
-      DEBUG "found btrfs root: $vol->{PRINT}";
-      $detail{id}      = 5;
-      $detail{is_root} = 1;
-    }
-    elsif($ret =~ /^$real_path/) {
-      TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
-      my %trans = (
-        name          => "Name",
-        uuid          => "uuid",
-        parent_uuid   => "Parent uuid",
-        creation_time => "Creation time",
-        id            => "Object ID",
-        gen           => "Generation \\(Gen\\)",
-        cgen          => "Gen at creation",
-        parent_id     => "Parent",
-        top_level     => "Top Level",
-        flags         => "Flags",
-       );
-      foreach (keys %trans) {
-        if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
-          $detail{$_} = $1;
-        } else {
-          WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
-        }
-      }
-      DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
-      TRACE(Data::Dumper->Dump([$vol], ["btr_subvolume_detail($vol->{URL})"]));
-    }
-    return \%detail;
+  my $real_path;
+  if($ret =~ /^($file_match)/) {
+    $real_path = $1;
+    DEBUG "Real path for subvolume \"$vol->{PRINT}\" is: $real_path" if($real_path ne $path);
+    return undef unless(check_file($real_path, { absolute => 1 }));
   }
-  return undef;
+  else {
+    $real_path = $path;
+    WARN "No real path provided by \"btrfs subvolume show\" for subvolume \"$vol->{PRINT}\", using: $path";
+  }
+  my %detail = ( REAL_PATH  => $real_path );
+
+  if($ret eq "$real_path is btrfs root") {
+    DEBUG "found btrfs root: $vol->{PRINT}";
+    $detail{id}      = 5;
+    $detail{is_root} = 1;
+  }
+  elsif($ret =~ /^$real_path/) {
+    TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
+    my %trans = (
+      name          => "Name",
+      uuid          => "uuid",
+      parent_uuid   => "Parent uuid",
+      creation_time => "Creation time",
+      id            => "Object ID",
+      gen           => "Generation \\(Gen\\)",
+      cgen          => "Gen at creation",
+      parent_id     => "Parent",
+      top_level     => "Top Level",
+      flags         => "Flags",
+     );
+    foreach (keys %trans) {
+      if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
+        $detail{$_} = $1;
+      } else {
+        WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
+      }
+    }
+    DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
+    TRACE(Data::Dumper->Dump([$vol], ["btrfs_subvolume_detail($vol->{URL})"]));
+  }
+  return \%detail;
 }
 
 
-sub btr_subvolume_list($;@)
+sub btrfs_subvolume_list($;@)
 {
   my $vol = shift || die;
   my %opts = @_;
@@ -646,10 +644,8 @@ sub btr_subvolume_list($;@)
   my $display_options = "-c -u -q";
   $display_options .= " -R" unless($btrfs_progs_compat);
   my $ret = run_cmd("$rsh /sbin/btrfs subvolume list $filter_option $display_options $path", 1);
-  unless(defined($ret)) {
-    WARN "Failed to fetch btrfs subvolume list for: $vol->{PRINT}";
-    return undef;
-  }
+  return undef unless(defined($ret));
+
   my @nodes;
   foreach (split(/\n/, $ret))
   {
@@ -701,7 +697,7 @@ sub btr_subvolume_list($;@)
 }
 
 
-sub btr_subvolume_find_new($$;$)
+sub btrfs_subvolume_find_new($$;$)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
@@ -758,6 +754,82 @@ sub btr_subvolume_find_new($$;$)
 }
 
 
+# returns $target, or undef on error
+sub btrfs_subvolume_snapshot($$)
+{
+  my $svol = shift || die;
+  my $target_path = shift // die;
+  my $src_path = $svol->{PATH} // die;
+  my $rsh = $svol->{RSH} || "";
+  DEBUG "[btrfs] snapshot (ro):";
+  DEBUG "[btrfs]   host  : $svol->{HOST}" if($svol->{HOST});
+  DEBUG "[btrfs]   source: $src_path";
+  DEBUG "[btrfs]   target: $target_path";
+  INFO ">>> " . ($svol->{HOST} ? "$svol->{HOST}:" : "") .  $target_path;
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume snapshot -r $src_path $target_path");
+  ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
+  return defined($ret) ? $target_path : undef;
+}
+
+
+sub btrfs_subvolume_delete($@)
+{
+  my $targets = shift // die;
+  my %opts = @_;
+  my $commit = $opts{commit};
+  die if($commit && ($commit ne "after") && ($commit ne "each"));
+  $targets = [ $targets ] unless(ref($targets));
+  return 0 unless(scalar(@$targets));
+  my $rsh = $targets->[0]->{RSH} || "";
+  foreach (@$targets) {
+    # make sure all targets share same RSH
+    my $rsh_check = $_->{RSH} || "";
+    die if($rsh ne $rsh_check);
+  }
+  DEBUG "[btrfs] delete" . ($commit ? " (commit-$commit):" : ":");
+  DEBUG "[btrfs]   subvolume: $_->{PRINT}" foreach(@$targets);
+  my $options = "";
+  $options = "--commit-$commit " if($commit);
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume delete $options" . join(' ', map( { $_->{PATH} } @$targets)));
+  ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
+  return defined($ret) ? scalar(@$targets) : undef;
+}
+
+
+sub btrfs_send_receive($$$)
+{
+  my $snapshot = shift || die;
+  my $target = shift || die;
+  my $parent = shift;
+  my $snapshot_path = $snapshot->{PATH} // die;
+  my $snapshot_rsh  = $snapshot->{RSH} || "";
+  my $target_path = $target->{PATH} // die;
+  my $target_rsh  = $target->{RSH} || "";
+  my $parent_path = $parent ? $parent->{PATH} : undef;
+
+   my $snapshot_name = $snapshot_path;
+   $snapshot_name =~ s/^.*\///;
+  INFO ">>> $target->{PRINT}/$snapshot_name";
+
+  DEBUG "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
+  DEBUG "[btrfs]   source: $snapshot->{PRINT}";
+  DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
+  DEBUG "[btrfs]   target: $target->{PRINT}";
+
+  my $parent_option = $parent_path ? "-p $parent_path" : "";
+  my $receive_option = "";
+  $receive_option = "-v" if($loglevel >= 3);
+
+  my $cmd = "$snapshot_rsh /sbin/btrfs send $parent_option $snapshot_path | $target_rsh /sbin/btrfs receive $receive_option $target_path/";
+  my $ret = run_cmd($cmd);
+  unless(defined($ret)) {
+    ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
+    return undef;
+  }
+  return 1;
+}
+
+
 sub btr_tree($)
 {
   my $vol = shift;
@@ -773,7 +845,7 @@ sub btr_tree($)
   my %tree = ( id => 5, SUBTREE => {} );
   my %id = ( 5 => \%tree );
 
-  my $subvol_list = btr_subvolume_list($vol);
+  my $subvol_list = btrfs_subvolume_list($vol);
   return undef unless(ref($subvol_list) eq "ARRAY");
 
   TRACE "btr_tree: processing subvolume list of: $vol->{PRINT}";
@@ -887,82 +959,6 @@ sub vinfo_subvol($$)
 
   my $subvols = vinfo_subvol_list($vol);
   return $subvols->{$rel_path};
-}
-
-
-# returns $target, or undef on error
-sub btrfs_snapshot($$)
-{
-  my $svol = shift || die;
-  my $target_path = shift // die;
-  my $src_path = $svol->{PATH} // die;
-  my $rsh = $svol->{RSH} || "";
-  DEBUG "[btrfs] snapshot (ro):";
-  DEBUG "[btrfs]   host  : $svol->{HOST}" if($svol->{HOST});
-  DEBUG "[btrfs]   source: $src_path";
-  DEBUG "[btrfs]   target: $target_path";
-  INFO ">>> " . ($svol->{HOST} ? "$svol->{HOST}:" : "") .  $target_path;
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume snapshot -r $src_path $target_path");
-  ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
-  return defined($ret) ? $target_path : undef;
-}
-
-
-sub btrfs_subvolume_delete($@)
-{
-  my $targets = shift // die;
-  my %opts = @_;
-  my $commit = $opts{commit};
-  die if($commit && ($commit ne "after") && ($commit ne "each"));
-  $targets = [ $targets ] unless(ref($targets));
-  return 0 unless(scalar(@$targets));
-  my $rsh = $targets->[0]->{RSH} || "";
-  foreach (@$targets) {
-    # make sure all targets share same RSH
-    my $rsh_check = $_->{RSH} || "";
-    die if($rsh ne $rsh_check);
-  }
-  DEBUG "[btrfs] delete" . ($commit ? " (commit-$commit):" : ":");
-  DEBUG "[btrfs]   subvolume: $_->{PRINT}" foreach(@$targets);
-  my $options = "";
-  $options = "--commit-$commit " if($commit);
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume delete $options" . join(' ', map( { $_->{PATH} } @$targets)));
-  ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{URL} } @$targets)) unless(defined($ret));
-  return defined($ret) ? scalar(@$targets) : undef;
-}
-
-
-sub btrfs_send_receive($$$)
-{
-  my $snapshot = shift || die;
-  my $target = shift || die;
-  my $parent = shift;
-  my $snapshot_path = $snapshot->{PATH} // die;
-  my $snapshot_rsh  = $snapshot->{RSH} || "";
-  my $target_path = $target->{PATH} // die;
-  my $target_rsh  = $target->{RSH} || "";
-  my $parent_path = $parent ? $parent->{PATH} : undef;
-
-   my $snapshot_name = $snapshot_path;
-   $snapshot_name =~ s/^.*\///;
-  INFO ">>> $target->{PRINT}/$snapshot_name";
-
-  DEBUG "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
-  DEBUG "[btrfs]   source: $snapshot->{PRINT}";
-  DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
-  DEBUG "[btrfs]   target: $target->{PRINT}";
-
-  my $parent_option = $parent_path ? "-p $parent_path" : "";
-  my $receive_option = "";
-  $receive_option = "-v" if($loglevel >= 3);
-
-  my $cmd = "$snapshot_rsh /sbin/btrfs send $parent_option $snapshot_path | $target_rsh /sbin/btrfs receive $receive_option $target_path/";
-  my $ret = run_cmd($cmd);
-  unless(defined($ret)) {
-    ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
-    return undef;
-  }
-  return 1;
 }
 
 
@@ -1369,7 +1365,7 @@ MAIN:
     $lastgen = $src_vol->{cgen} + 1;
 
     # dump files, sorted and unique
-    my $ret = btr_subvolume_find_new($target_vol, $lastgen);
+    my $ret = btrfs_subvolume_find_new($target_vol, $lastgen);
     exit 1 unless(ref($ret));
 
     print "--------------------------------------------------------------------------------\n";
@@ -1451,7 +1447,7 @@ MAIN:
         print "\n--------------------------------------------------------------------------------\n";
         print "Source volume: $sroot->{PRINT}\n";
         print "--------------------------------------------------------------------------------\n";
-        print (btr_filesystem_usage($sroot) // "");
+        print (btrfs_filesystem_usage($sroot) // "");
         print "\n";
         $processed{$sroot->{URL}} = 1;
       }
@@ -1469,7 +1465,7 @@ MAIN:
             print "Target volume: $droot->{PRINT}\n";
             print "               ^--- $sroot->{PRINT}\n";
             print "--------------------------------------------------------------------------------\n";
-            print (btr_filesystem_usage($droot) // "");
+            print (btrfs_filesystem_usage($droot) // "");
             print "\n";
             $processed{$droot->{URL}} = 1;
           }
@@ -1541,7 +1537,7 @@ MAIN:
         # try to read subvolume detail, as configured subvolume could be a symlink.
         DEBUG "Subvolume \"$config_subvol->{rel_path}\" not present in btrfs subvolume list for \"$sroot->{PRINT}\"";
         $svol = vinfo_child($sroot, $config_subvol->{rel_path});
-        my $detail = btr_subvolume_detail($svol);
+        my $detail = btrfs_subvolume_detail($svol);
         unless($detail) {
           $config_subvol->{ABORTED} = "Failed to fetch subvolume detail";
           WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
@@ -1740,7 +1736,7 @@ MAIN:
 
         # finally create the snapshot
         INFO "Creating subvolume snapshot for: $svol->{PRINT}";
-        if(btrfs_snapshot($svol, "$sroot->{PATH}/$snapdir/$snapshot_name")) {
+        if(btrfs_subvolume_snapshot($svol, "$sroot->{PATH}/$snapdir/$snapshot_name")) {
           $config_subvol->{SNAPSHOT} = vinfo_child($sroot, "$snapdir/$snapshot_name");
         }
         else {
