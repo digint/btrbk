@@ -168,7 +168,7 @@ sub run_cmd($;$)
 }
 
 
-sub vinfo(@)
+sub vinfo($$)
 {
   my $url = shift // die;
   my $config = shift || die;
@@ -221,23 +221,6 @@ sub vinfo(@)
 }
 
 
-sub vinfo_root($$)
-{
-  my $vol = vinfo(@_);
-
-  my $detail = btr_subvolume_detail($vol);
-  return undef unless $detail;
-  vinfo_set_detail($vol, $detail);
-
-  # read (and cache) the subvolume list
-  return undef unless vinfo_subvol_list($vol);
-
-  TRACE "vinfo root created: $vol->{PRINT}";
-
-  return $vol;
-}
-
-
 sub vinfo_child($$)
 {
   my $parent = shift || die;
@@ -264,6 +247,22 @@ sub vinfo_child($$)
 
   TRACE "vinfo child created from \"$parent->{PRINT}\": $info{PRINT}";
   return \%info;
+}
+
+
+sub vinfo_root($)
+{
+  my $vol = shift;
+
+  my $detail = btr_subvolume_detail($vol);
+  return undef unless $detail;
+  vinfo_set_detail($vol, $detail);
+
+  # read (and cache) the subvolume list
+  return undef unless vinfo_subvol_list($vol);
+
+  TRACE "vinfo root created: $vol->{PRINT}";
+  return $vol;
 }
 
 
@@ -1336,13 +1335,13 @@ MAIN:
     my $target_url = $subvol_args[1] || die;
     # FIXME: allow ssh:// src/dest (does not work since the configuration is not yet read).
 
-    my $src_vol = vinfo_root($src_url, { CONTEXT => "cmdline" });
-    unless($src_vol) { exit 1; }
+    my $src_vol = vinfo($src_url, { CONTEXT => "cmdline" });
+    unless(vinfo_root($src_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}"; exit 1; }
     if($src_vol->{is_root})  { ERROR "Subvolume at \"$src_url\" is btrfs root!"; exit 1; }
     unless($src_vol->{cgen}) { ERROR "Subvolume at \"$src_url\" does not provide cgen"; exit 1; }
 
-    my $target_vol = vinfo_root($target_url, { CONTEXT => "cmdline" });
-    unless($target_vol) { exit 1; }
+    my $target_vol = vinfo($target_url, { CONTEXT => "cmdline" });
+    unless(vinfo_root($target_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}"; exit 1; }
     unless($src_vol->{cgen}) { ERROR "Subvolume at \"$src_url\" does not provide cgen"; exit 1; }
 
     my $uuid_list = vinfo_fs_list($src_vol);
@@ -1446,33 +1445,33 @@ MAIN:
     my %processed;
     foreach my $config_vol (@{$config->{VOLUME}})
     {
-      my $url = $config_vol->{url} || die;
-      unless($processed{$url})
+      my $sroot = vinfo($config_vol->{url}, $config_vol);
+      unless($processed{$sroot->{URL}})
       {
         print "\n--------------------------------------------------------------------------------\n";
-        print "Source volume: $url\n";
+        print "Source volume: $sroot->{PRINT}\n";
         print "--------------------------------------------------------------------------------\n";
-        print (btr_filesystem_usage(vinfo($url, $config_vol)) // "");
+        print (btr_filesystem_usage($sroot) // "");
         print "\n";
-        $processed{$url} = 1;
+        $processed{$sroot->{URL}} = 1;
       }
     }
 
     foreach my $config_vol (@{$config->{VOLUME}}) {
-      my $sroot_url = $config_vol->{url} || die;
+      my $sroot = vinfo($config_vol->{url}, $config_vol);
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
-          my $droot_url = $config_target->{url} || die;
-          unless($processed{$droot_url})
+          my $droot = vinfo($config_target->{url}, $config_target);
+          unless($processed{$droot->{URL}})
           {
             print "\n--------------------------------------------------------------------------------\n";
-            print "Target volume: $droot_url\n";
-            print "               ^--- $sroot_url\n";
+            print "Target volume: $droot->{PRINT}\n";
+            print "               ^--- $sroot->{PRINT}\n";
             print "--------------------------------------------------------------------------------\n";
-            print (btr_filesystem_usage(vinfo($droot_url, $config_target)) // "");
+            print (btr_filesystem_usage($droot) // "");
             print "\n";
-            $processed{$droot_url} = 1;
+            $processed{$droot->{URL}} = 1;
           }
         }
       }
@@ -1524,10 +1523,10 @@ MAIN:
   foreach my $config_vol (@{$config->{VOLUME}})
   {
     next if($config_vol->{ABORTED});
-    my $sroot = vinfo_root($config_vol->{url}, $config_vol);
-    unless($sroot) {
+    my $sroot = vinfo($config_vol->{url}, $config_vol);
+    unless(vinfo_root($sroot)) {
       $config_vol->{ABORTED} = "Failed to fetch subvolume detail";
-      WARN "Skipping volume \"$config_vol->{url}\": $config_vol->{ABORTED}";
+      WARN "Skipping volume \"$sroot->{PRINT}\": $config_vol->{ABORTED}";
       next;
     }
     $config_vol->{sroot} = $sroot;
@@ -1579,12 +1578,13 @@ MAIN:
 
       foreach my $config_target (@{$config_subvol->{TARGET}})
       {
-        my $droot = vinfo_root($config_target->{url}, $config_target);
-        unless($droot) {
+        my $droot = vinfo($config_target->{url}, $config_target);
+        unless(vinfo_root($droot)) {
           $config_target->{ABORTED} = "Failed to fetch subvolume detail";
-          WARN "Skipping target \"$config_target->{url}\": $config_target->{ABORTED}";
+          WARN "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
           next;
         }
+        $config_target->{droot} = $droot;
 
         # check for duplicate snapshot locations
         my $snapshot_backup_target = "$droot->{REAL_URL}/$snapshot_basename";
@@ -1594,8 +1594,6 @@ MAIN:
           exit 1;
         }
         $backup_check{$snapshot_backup_target} = $svol->{PRINT};
-
-        $config_target->{droot} = $droot;
       }
     }
   }
@@ -1613,9 +1611,9 @@ MAIN:
     unless($vol) {
       # specified volume is not in config
       DEBUG "Subvolume not parsed yet, fetching info: $url";
-      $vol = vinfo_root($url, { CONTEXT => "cmdline" });
-      unless($vol) {
-        ERROR "Failed to fetch subvolume detail: $url";
+      $vol = vinfo($url, { CONTEXT => "cmdline" });
+      unless(vinfo_root($vol)) {
+        ERROR "Failed to fetch subvolume detail for: $url";
         exit 1;
       }
     }
@@ -1984,15 +1982,17 @@ MAIN:
       my $err_count = 0;
       foreach my $config_vol (@{$config->{VOLUME}})
       {
+        my $sroot = $config_vol->{sroot} || vinfo($config_vol->{url}, $config_vol);
         foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
         {
-          push @out, "$config_subvol->{url}";
+          my $svol = $config_subvol->{svol} || vinfo_child($sroot, $config_subvol->{rel_path});
+          push @out, "$svol->{PRINT}";
           if($config_vol->{ABORTED}) {
-            push @out, "!!! $config_vol->{url}: ABORTED: $config_vol->{ABORTED}";
+            push @out, "!!! $sroot->{PRINT}: ABORTED: $config_vol->{ABORTED}";
             $err_count++ unless($config_vol->{ABORTED_NOERR});
           }
           if($config_subvol->{ABORTED}) {
-            push @out, "!!! Subvolume \"$config_subvol->{url}\" aborted: $config_subvol->{ABORTED}";
+            push @out, "!!! Subvolume \"$svol->{PRINT}\" aborted: $config_subvol->{ABORTED}";
             $err_count++ unless($config_subvol->{ABORTED_NOERR});
           }
           push @out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
@@ -2001,7 +2001,7 @@ MAIN:
           }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
-            my $droot = $config_target->{droot};
+            my $droot = $config_target->{droot} || vinfo($config_target->{url}, $config_target);
             foreach(@{$config_target->{SUBVOL_RECEIVED} // []}) {
               my $create_mode = "***";
               $create_mode = ">>>" if($_->{parent});
