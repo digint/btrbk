@@ -1800,12 +1800,12 @@ MAIN:
                 DEBUG "Checking schedule for resume candidates";
                 # add all present backups to schedule, with no value
                 # these are needed for correct results of schedule()
-                foreach my $vol (keys %{vinfo_subvol_list($droot)}) {
-                  my ($date, $date_ext) = get_date_tag($vol);
-                  next unless($date && ($vol =~ s/^\Q$snapshot_basename.\E//));  # use only the date suffix for sorting
+                foreach my $vol (values %{vinfo_subvol_list($droot)}) {
+                  next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapshot_basename\E$snapshot_postfix_match$/);
+                  my ($date, $date_ext) = get_date_tag($vol->{NAME});
+                  next unless($date);
                   push(@schedule, { value => undef, date => $date, date_ext => $date_ext });
                 }
-
                 my ($preserve, undef) = schedule(
                   schedule             => \@schedule,
                   today                => \@today,
