@@ -93,6 +93,7 @@ my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
 my $file_match = qr/[0-9a-zA-Z_@\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 my $ssh_prefix_match = qr/ssh:\/\/($ip_addr_match|$host_name_match)/;
+my $snapshot_postfix_match = qr/\.[0-9]{8}(_[0-9]+)?/;
 
 
 $SIG{__DIE__} = sub {
@@ -1797,7 +1798,7 @@ MAIN:
 
                   # check if the target would be preserved
                   my ($date, $date_ext) = get_date_tag($child->{SUBVOL_PATH});
-                  next unless($date && ($child->{SUBVOL_PATH} =~ /^\Q$snapdir\/$snapshot_basename.\E/));
+                  next unless($date && ($child->{SUBVOL_PATH} =~ /^\Q$snapdir\/$snapshot_basename\E$snapshot_postfix_match$/));
                   push(@schedule, { value => $child, date => $date, date_ext => $date_ext }),
                 }
               }
@@ -1907,8 +1908,12 @@ MAIN:
             INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
             my @schedule;
             foreach my $vol (values %{vinfo_subvol_list($droot)}) {
-              #!!! TODO: check received_from
-              next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapshot_basename.\E/);
+              next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapshot_basename\E$snapshot_postfix_match$/);
+              # NOTE: checking received_uuid does not make much sense, as this received_uuid is propagated to snapshots
+              # if($vol->{received_uuid} && ($vol->{received_uuid} eq '-')) {
+              #   INFO "Target subvolume is not a received backup, skipping deletion of: $vol->{PRINT}";
+              #   next;
+              # }
               my ($date, $date_ext) = get_date_tag($vol->{NAME});
               next unless($date);
               push(@schedule, { value => $vol, name => $vol->{PRINT}, date => $date, date_ext => $date_ext });
@@ -1943,7 +1948,7 @@ MAIN:
           INFO "Cleaning snapshots: $sroot->{URL}/$snapdir/$snapshot_basename.*";
           my @schedule;
           foreach my $vol (values %{vinfo_subvol_list($sroot)}) {
-            next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapdir\/$snapshot_basename.\E/);
+            next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapdir\/$snapshot_basename\E$snapshot_postfix_match$/);
             my ($date, $date_ext) = get_date_tag($vol->{NAME});
             next unless($date);
             push(@schedule, { value => $vol, name => $vol->{PRINT}, date => $date, date_ext => $date_ext });
