@@ -424,10 +424,6 @@ sub parse_config(@)
         return undef unless(check_file($value, { relative => 1 }, $key, $file));
         $value =~ s/\/+$//;    # remove trailing slash
         $value =~ s/^\/+//;    # remove leading slash
-        if($value =~ /\//) {
-          ERROR "Subvolume contains slashes: \"$value\" in \"$file\" line $.";
-          return undef;
-        }
 
         TRACE "config: adding subvolume \"$value\" to volume context: $cur->{url}";
         my $subvolume = { CONTEXT => "subvolume",

@@ -19,9 +19,10 @@ global options must be set before any sections are defined.
 The sections are:
 .TP
 \fBvolume\fR  <volume-directory>|<url>
-Directory of a btrfs volume (or subvolume) containing the source
-subvolume(s) to be backuped (usually the mount-point of a btrfs
-filesystem mounted with the \fIsubvolid=0\fR option).
+Directory of a btrfs volume containing the source subvolume(s) to be
+backuped. \fI<volume-directory>\fR must be an absolute path and point
+to a btrfs volume (or subvolume). Usually the mount point of a btrfs
+filesystem mounted with the \fIsubvolid=0\fR option.
 .TP
 \fBsubvolume\fR  <subvolume-name>
 Subvolume to be backuped, relative to the \fI<volume-directory>\fR
@@ -29,8 +30,9 @@ specified in the \fIvolume\fR section.
 .TP
 \fBtarget\fR  <type> <volume-directory>|<url>
 Target type and directory where the backup subvolumes are to be
-created. In the current version of btrbk, the only valid \fI<type>\fR
-is \(lqsend\-receive\(rq.
+created. \fI<volume-directory>\fR must be an absolute path and point
+to a btrfs volume (or subvolume). Currently the the only valid
+\fI<type>\fR is \(lqsend\-receive\(rq.
 .PP
 For the \fIvolume\fR and \fItarget\fR sections, you can also specify a
 ssh-url instead of a local directory. The syntax for \fI<url>\fR is:
