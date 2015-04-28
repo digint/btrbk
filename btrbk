@@ -132,11 +132,11 @@ sub HELP_MESSAGE
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
 
-sub TRACE { my $t = shift; print STDOUT "... $t\n" if($loglevel >= 4);  }
-sub DEBUG { my $t = shift; print STDOUT "$t\n" if($loglevel >= 3);  }
-sub INFO  { my $t = shift; print STDOUT "$t\n" if($loglevel >= 2);  }
-sub WARN  { my $t = shift; print STDOUT "WARNING: $t\n" if($loglevel >= 1);  }
-sub ERROR { my $t = shift; print STDOUT "ERROR: $t\n";  }
+sub TRACE { my $t = shift; print STDERR "... $t\n" if($loglevel >= 4);  }
+sub DEBUG { my $t = shift; print STDERR "$t\n" if($loglevel >= 3);  }
+sub INFO  { my $t = shift; print STDERR "$t\n" if($loglevel >= 2);  }
+sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
+sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 
 
 sub run_cmd($;$)

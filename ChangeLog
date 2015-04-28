@@ -5,6 +5,8 @@ btrbk-current
     subvolume tree, as well as security related code parts.
   * Correct handling of symlinks to btrfs subvolumes (closes: #12).
   * Added configuration option "snapshot_name" (closes: #5).
+  * Log messages now go to stderr, only the summary is printed on
+    stdout.
   * Bugfix: allow "0" as subvolume name (closes: #10).
   * Bugfix: allow "/" as volume name (closes: #15).
   * Bugfix: check source AND targets for determining snapshot postfix
