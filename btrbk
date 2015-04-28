@@ -154,7 +154,7 @@ sub run_cmd($;$)
     if($?) {
       my $exitcode= $? >> 8;
       my $signal = $? & 127;
-      WARN "Command execution failed (exitcode=$exitcode" . ($signal ? ", signal=$signal" : "") . "): \"$cmd\"";
+      DEBUG "Command execution failed (exitcode=$exitcode" . ($signal ? ", signal=$signal" : "") . "): \"$cmd\"";
       return undef;
     }
     else {
@@ -1001,7 +1001,7 @@ sub macro_send_receive($@)
     return 1;
   } else {
     $info{ERROR} = 1;
-    $config_target->{ABORTED} = "btrfs send/receive command failed";
+    $config_target->{ABORTED} = "Failed to send/receive subvolume";
     return undef;
   }
 }
@@ -1924,7 +1924,7 @@ MAIN:
               $config_target->{SUBVOL_DELETED} = $delete;
             }
             else {
-              $config_target->{ABORTED} = "btrfs subvolume delete command failed";
+              $config_target->{ABORTED} = "Failed to delete subvolume";
               $target_aborted = 1;
             }
           }
@@ -1959,7 +1959,7 @@ MAIN:
             $config_subvol->{SUBVOL_DELETED} = $delete;
           }
           else {
-            $config_subvol->{ABORTED} = "btrfs subvolume delete command failed";
+            $config_subvol->{ABORTED} = "Failed to delete delete subvolume";
           }
         }
       }
