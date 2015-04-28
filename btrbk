@@ -399,7 +399,7 @@ sub parse_config(@)
 
         # be very strict about file options, for security sake
         return undef unless(check_file($value, { absolute => 1, ssh => 1 }, $key, $file));
-        $value =~ s/\/+$//;   # remove trailing slash
+        $value =~ s/\/+$// unless($value =~ /^\/+$/);   # remove trailing slash
         $value =~ s/^\/+/\//; # sanitize leading slash
         TRACE "config: adding volume \"$value\" to root context";
         my $volume = { CONTEXT => "volume",

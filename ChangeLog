@@ -1,6 +1,7 @@
 btrbk-current
   * Added configuration option "snapshot_name" (closes: #5).
   * Bugfix: allow "0" as subvolume name (closes: #10).
+  * Bugfix: allow "/" as volume name (closes: #15).
   * Bugfix: check source AND targets for determining snapshot postfix
     (closes: #11).
 
