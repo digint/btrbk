@@ -1125,7 +1125,7 @@ sub _origin_tree
     return 0;
   }
   if($uuid_fs_map{$uuid}) {
-    push(@$lines, ["$prefix" . join(" === ", sort keys %{$uuid_fs_map{$uuid}}), $uuid]);
+    push(@$lines, ["$prefix" . join(" === ", sort map { $_->{PRINT} } values %{$uuid_fs_map{$uuid}}), $uuid]);
   } else {
     push(@$lines, ["$prefix<BTRFS_ROOT>/$node->{path}", $uuid]);
   }
