@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.17-dev";
+our $VERSION       = "0.17.0-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -60,7 +60,8 @@ my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
-  snapshot_dir              => { default => undef,    accept_file => { relative => 1 }, append_trailing_slash => 1 },
+  snapshot_dir              => { default => undef,    accept_file => { relative => 1 } },
+  snapshot_name             => { default => undef,    accept_file => { name_only => 1 }, context => [ "subvolume" ] },
   receive_log               => { default => undef,    accept => [ "sidecar", "no" ], accept_file => { absolute => 1 }, deprecated => "removed" },
   incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
   snapshot_create_always    => { default => undef,    accept => [ "yes", "no" ] },
@@ -80,18 +81,19 @@ my %config_options = (
 
 my @config_target_types = qw(send-receive);
 
-my %vol_info;
-my %uuid_info;
-my %uuid_fs_map;
-my %vol_btrfs_progs_compat;  # hacky, maps all subvolumes without received_uuid information
+my %root_tree_cache;    # map URL to SUBTREE (needed since "btrfs subvolume list" does not provide us with the uuid of the btrfs root node)
+my %vinfo_cache;        # map URL to vinfo
+my %uuid_info;          # map UUID to btr_tree node
+my %uuid_fs_map;        # map UUID to URL
 
 my $dryrun;
 my $loglevel = 1;
 
 my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
-my $file_match = qr/[0-9a-zA-Z_@\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
+my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 my $ssh_prefix_match = qr/ssh:\/\/($ip_addr_match|$host_name_match)/;
+my $snapshot_postfix_match = qr/\.[0-9]{8}(_[0-9]+)?/;
 
 
 $SIG{__DIE__} = sub {
@@ -130,11 +132,11 @@ sub HELP_MESSAGE
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
 
-sub TRACE { my $t = shift; print STDOUT "... $t\n" if($loglevel >= 4);  }
-sub DEBUG { my $t = shift; print STDOUT "$t\n" if($loglevel >= 3);  }
-sub INFO  { my $t = shift; print STDOUT "$t\n" if($loglevel >= 2);  }
-sub WARN  { my $t = shift; print STDOUT "WARNING: $t\n" if($loglevel >= 1);  }
-sub ERROR { my $t = shift; print STDOUT "ERROR: $t\n";  }
+sub TRACE { my $t = shift; print STDERR "... $t\n" if($loglevel >= 4);  }
+sub DEBUG { my $t = shift; print STDERR "$t\n" if($loglevel >= 3);  }
+sub INFO  { my $t = shift; print STDERR "$t\n" if($loglevel >= 2);  }
+sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
+sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 
 
 sub run_cmd($;$)
@@ -152,7 +154,7 @@ sub run_cmd($;$)
     if($?) {
       my $exitcode= $? >> 8;
       my $signal = $? & 127;
-      WARN "Command execution failed (exitcode=$exitcode" . ($signal ? ", signal=$signal" : "") . "): \"$cmd\"";
+      DEBUG "Command execution failed (exitcode=$exitcode" . ($signal ? ", signal=$signal" : "") . "): \"$cmd\"";
       return undef;
     }
     else {
@@ -166,36 +168,133 @@ sub run_cmd($;$)
 }
 
 
-sub subvol($$)
-{
-  my $root = shift || die;
-  my $vol = shift // die;
-  if($vol_info{$root} && $vol_info{$root}->{$vol}) {
-    return $vol_info{$root}->{$vol}->{node};
-  }
-  return undef;
-}
-
-
-sub get_rsh($$)
+sub vinfo($$)
 {
   my $url = shift // die;
-  my $config = shift;
-  if($config && ($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/)) {
-    my ($ssh_host, $file) = ($1, $2);
-    my $ssh_user     = config_key($config, "ssh_user");
-    my $ssh_identity = config_key($config, "ssh_identity");
-    my $ssh_options = "";
+  my $config = shift || die;
+
+  my $name = $url;
+  $name =~ s/^.*\///;
+  my %info = (
+    URL  => $url,
+    NAME => $name,
+   );
+
+  if($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/) {
+    my ($host, $path) = ($1, $2);
+    my $ssh_user      = config_key($config, "ssh_user");
+    my $ssh_identity  = config_key($config, "ssh_identity");
+    my $ssh_options   = "";
     if($ssh_identity) {
-      $ssh_options .= " -i $ssh_identity";
+      $ssh_options .= "-i $ssh_identity ";
     }
     else {
       WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
     }
-    my $rsh = "/usr/bin/ssh $ssh_options " . $ssh_user . '@' . $ssh_host;
-    return ($rsh, $file);
+    %info = (
+      %info,
+      HOST         => $host,
+      PATH         => $path,
+      PRINT        => "{$host}$path",
+      RSH_TYPE     => "ssh",
+      SSH_USER     => $ssh_user,
+      SSH_IDENTITY => $ssh_identity,
+      RSH          => "/usr/bin/ssh $ssh_options" . $ssh_user . '@' . $host,
+     );
   }
-  return ("", $url);
+  elsif(($url =~ /^\//) && ($url =~ /^$file_match$/)) {
+    %info = (
+      %info,
+      PATH   => $url,
+      PRINT  => $url,
+     );
+  }
+  else {
+    die "Ambiguous vinfo url: $url";
+  }
+
+  my $btrfs_progs_compat = config_key($config, "btrfs_progs_compat");
+  $info{BTRFS_PROGS_COMPAT} = $btrfs_progs_compat if($btrfs_progs_compat);
+
+  TRACE "vinfo created: $url";
+  return \%info;
+}
+
+
+sub vinfo_child($$)
+{
+  my $parent = shift || die;
+  my $rel_path = shift // die;
+
+  my $name = $rel_path;
+  $name =~ s/^.*\///;
+  my %info = (
+    NAME         => $name,
+    URL          => "$parent->{URL}/$rel_path",
+    PATH         => "$parent->{PATH}/$rel_path",
+    PRINT        => "$parent->{PRINT}/$rel_path",
+    SUBVOL_PATH  => $rel_path,
+   );
+  foreach (qw( HOST
+               RSH_TYPE
+               SSH_USER
+               SSH_IDENTITY
+               RSH
+               BTRFS_PROGS_COMPAT ) )
+  {
+    $info{$_} = $parent->{$_} if(exists $parent->{$_});
+  }
+
+  TRACE "vinfo child created from \"$parent->{PRINT}\": $info{PRINT}";
+  return \%info;
+}
+
+
+sub vinfo_root($)
+{
+  my $vol = shift;
+
+  my $detail = btrfs_subvolume_detail($vol);
+  return undef unless $detail;
+  vinfo_set_detail($vol, $detail);
+
+  # read (and cache) the subvolume list
+  return undef unless vinfo_subvol_list($vol);
+
+  TRACE "vinfo root created: $vol->{PRINT}";
+  return $vol;
+}
+
+
+sub vinfo_set_detail($$)
+{
+  my $vol = shift || die;
+  my $detail = shift || die;
+
+  # add detail data to vinfo hash
+  foreach(keys %$detail) {
+    next if($_ eq "REL_PATH");
+    next if($_ eq "TOP_LEVEL");
+    next if($_ eq "SUBTREE");
+    next if($_ eq "path");
+    $vol->{$_} = $detail->{$_};
+  }
+
+  if($vol->{REAL_PATH}) {
+    if($vol->{RSH_TYPE} && ($vol->{RSH_TYPE} eq "ssh")) {
+      $vol->{REAL_URL} = "ssh://$vol->{HOST}$detail->{REAL_PATH}";
+    } else {
+      $vol->{REAL_URL} = $vol->{REAL_PATH};
+    }
+  }
+
+  # update cache
+  $vinfo_cache{$vol->{URL}} = $vol;
+  $vinfo_cache{$vol->{REAL_URL}} = $vol if($vol->{REAL_URL});
+
+  TRACE "vinfo updated for: $vol->{PRINT}";
+  TRACE(Data::Dumper->Dump([$vol], ["vinfo{$vol->{PRINT}}"]));
+  return $vol;
 }
 
 
@@ -213,10 +312,10 @@ sub config_key($$)
 }
 
 
-sub check_file($$$$)
+sub check_file($$;$$)
 {
-  my $file = shift;
-  my $accept = shift;
+  my $file = shift // die;
+  my $accept = shift || die;
   my $key = shift;  # only for error text
   my $config_file = shift;  # only for error text
 
@@ -236,6 +335,12 @@ sub check_file($$$$)
     elsif($accept->{relative}) {
       if($file =~ /^\//) {
         ERROR "Only relative files allowed for option \"$key\" in \"$config_file\" line $.: $file";
+        return undef;
+      }
+    }
+    elsif($accept->{name_only}) {
+      if($file =~ /\//) {
+        ERROR "Option \"$key\" is not a valid file name in \"$config_file\" line $.: $file";
         return undef;
       }
     }
@@ -274,7 +379,7 @@ sub parse_config(@)
     $root->{$_} = $config_options{$_}->{default};
   }
 
-  DEBUG "config: parsing file: $file";
+  INFO "Using configuration: $file";
   open(FILE, '<', $file) or die $!;
   while (<FILE>) {
     chomp;
@@ -290,16 +395,16 @@ sub parse_config(@)
       if($key eq "volume")
       {
         $cur = $root;
-        DEBUG "config: context forced to: $cur->{CONTEXT}";
+        TRACE "config: context forced to: $cur->{CONTEXT}";
 
         # be very strict about file options, for security sake
         return undef unless(check_file($value, { absolute => 1, ssh => 1 }, $key, $file));
-        $value =~ s/\/+$//;   # remove trailing slash
+        $value =~ s/\/+$// unless($value =~ /^\/+$/);   # remove trailing slash
         $value =~ s/^\/+/\//; # sanitize leading slash
-        DEBUG "config: adding volume \"$value\" to root context";
+        TRACE "config: adding volume \"$value\" to root context";
         my $volume = { CONTEXT => "volume",
                        PARENT => $cur,
-                       sroot => $value,
+                       url => $value,
                       };
         $cur->{VOLUME} //= [];
         push(@{$cur->{VOLUME}}, $volume);
@@ -309,25 +414,22 @@ sub parse_config(@)
       {
         while($cur->{CONTEXT} ne "volume") {
           if(($cur->{CONTEXT} eq "root") || (not $cur->{PARENT})) {
-            ERROR "subvolume keyword outside volume context, in \"$file\" line $.";
+            ERROR "Subvolume keyword outside volume context, in \"$file\" line $.";
             return undef;
           }
           $cur = $cur->{PARENT} || die;
-          DEBUG "config: context changed to: $cur->{CONTEXT}";
+          TRACE "config: context changed to: $cur->{CONTEXT}";
         }
         # be very strict about file options, for security sake
         return undef unless(check_file($value, { relative => 1 }, $key, $file));
         $value =~ s/\/+$//;    # remove trailing slash
         $value =~ s/^\/+//;    # remove leading slash
-        if($value =~ /\//) {
-          ERROR "subvolume contains slashes: \"$value\" in \"$file\" line $.";
-          return undef;
-        }
 
-        DEBUG "config: adding subvolume \"$value\" to volume context: $cur->{sroot}";
+        TRACE "config: adding subvolume \"$value\" to volume context: $cur->{url}";
         my $subvolume = { CONTEXT => "subvolume",
                           PARENT => $cur,
-                          svol => $value,
+                          rel_path => $value,
+                          url => $cur->{url} . '/' . $value,
                          };
         $cur->{SUBVOLUME} //= [];
         push(@{$cur->{SUBVOLUME}}, $subvolume);
@@ -337,17 +439,17 @@ sub parse_config(@)
       {
         if($cur->{CONTEXT} eq "target") {
           $cur = $cur->{PARENT} || die;
-          DEBUG "config: context changed to: $cur->{CONTEXT}";
+          TRACE "config: context changed to: $cur->{CONTEXT}";
         }
         if($cur->{CONTEXT} ne "subvolume") {
-          ERROR "target keyword outside subvolume context, in \"$file\" line $.";
+          ERROR "Target keyword outside subvolume context, in \"$file\" line $.";
           return undef;
         }
         if($value =~ /^(\S+)\s+(\S+)$/)
         {
           my ($target_type, $droot) = ($1, $2);
           unless(grep(/^$target_type$/, @config_target_types)) {
-            ERROR "unknown target type \"$target_type\" in \"$file\" line $.";
+            ERROR "Unknown target type \"$target_type\" in \"$file\" line $.";
             return undef;
           }
           # be very strict about file options, for security sake
@@ -355,11 +457,11 @@ sub parse_config(@)
 
           $droot =~ s/\/+$//;   # remove trailing slash
           $droot =~ s/^\/+/\//; # sanitize leading slash
-          DEBUG "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{PARENT}->{sroot}/$cur->{svol}";
+          TRACE "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{url}";
           my $target = { CONTEXT => "target",
                          PARENT => $cur,
                          target_type => $target_type,
-                         droot => $droot,
+                         url => $droot,
                        };
           $cur->{TARGET} //= [];
           push(@{$cur->{TARGET}}, $target);
@@ -387,10 +489,6 @@ sub parse_config(@)
           TRACE "option \"$key=$value\" is a valid file, accepted";
           $value =~ s/\/+$//;   # remove trailing slash
           $value =~ s/^\/+/\//; # sanitize leading slash
-          if($config_options{$key}->{append_trailing_slash}) {
-            TRACE "append_trailing_slash is specified for option \"$key\", adding trailing slash";
-            $value .= '/';
-          }
         }
         elsif($config_options{$key}->{accept_regexp}) {
           my $match = $config_options{$key}->{accept_regexp};
@@ -407,7 +505,13 @@ sub parse_config(@)
           ERROR "Unsupported value \"$value\" for option \"$key\" in \"$file\" line $.";
           return undef;
         }
-        DEBUG "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
+
+        if($config_options{$key}->{context} && !grep(/^$cur->{CONTEXT}$/, @{$config_options{$key}->{context}})) {
+          ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$config_options{$key}->{context}})) . " context, in \"$file\" line $.";
+          return undef;
+        }
+
+        TRACE "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
         $value = undef if($value eq "no");  # we don't want to check for "no" all the time
         $cur->{$key} = $value;
 
@@ -430,107 +534,114 @@ sub parse_config(@)
     }
   }
 
-  TRACE(Data::Dumper->Dump([$root], ["config_root"]));
+  TRACE(Data::Dumper->Dump([$root], ["config{$file}"]));
   return $root;
 }
 
 
-sub btr_filesystem_show_all_local()
+sub btrfs_filesystem_show_all_local()
 {
   return run_cmd("/sbin/btrfs filesystem show", 1);
 }
 
 
-sub btr_filesystem_show($;$)
+sub btrfs_filesystem_show($)
 {
   my $vol = shift || die;
-  my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs filesystem show $real_vol", 1);
+  my $path = $vol->{PATH} // die;
+  my $rsh = $vol->{RSH} || "";
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem show '$path'", 1);
   return $ret;
 }
 
 
-sub btr_filesystem_df($;$)
+sub btrfs_filesystem_df($)
 {
   my $vol = shift || die;
-  my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs filesystem df $real_vol", 1);
+  my $path = $vol->{PATH} // die;
+  my $rsh = $vol->{RSH} || "";
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem df '$path'", 1);
   return $ret;
 }
 
 
-sub btr_filesystem_usage($;$)
+sub btrfs_filesystem_usage($)
 {
   my $vol = shift || die;
-  my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs filesystem usage $real_vol", 1);
+  my $path = $vol->{PATH} // die;
+  my $rsh = $vol->{RSH} || "";
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem usage '$path'", 1);
   return $ret;
 }
 
 
-sub btr_subvolume_detail($;$)
+sub btrfs_subvolume_detail($)
 {
   my $vol = shift || die;
-  my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume show $real_vol 2>/dev/null", 1);
-  if($ret)
-  {
-    if($ret eq "$real_vol is btrfs root") {
-      DEBUG "found btrfs root: $vol";
-      return { id => 5, is_root => 1 };
-    }
-    elsif($ret =~ /^$real_vol/) {
-      TRACE "btr_detail: found btrfs subvolume: $vol";
-      my %trans = (
-        name          => "Name",
-        uuid          => "uuid",
-        parent_uuid   => "Parent uuid",
-        creation_time => "Creation time",
-        id            => "Object ID",
-        gen           => "Generation \\(Gen\\)",
-        cgen          => "Gen at creation",
-        parent_id     => "Parent",
-        top_level     => "Top Level",
-        flags         => "Flags",
-       );
-      my %detail;
-      foreach (keys %trans) {
-        if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
-          $detail{$_} = $1;
-        } else {
-          WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
-        }
-      }
-      DEBUG "parsed " . scalar(keys %detail) . " subvolume detail items: $vol";
-      TRACE "btr_detail for $vol: " . Dumper \%detail;
-      return \%detail;
-    }
+  my $path = $vol->{PATH} // die;
+  my $rsh = $vol->{RSH} || "";
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume show '$path' 2>/dev/null", 1);
+  return undef unless(defined($ret));
+
+  my $real_path;
+  if($ret =~ /^($file_match)/) {
+    $real_path = $1;
+    DEBUG "Real path for subvolume \"$vol->{PRINT}\" is: $real_path" if($real_path ne $path);
+    return undef unless(check_file($real_path, { absolute => 1 }));
   }
-  WARN "Failed to fetch subvolume detail for: $vol";
-  return undef;
+  else {
+    $real_path = $path;
+    WARN "No real path provided by \"btrfs subvolume show\" for subvolume \"$vol->{PRINT}\", using: $path";
+  }
+  my %detail = ( REAL_PATH  => $real_path );
+
+  if($ret eq "$real_path is btrfs root") {
+    DEBUG "found btrfs root: $vol->{PRINT}";
+    $detail{id}      = 5;
+    $detail{is_root} = 1;
+  }
+  elsif($ret =~ /^$real_path/) {
+    TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
+    my %trans = (
+      name          => "Name",
+      uuid          => "uuid",
+      parent_uuid   => "Parent uuid",
+      creation_time => "Creation time",
+      id            => "Object ID",
+      gen           => "Generation \\(Gen\\)",
+      cgen          => "Gen at creation",
+      parent_id     => "Parent",
+      top_level     => "Top Level",
+      flags         => "Flags",
+     );
+    foreach (keys %trans) {
+      if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
+        $detail{$_} = $1;
+      } else {
+        WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
+      }
+    }
+    DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
+    TRACE(Data::Dumper->Dump([$vol], ["btrfs_subvolume_detail($vol->{URL})"]));
+  }
+  return \%detail;
 }
 
 
-sub btr_subvolume_list($;$@)
+sub btrfs_subvolume_list($;@)
 {
   my $vol = shift || die;
-  my $config = shift;
   my %opts = @_;
-  my $btrfs_progs_compat = config_key($config, "btrfs_progs_compat");
+  my $path = $vol->{PATH} // die;
+  my $rsh = $vol->{RSH} || "";
+  my $btrfs_progs_compat = $vol->{BTRFS_PROGS_COMPAT} || $opts{btrfs_progs_compat};
   my $filter_option = "-a";
   $filter_option = "-o" if($opts{subvol_only});
   my $display_options = "-c -u -q";
   $display_options .= " -R" unless($btrfs_progs_compat);
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume list $filter_option $display_options $real_vol", 1);
-  unless(defined($ret)) {
-    WARN "Failed to fetch btrfs subvolume list for: $vol";
-    return undef;
-  }
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume list $filter_option $display_options '$path'", 1);
+  return undef unless(defined($ret));
+
   my @nodes;
   foreach (split(/\n/, $ret))
   {
@@ -576,22 +687,21 @@ sub btr_subvolume_list($;$@)
     $node{path} =~ s/^<FS_TREE>\///;     # remove "<FS_TREE>/" portion from "path".
 
     push @nodes, \%node;
-    # $node{parent_uuid} = undef if($node{parent_uuid} eq '-');
   }
-  DEBUG "parsed " . scalar(@nodes) . " total subvolumes for filesystem at: $vol";
+  DEBUG "Parsed " . scalar(@nodes) . " total subvolumes for filesystem at: $vol->{PRINT}";
   return \@nodes;
 }
 
 
-sub btr_subvolume_find_new($$;$)
+sub btrfs_subvolume_find_new($$;$)
 {
   my $vol = shift || die;
+  my $path = $vol->{PATH} // die;
+  my $rsh = $vol->{RSH} || "";
   my $lastgen = shift // die;
-  my $config = shift;
-  my ($rsh, $real_vol) = get_rsh($vol, $config);
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume find-new $real_vol $lastgen");
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume find-new '$path' $lastgen");
   unless(defined($ret)) {
-    ERROR "Failed to fetch modified files for: $vol";
+    ERROR "Failed to fetch modified files for: $vol->{PRINT}";
     return undef;
   }
 
@@ -640,232 +750,245 @@ sub btr_subvolume_find_new($$;$)
 }
 
 
-sub btr_tree($;$)
-{
-  my $vol = shift || die;
-  my $config = shift;
-  my %tree;
-  my %id;
-  my $subvol_list = btr_subvolume_list($vol, $config, subvol_only => 0);
-  return undef unless(ref($subvol_list) eq "ARRAY");
-
-  TRACE "btr_tree: processing subvolume list of: $vol";
-
-  foreach my $node (@$subvol_list)
-  {
-    $id{$node->{id}} = $node;
-    $uuid_info{$node->{uuid}} = $node;
-
-    my $rel_path = $node->{path};
-    if($node->{top_level} == 5)
-    {
-      # man btrfs-subvolume:
-      #   Also every btrfs filesystem has a default subvolume as its initially
-      #   top-level subvolume, whose subvolume id is 5(FS_TREE).
-
-      $tree{$node->{id}} = $node;
-    }
-    else
-    {
-      # set SUBTREE / PARENT node
-      die unless exists($id{$node->{top_level}});
-      my $parent = $id{$node->{top_level}};
-
-      die if exists($parent->{SUBTREE}->{$node->{id}});
-      $parent->{SUBTREE}->{$node->{id}} = $node;
-      $node->{PARENT} = $parent;
-
-      # "path" always starts with set REL_PATH
-      die unless($rel_path =~ s/^$parent->{path}\///);
-    }
-    $node->{REL_PATH} = $rel_path;  # relative to {PARENT}->{path}
-  }
-
-  # set PARENT node
-  foreach (values %id){
-    $_->{PARENT} = $uuid_info{$_->{parent_uuid}} if($_->{parent_uuid} ne "-");
-  }
-  return \%tree;
-}
-
-
-sub _subtree_list
-{
-  my $tree = shift;
-  my $list = shift;
-  my $prefix = shift;
-
-  return $list unless $tree;  # silent ignore empty subtrees
-
-  foreach(values %$tree) {
-    my $path = $prefix . $_->{REL_PATH};
-    push(@$list, { SUBVOL_PATH => $path,
-                   node    => $_,
-                 });
-
-    # recurse into SUBTREE
-    _subtree_list($_->{SUBTREE}, $list, $path . '/');
-  }
-  return $list;
-}
-
-
-
-# returns hash of:
-#   SUBVOL_PATH  relative path to $fs_path
-#   FS_PATH      absolute path
-#   node         href to tree node
-#
-# returns an empty hash if the subvolume at $fs_path exists, but contains no subvolumes
-# returns undef if the subvolume at $fs_path does not exists
-sub btr_fs_info($;$)
-{
-  my $fs_path = shift || die;
-  my $config = shift;
-  my $detail = btr_subvolume_detail($fs_path, $config);
-  return undef unless($detail);
-
-  my $tree = btr_tree($fs_path, $config);
-  my $tree_root;
-  if($detail->{is_root}) {
-    $tree_root = $tree;
-  }
-  else {
-    die unless $uuid_info{$detail->{uuid}};
-    $uuid_fs_map{$detail->{uuid}}->{$fs_path} = 1;
-    $tree_root = $uuid_info{$detail->{uuid}}->{SUBTREE};
-    unless($tree_root) {
-      DEBUG "No subvolumes found in: $fs_path";
-      return {};
-    }
-  }
-
-  # recurse into $tree_root, returns list of href: { FS_PATH, node }
-  my $list = _subtree_list($tree_root, [], "");
-
-  # return a hash of relative subvolume path
-  my %ret;
-  foreach(@$list) {
-    my $subvol_path = $_->{SUBVOL_PATH};
-    die if exists $ret{$subvol_path};
-    $_->{FS_PATH} = $fs_path . '/' . $subvol_path;
-    $uuid_fs_map{$_->{node}->{uuid}}->{$fs_path . '/' . $subvol_path} = 1;
-    $ret{$subvol_path} = $_;
-  }
-  $vol_btrfs_progs_compat{$fs_path} = config_key($config, "btrfs_progs_compat");  # missing received_uuid in node{}
-
-  return \%ret;
-}
-
-
 # returns $target, or undef on error
-sub btrfs_snapshot($$;$)
+sub btrfs_subvolume_snapshot($$)
 {
-  my $src = shift || die;
-  my $target = shift || die;
-  my $config = shift;
-  my ($rsh, $real_src) = get_rsh($src, $config);
-  my (undef, $real_target) = get_rsh($target, $config);
+  my $svol = shift || die;
+  my $target_path = shift // die;
+  my $src_path = $svol->{PATH} // die;
+  my $rsh = $svol->{RSH} || "";
   DEBUG "[btrfs] snapshot (ro):";
-  DEBUG "[btrfs]   source: $src";
-  DEBUG "[btrfs]   target: $target";
-  INFO ">>> $target";
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume snapshot -r $real_src $real_target");
-  ERROR "Failed to create btrfs subvolume snapshot: $src -> $target" unless(defined($ret));
-  return defined($ret) ? $target : undef;
+  DEBUG "[btrfs]   host  : $svol->{HOST}" if($svol->{HOST});
+  DEBUG "[btrfs]   source: $src_path";
+  DEBUG "[btrfs]   target: $target_path";
+  INFO ">>> " . ($svol->{HOST} ? "$svol->{HOST}:" : "") .  $target_path;
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume snapshot -r '$src_path' '$target_path'");
+  ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
+  return defined($ret) ? $target_path : undef;
 }
 
 
 sub btrfs_subvolume_delete($@)
 {
-  my $config = shift;
-  my @targets = @_;
-  return 0 unless(scalar(@targets));
-  my @real_targets;
-  my $rsh;
-  foreach (@targets) {
-    my ($r, $t) = get_rsh($_, $config);
-    die if($rsh && ($rsh ne $r)); # make sure all targets share same ssh host
-    $rsh = $r;
-    push(@real_targets, $t);
+  my $targets = shift // die;
+  my %opts = @_;
+  my $commit = $opts{commit};
+  die if($commit && ($commit ne "after") && ($commit ne "each"));
+  $targets = [ $targets ] unless(ref($targets));
+  return 0 unless(scalar(@$targets));
+  my $rsh = $targets->[0]->{RSH} || "";
+  foreach (@$targets) {
+    # make sure all targets share same RSH
+    my $rsh_check = $_->{RSH} || "";
+    die if($rsh ne $rsh_check);
   }
-  die if(scalar(@targets) != scalar(@real_targets));
-  my $commit_delete = config_key($config, "btrfs_commit_delete") // "";
-  DEBUG "[btrfs] delete" . ($commit_delete ? " (commit-$commit_delete):" : ":");
-  DEBUG "[btrfs]   subvolume: $_" foreach(@targets);
+  DEBUG "[btrfs] delete" . ($commit ? " (commit-$commit):" : ":");
+  DEBUG "[btrfs]   subvolume: $_->{PRINT}" foreach(@$targets);
   my $options = "";
-  $options = "--commit-after " if($commit_delete eq "after");
-  $options = "--commit-each "  if($commit_delete eq "each");
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume delete $options" . join(' ', @real_targets));
-  ERROR "Failed to delete btrfs subvolumes: " . join(' ', @targets) unless(defined($ret));
-  return defined($ret) ? scalar(@targets) : undef;
+  $options = "--commit-$commit " if($commit);
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume delete $options" . join(' ', map( { "'$_->{PATH}'" } @$targets)));
+  ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
+  return defined($ret) ? scalar(@$targets) : undef;
 }
 
 
-sub btrfs_send_receive($$$;$)
+sub btrfs_send_receive($$$)
 {
-  my $src = shift || die;
+  my $snapshot = shift || die;
   my $target = shift || die;
-  my $parent = shift // "";
-  my $config = shift;
-  my ($rsh_src, $real_src) = get_rsh($src, $config);
-  my ($rsh_target, $real_target) = get_rsh($target, $config);
-  my (undef, $real_parent) = get_rsh($parent, $config);
-  my $now = localtime;
+  my $parent = shift;
+  my $snapshot_path = $snapshot->{PATH} // die;
+  my $snapshot_rsh  = $snapshot->{RSH} || "";
+  my $target_path = $target->{PATH} // die;
+  my $target_rsh  = $target->{RSH} || "";
+  my $parent_path = $parent ? $parent->{PATH} : undef;
 
-  my $src_name = $src;
-  $src_name =~ s/^.*\///;
-  INFO ">>> $target/$src_name";
+   my $snapshot_name = $snapshot_path;
+   $snapshot_name =~ s/^.*\///;
+  INFO ">>> $target->{PRINT}/$snapshot_name";
 
   DEBUG "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
-  DEBUG "[btrfs]   source: $src";
-  DEBUG "[btrfs]   parent: $parent" if($parent);
-  DEBUG "[btrfs]   target: $target";
+  DEBUG "[btrfs]   source: $snapshot->{PRINT}";
+  DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
+  DEBUG "[btrfs]   target: $target->{PRINT}";
 
-  my $parent_option = $real_parent ? "-p $real_parent" : "";
+  my $parent_option = $parent_path ? "-p '$parent_path'" : "";
   my $receive_option = "";
   $receive_option = "-v" if($loglevel >= 3);
 
-  my $cmd = "$rsh_src /sbin/btrfs send $parent_option $real_src | $rsh_target /sbin/btrfs receive $receive_option $real_target/";
+  my $cmd = "$snapshot_rsh /sbin/btrfs send $parent_option '$snapshot_path' | $target_rsh /sbin/btrfs receive $receive_option '$target_path/'";
   my $ret = run_cmd($cmd);
   unless(defined($ret)) {
-    ERROR "Failed to send/receive btrfs subvolume: $src " . ($real_parent ? "[$real_parent]" : "") . " -> $target";
+    ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
     return undef;
   }
   return 1;
 }
 
 
+sub btr_tree($)
+{
+  my $vol = shift;
+
+  # return cached info if present
+  return $root_tree_cache{$vol->{URL}} if($vol->{is_root} && $root_tree_cache{$vol->{URL}});
+  return $root_tree_cache{$vol->{REAL_URL}} if($vol->{is_root} && $vol->{REAL_URL} && $root_tree_cache{$vol->{REAL_URL}});
+  return $uuid_info{$vol->{uuid}} if($vol->{uuid} && $uuid_info{$vol->{uuid}});
+
+  # man btrfs-subvolume:
+  #   Also every btrfs filesystem has a default subvolume as its initially
+  #   top-level subvolume, whose subvolume id is 5(FS_TREE).
+  my %tree = ( id => 5, SUBTREE => {} );
+  my %id = ( 5 => \%tree );
+
+  my $subvol_list = btrfs_subvolume_list($vol);
+  return undef unless(ref($subvol_list) eq "ARRAY");
+
+  TRACE "btr_tree: processing subvolume list of: $vol->{PRINT}";
+
+  foreach my $node (@$subvol_list)
+  {
+    $id{$node->{id}} = $node;
+    $uuid_info{$node->{uuid}} = $node;
+
+    $node->{SUBTREE} //= {};
+
+    # set SUBTREE / TOP_LEVEL node
+    die unless exists($id{$node->{top_level}});
+    my $top_level = $id{$node->{top_level}};
+
+    die if exists($top_level->{SUBTREE}->{$node->{id}});
+    $top_level->{SUBTREE}->{$node->{id}} = $node;
+    $node->{TOP_LEVEL} = $top_level;
+
+    # "path" always starts with set REL_PATH
+    my $rel_path = $node->{path};
+    if($node->{top_level} != 5) {
+      die unless($rel_path =~ s/^$top_level->{path}\///);
+    }
+
+    $node->{REL_PATH} = $rel_path;  # relative to {TOP_LEVEL}->{path}
+  }
+
+  if($vol->{is_root}) {
+    $root_tree_cache{$vol->{URL}} = \%tree;
+    $root_tree_cache{$vol->{REAL_URL}} = \%tree if($vol->{REAL_URL});
+    return \%tree;
+  }
+  else {
+    die unless($uuid_info{$vol->{uuid}});
+    return $uuid_info{$vol->{uuid}};
+  }
+}
+
+
+sub _subtree_list
+{
+  my $tree = shift;
+  my $list = shift // [];
+  my $prefix = shift // "";
+
+  $tree = $tree->{SUBTREE};
+  foreach(values %$tree) {
+    my $path = $prefix . $_->{REL_PATH};
+    push(@$list, { SUBVOL_PATH => $path,
+                   node    => $_,
+                 });
+
+    _subtree_list($_, $list, $path . '/');
+  }
+  return $list;
+}
+
+
+sub vinfo_subvol_list($)
+{
+  my $vol = shift || die;
+  return $vol->{SUBVOL_LIST} if($vol->{SUBVOL_LIST});
+
+  my $tree_root = btr_tree($vol);
+  return undef unless($tree_root);
+
+  # recurse into $tree_root, returns list of href: { SUBVOL_PATH, node }
+  my $list = _subtree_list($tree_root);
+
+  # return a hash of relative subvolume path
+  my %ret;
+  foreach(@$list) {
+    my $subvol_path = $_->{SUBVOL_PATH};
+    die if exists $ret{$subvol_path};
+
+    my $subvol = vinfo_child($vol, $subvol_path);
+    vinfo_set_detail($subvol, $_->{node});
+
+    $uuid_fs_map{$subvol->{uuid}}->{$subvol->{URL}} = $subvol;
+
+    $ret{$subvol_path} = $subvol;
+  }
+
+  DEBUG "Found " . scalar(keys %ret) . " subvolume children of: $vol->{PRINT}";
+  TRACE(Data::Dumper->Dump([\%ret], ["vinfo_subvol_list{$vol->{URL}}"]));
+
+  $vol->{SUBVOL_LIST} = \%ret;
+  return \%ret;
+}
+
+
+# returns list of uuids for ALL subvolumes in the btrfs filesystem of $vol
+sub vinfo_fs_list($)
+{
+  my $vol = shift || die;
+  my $tree_root = btr_tree($vol);
+  return undef unless($tree_root);
+
+  $tree_root = $tree_root->{TOP_LEVEL} while($tree_root->{TOP_LEVEL});
+  my $list = _subtree_list($tree_root);
+  my %ret = map { $_->{node}->{uuid} => $_->{node} } @$list;
+  return \%ret;
+}
+
+
+sub vinfo_subvol($$)
+{
+  my $vol = shift || die;
+  my $rel_path = shift // die;
+
+  my $subvols = vinfo_subvol_list($vol);
+  return $subvols->{$rel_path};
+}
+
+
 # sets $config->{ABORTED} on failure
-# sets $config->{subvol_received}
+# sets $config->{SUBVOL_RECEIVED}
 sub macro_send_receive($@)
 {
-  my $config = shift || die;
+  my $config_target = shift || die;
   my %info = @_;
-  my $incremental = config_key($config, "incremental");
+  my $snapshot = $info{snapshot} || die;
+  my $target = $info{target} || die;
+  my $parent = $info{parent};
+  my $incremental = config_key($config_target, "incremental");
 
-  INFO "Receiving from snapshot: $info{src}";
+  INFO "Receiving from snapshot: $snapshot->{PRINT}";
 
-  # add info to $config->{subvol_received}
-  my $src_name = $info{src};
-  $src_name =~ s/^.*\///;
-  $info{received_name} = "$info{target}/$src_name";
-  $config->{subvol_received} //= [];
-  push(@{$config->{subvol_received}}, \%info);
+  # add info to $config->{SUBVOL_RECEIVED}
+  $info{received_name} = "$target->{PRINT}/$snapshot->{NAME}";
+  $config_target->{SUBVOL_RECEIVED} //= [];
+  push(@{$config_target->{SUBVOL_RECEIVED}}, \%info);
 
   if($incremental)
   {
     # create backup from latest common
-    if($info{parent}) {
-      INFO "Incremental from parent snapshot: $info{parent}";
+    if($parent) {
+      INFO "Incremental from parent snapshot: $parent->{PRINT}";
     }
     elsif($incremental ne "strict") {
       INFO "No common parent subvolume present, creating full backup";
     }
     else {
-      WARN "Backup to $info{target} failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+      WARN "Backup to $target->{PRINT} failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
       $info{ERROR} = 1;
-      $config->{ABORTED} = "No common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+      $config_target->{ABORTED} = "No common parent subvolume found, and option \"incremental\" is set to \"strict\"";
       return undef;
     }
   }
@@ -874,11 +997,11 @@ sub macro_send_receive($@)
     delete $info{parent};
   }
 
-  if(btrfs_send_receive($info{src}, $info{target}, $info{parent}, $config)) {
+  if(btrfs_send_receive($snapshot, $target, $parent)) {
     return 1;
   } else {
     $info{ERROR} = 1;
-    $config->{ABORTED} = "btrfs send/receive command failed";
+    $config_target->{ABORTED} = "Failed to send/receive subvolume";
     return undef;
   }
 }
@@ -901,15 +1024,15 @@ sub get_snapshot_children($$)
 {
   my $sroot = shift || die;
   my $svol = shift // die;
-  my $svol_node = subvol($sroot, $svol);
-  die("subvolume info not present: $sroot/$svol") unless($svol_node);
   my @ret;
-  foreach (values %{$vol_info{$sroot}}) {
-    next unless($_->{node}->{parent_uuid} eq $svol_node->{uuid});
-    TRACE "get_snapshot_children: found: $_->{FS_PATH}";
+
+  my $sroot_subvols = vinfo_subvol_list($sroot);
+  foreach (values %$sroot_subvols) {
+    next unless($_->{parent_uuid} eq $svol->{uuid});
+    TRACE "get_snapshot_children: found: $_->{PRINT}";
     push(@ret, $_);
   }
-  DEBUG "Found " . scalar(@ret) . " snapshot children of: $sroot/$svol";
+  DEBUG "Found " . scalar(@ret) . " snapshot children of: $svol->{PRINT}";
   return @ret;
 }
 
@@ -917,18 +1040,18 @@ sub get_snapshot_children($$)
 sub get_receive_targets($$)
 {
   my $droot = shift || die;
-  my $src_href = shift || die;
-  die("root subvolume info not present: $droot") unless($vol_info{$droot});
+  my $src_vol = shift || die;
+  my $droot_subvols = vinfo_subvol_list($droot);
   my @ret;
 
-  if($vol_btrfs_progs_compat{$droot})
+  if($droot->{BTRFS_PROGS_COMPAT})
   {
     # guess matches by subvolume name (node->received_uuid is not available if BTRFS_PROGS_COMPAT is set)
     DEBUG "Fallback to compatibility mode (get_receive_targets)";
-    my $src_name = $src_href->{node}->{REL_PATH};
+    my $src_name = $src_vol->{SUBVOL_PATH};
     $src_name =~ s/^.*\///; # strip path
-    foreach my $target (values %{$vol_info{$droot}}) {
-      my $target_name = $target->{node}->{REL_PATH};
+    foreach my $target (values %$droot_subvols) {
+      my $target_name = $target->{SUBVOL_PATH};
       $target_name =~ s/^.*\///; # strip path
       if($target_name eq $src_name) {
         TRACE "get_receive_targets: by-name: Found receive target: $target->{SUBVOL_PATH}";
@@ -939,15 +1062,15 @@ sub get_receive_targets($$)
   else
   {
     # find matches by comparing uuid / received_uuid
-    my $uuid = $src_href->{node}->{uuid};
+    my $uuid = $src_vol->{uuid};
     die("subvolume info not present: $uuid") unless($uuid_info{$uuid});
-    foreach (values %{$vol_info{$droot}}) {
-      next unless($_->{node}->{received_uuid} eq $uuid);
+    foreach (values %$droot_subvols) {
+      next unless($_->{received_uuid} eq $uuid);
       TRACE "get_receive_targets: by-uuid: Found receive target: $_->{SUBVOL_PATH}";
       push(@ret, $_);
     }
   }
-  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot/\" for: $src_href->{FS_PATH}";
+  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
   return @ret;
 }
 
@@ -959,34 +1082,34 @@ sub get_latest_common($$$;$)
   my $droot = shift || die;
   my $threshold_gen = shift;  # skip all snapshot children with generation >= $threshold_gen
 
-  die("source subvolume info not present: $sroot") unless($vol_info{$sroot});
-  die("target subvolume info not present: $droot") unless($vol_info{$droot});
+  die("source subvolume info not present: $sroot->{URL}") unless($sroot->{URL});
+  die("target subvolume info not present: $droot->{URL}") unless($droot->{URL});
 
-  my $debug_src = "$sroot/$svol";
-  $debug_src .= "@" . $threshold_gen if($threshold_gen);
+  my $debug_src = $svol->{URL};
+  $debug_src .= "#" . $threshold_gen if($threshold_gen);
 
   # sort children of svol descending by generation
-  foreach my $child (sort { $b->{node}->{gen} <=> $a->{node}->{gen} } get_snapshot_children($sroot, $svol)) {
+  foreach my $child (sort { $b->{gen} <=> $a->{gen} } get_snapshot_children($sroot, $svol)) {
     TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
-    if($threshold_gen && ($child->{node}->{gen} >= $threshold_gen)) {
-      TRACE "get_latest_common: skipped gen=$child->{node}->{gen} >= $threshold_gen: $child->{SUBVOL_PATH}";
+    if($threshold_gen && ($child->{gen} >= $threshold_gen)) {
+      TRACE "get_latest_common: skipped gen=$child->{gen} >= $threshold_gen: $child->{SUBVOL_PATH}";
       next;
     }
 
-    if($child->{RECEIVE_TARGET_PRESENT} && ($child->{RECEIVE_TARGET_PRESENT} eq $droot)) {
+    if($child->{RECEIVE_TARGET_PRESENT} && ($child->{RECEIVE_TARGET_PRESENT} eq $droot->{URL})) {
       # little hack to keep track of previously received subvolumes
-      DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=<previously received>");
+      DEBUG("Latest common snapshots for: $debug_src: src=$child->{PRINT}  target=<previously received>");
       return ($child, undef);
     }
 
     foreach (get_receive_targets($droot, $child)) {
-      TRACE "get_latest_common: found receive target: $_->{FS_PATH}";
-      DEBUG("Latest common snapshots for: $debug_src: src=$child->{FS_PATH}  target=$_->{FS_PATH}");
+      TRACE "get_latest_common: found receive target: $_->{PRINT}";
+      DEBUG("Latest common snapshots for: $debug_src: src=$child->{PRINT}  target=$_->{PRINT}");
       return ($child, $_);
     }
-    TRACE "get_latest_common: no matching targets found for: $child->{FS_PATH}";
+    TRACE "get_latest_common: no matching targets found for: $child->{PRINT}";
   }
-  DEBUG("No common snapshots for \"$debug_src\" found in src=$sroot/  target=$droot/");
+  DEBUG("No common snapshots of \"$debug_src\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
   return (undef, undef);
 }
 
@@ -1002,9 +1125,7 @@ sub _origin_tree
     return 0;
   }
   if($uuid_fs_map{$uuid}) {
-    foreach(keys %{$uuid_fs_map{$uuid}}) {
-      push(@$lines, ["$prefix$_", $uuid]);
-    }
+    push(@$lines, ["$prefix" . join(" === ", sort map { $_->{PRINT} } values %{$uuid_fs_map{$uuid}}), $uuid]);
   } else {
     push(@$lines, ["$prefix<BTRFS_ROOT>/$node->{path}", $uuid]);
   }
@@ -1202,52 +1323,51 @@ MAIN:
     #
     # print snapshot diff
     #
-    my $src_vol    = $subvol_args[0] || die;
-    my $target_vol = $subvol_args[1] || die;
+    my $src_url    = $subvol_args[0] || die;
+    my $target_url = $subvol_args[1] || die;
     # FIXME: allow ssh:// src/dest (does not work since the configuration is not yet read).
 
-    my $src_detail = btr_subvolume_detail($src_vol);
-    unless($src_detail) { exit 1; }
-    if($src_detail->{is_root})  { ERROR "subvolume at \"$src_vol\" is btrfs root!"; exit 1; }
-    unless($src_detail->{cgen}) { ERROR "subvolume at \"$src_vol\" does not provide cgen"; exit 1; }
-#    if($src_detail->{parent_uuid} eq "-") { ERROR "subvolume at \"$src_vol\" has no parent, aborting."; exit 1; }
+    my $src_vol = vinfo($src_url, { CONTEXT => "cmdline" });
+    unless(vinfo_root($src_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}"; exit 1; }
+    if($src_vol->{is_root})  { ERROR "Subvolume at \"$src_url\" is btrfs root!"; exit 1; }
+    unless($src_vol->{cgen}) { ERROR "Subvolume at \"$src_url\" does not provide cgen"; exit 1; }
 
-    my $target_detail = btr_subvolume_detail($target_vol);
-    unless($target_detail) { exit 1; }
-    unless($src_detail->{cgen}) { ERROR "subvolume at \"$src_vol\" does not provide cgen"; exit 1; }
-#    if($src_detail->{parent_uuid} eq "-") { ERROR "subvolume at \"$src_vol\" has no parent, aborting."; exit 1; }
+    my $target_vol = vinfo($target_url, { CONTEXT => "cmdline" });
+    unless(vinfo_root($target_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}"; exit 1; }
+    unless($src_vol->{cgen}) { ERROR "Subvolume at \"$src_url\" does not provide cgen"; exit 1; }
 
-    my $info = btr_tree($src_vol);
-    my $src = $uuid_info{$src_detail->{uuid}} || die;
-    my $target = $uuid_info{$target_detail->{uuid}};
-    unless($target) { ERROR "target subvolume is not on the same btrfs filesystem!"; exit 1; }
+    my $uuid_list = vinfo_fs_list($src_vol);
+    unless($uuid_list->{$target_vol->{uuid}}) {
+      ERROR "Target subvolume is not on the same btrfs filesystem!";
+      exit 1;
+    }
 
     my $lastgen;
 
     # check if given src and target share same parent
-    if(ref($src->{PARENT}) && ($src->{PARENT}->{uuid} eq $target->{uuid})) {
+    if($src_vol->{parent_uuid} eq $target_vol->{uuid}) {
       DEBUG "target subvolume is direct parent of source subvolume";
     }
-    elsif(ref($src->{PARENT}) && ref($target->{PARENT}) && ($src->{PARENT}->{uuid} eq $target->{PARENT}->{uuid})) {
+    elsif($src_vol->{parent_uuid} eq $target_vol->{parent_uuid}) {
       DEBUG "target subvolume and source subvolume share same parent";
     }
     else {
       # TODO: this rule only applies to snapshots. find a way to distinguish snapshots from received backups
-      # ERROR "subvolumes \"$target_vol\" and \"$src_vol\" do not share the same parents";
+      # ERROR "Subvolumes \"$target_url\" and \"$src_url\" do not share the same parents";
       # exit 1;
     }
 
     # NOTE: in some cases "cgen" differs from "gen", even for read-only snapshots (observed: gen=cgen+1)
-    $lastgen = $src->{cgen} + 1;
+    $lastgen = $src_vol->{cgen} + 1;
 
     # dump files, sorted and unique
-    my $ret = btr_subvolume_find_new($target_vol, $lastgen);
+    my $ret = btrfs_subvolume_find_new($target_vol, $lastgen);
     exit 1 unless(ref($ret));
 
     print "--------------------------------------------------------------------------------\n";
-    print "Showing changed files for subvolume:\n  $target->{path}  (gen=$target->{gen})\n";
-    print "\nStarting at creation generation from subvolume:\n  $src->{path}  (cgen=$src->{cgen})\n";
-    print "\nThis will show all files modified within generation range: [$lastgen..$target->{gen}]\n";
+    print "Showing changed files for subvolume:\n  $target_vol->{PRINT}  (gen=$target_vol->{gen})\n";
+    print "\nStarting at creation generation of subvolume:\n  $src_vol->{PRINT}  (cgen=$src_vol->{cgen})\n";
+    print "\nThis will show all files modified within generation range: [$lastgen..$target_vol->{gen}]\n";
     print "Newest file generation (transid marker) was: $ret->{transid_marker}\n";
     print "Parse errors: $ret->{parse_errors}\n" if($ret->{parse_errors});
     print "\nLegend: <flags> <count> <size> <filename>\n";
@@ -1314,44 +1434,36 @@ MAIN:
     print "    Config: $config->{SRC_FILE}\n";
     print "================================================================================\n";
 
-    # print "\n--------------------------------------------------------------------------------\n";
-    # print "All local btrfs filesystems\n";
-    # print "--------------------------------------------------------------------------------\n";
-    # print (btr_filesystem_show_all_local() // "");
-    # print "\n";
-
     my %processed;
     foreach my $config_vol (@{$config->{VOLUME}})
     {
-      my $sroot = $config_vol->{sroot} || die;
-      unless($processed{$sroot})
+      my $sroot = vinfo($config_vol->{url}, $config_vol);
+      unless($processed{$sroot->{URL}})
       {
         print "\n--------------------------------------------------------------------------------\n";
-        print "Source volume: $sroot\n";
+        print "Source volume: $sroot->{PRINT}\n";
         print "--------------------------------------------------------------------------------\n";
-        # print (btr_filesystem_show($sroot, $config_vol) // "");
-        # print "\n\n";
-        print (btr_filesystem_usage($sroot, $config_vol) // "");
+        print (btrfs_filesystem_usage($sroot) // "");
         print "\n";
-        $processed{$sroot} = 1;
+        $processed{$sroot->{URL}} = 1;
       }
     }
 
     foreach my $config_vol (@{$config->{VOLUME}}) {
-      my $sroot = $config_vol->{sroot} || die;
+      my $sroot = vinfo($config_vol->{url}, $config_vol);
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
-          my $droot = $config_target->{droot} || die;
-          unless($processed{$droot})
+          my $droot = vinfo($config_target->{url}, $config_target);
+          unless($processed{$droot->{URL}})
           {
             print "\n--------------------------------------------------------------------------------\n";
-            print "Target volume: $droot\n";
-            print "               ^--- $sroot\n";
+            print "Target volume: $droot->{PRINT}\n";
+            print "               ^--- $sroot->{PRINT}\n";
             print "--------------------------------------------------------------------------------\n";
-            print (btr_filesystem_usage($droot, $config_target) // "");
+            print (btrfs_filesystem_usage($droot) // "");
             print "\n";
-            $processed{$droot} = 1;
+            $processed{$droot->{URL}} = 1;
           }
         }
       }
@@ -1359,54 +1471,124 @@ MAIN:
     exit 0;
   }
 
-  #
-  # fill vol_info hash, basic checks on configuration
-  #
-  my $subvol_filter_count = undef;
-  foreach my $config_vol (@{$config->{VOLUME}})
-  {
-    my $sroot = $config_vol->{sroot} || die;
-    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-    {
-      my $svol = $config_subvol->{svol} // die;
 
-      # filter subvolumes matching command line arguments
-      if($action_run && scalar(@subvol_args)) {
-        $subvol_filter_count //= 0;
-        if(grep(/^$sroot\/$svol$/, @subvol_args)) {
+  #
+  # filter subvolumes matching command line arguments
+  #
+  if($action_run && scalar(@subvol_args))
+  {
+    my $filter_count = undef;
+    foreach my $config_vol (@{$config->{VOLUME}})
+    {
+      my $subvol_filter_count = 0;
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+      {
+        my $svol_url = $config_subvol->{url} // die;
+        if(grep(/^\Q$svol_url\E$/, @subvol_args)) {
           $subvol_filter_count++;
         }
         else {
-          DEBUG "No match on subvolume command line argument, skipping: $sroot/$svol";
+          DEBUG "No match on subvolume command line argument, skipping: $svol_url";
           $config_subvol->{ABORTED} = "No match on subvolume command line arguments";
           $config_subvol->{ABORTED_NOERR} = 1;
           next;
         }
       }
-
-      $vol_info{$sroot} //= btr_fs_info($sroot, $config_vol);
-      unless(subvol($sroot, $svol)) {
-        $config_subvol->{ABORTED} = "Subvolume \"$svol\" not present in btrfs subvolume list for \"$sroot\"";
-        WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
-        next;
+      if($subvol_filter_count == 0) {
+        $config_vol->{ABORTED} = "No match on subvolume command line arguments";
+        $config_vol->{ABORTED_NOERR} = 1;
       }
-      foreach my $config_target (@{$config_subvol->{TARGET}})
-      {
-        my $droot = $config_target->{droot} || die;
-        $vol_info{$droot} //= btr_fs_info($droot, $config_target);
-        unless($vol_info{$droot}) {
-          $config_target->{ABORTED} = "Failed to read btrfs subvolume list for \"$droot\"";
-          WARN "Skipping target: $config_target->{ABORTED}";
+      $filter_count += $subvol_filter_count;
+    }
+    if($filter_count == 0) {
+      ERROR "Subvolume command line arguments do not match any volume/subvolume declaration from configuration file, aborting.";
+      exit 1;
+    }
+  }
+
+
+  #
+  # fill vinfo hash, basic checks on configuration
+  #
+  my %snapshot_check;
+  my %backup_check;
+  foreach my $config_vol (@{$config->{VOLUME}})
+  {
+    next if($config_vol->{ABORTED});
+    my $sroot = vinfo($config_vol->{url}, $config_vol);
+    unless(vinfo_root($sroot)) {
+      $config_vol->{ABORTED} = "Failed to fetch subvolume detail";
+      WARN "Skipping volume \"$sroot->{PRINT}\": $config_vol->{ABORTED}";
+      next;
+    }
+    $config_vol->{sroot} = $sroot;
+
+    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+    {
+      next if($config_subvol->{ABORTED});
+
+      my $svol = vinfo_subvol($sroot, $config_subvol->{rel_path});
+      unless($svol) {
+        # configured subvolume is not present in btrfs subvolume list.
+        # try to read subvolume detail, as configured subvolume could be a symlink.
+        DEBUG "Subvolume \"$config_subvol->{rel_path}\" not present in btrfs subvolume list for \"$sroot->{PRINT}\"";
+        $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+        my $detail = btrfs_subvolume_detail($svol);
+        unless($detail) {
+          $config_subvol->{ABORTED} = "Failed to fetch subvolume detail";
+          WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
+          next;
+        }
+        if($detail->{is_root}) {
+          $config_subvol->{ABORTED} = "Subvolume is btrfs root";
+          WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
+          next;
+        }
+        if(grep { $_->{uuid} eq $detail->{uuid} } values %{vinfo_subvol_list($sroot)}) {
+          vinfo_set_detail($svol, $uuid_info{$detail->{uuid}});
+        } else {
+          $config_subvol->{ABORTED} = "Not a child subvolume of: $sroot->{PRINT}";
+          WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
           next;
         }
       }
+      $config_subvol->{svol} = $svol;
+
+      # set default for snapshot_name
+      $config_subvol->{snapshot_name} //= $svol->{NAME};
+
+      # check for duplicate snapshot locations
+      my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+      my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
+      my $snapshot_target = "$sroot->{REAL_URL}/$snapdir/$snapshot_basename";
+      if(my $prev = $snapshot_check{$snapshot_target}) {
+        ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snapshot_target";
+        ERROR "Please fix \"snapshot_name\" configuration options!";
+        exit 1;
+      }
+      $snapshot_check{$snapshot_target} = $svol->{PRINT};
+
+      foreach my $config_target (@{$config_subvol->{TARGET}})
+      {
+        my $droot = vinfo($config_target->{url}, $config_target);
+        unless(vinfo_root($droot)) {
+          $config_target->{ABORTED} = "Failed to fetch subvolume detail";
+          WARN "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
+          next;
+        }
+        $config_target->{droot} = $droot;
+
+        # check for duplicate snapshot locations
+        my $snapshot_backup_target = "$droot->{REAL_URL}/$snapshot_basename";
+        if(my $prev = $backup_check{$snapshot_backup_target}) {
+          ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same backup target: $snapshot_target";
+          ERROR "Please fix \"snapshot_name\" or \"target\" configuration options!";
+          exit 1;
+        }
+        $backup_check{$snapshot_backup_target} = $svol->{PRINT};
+      }
     }
   }
-  if(defined($subvol_filter_count) && ($subvol_filter_count == 0)) {
-    ERROR "Subvolume command line arguments do not match any volume/subvolume declaration from configuration file, aborting.";
-    exit 1;
-  }
-  TRACE(Data::Dumper->Dump([\%vol_info], ["vol_info"]));
 
 
   if($action_origin)
@@ -1414,27 +1596,26 @@ MAIN:
     #
     # print origin information
     #
-    my $subvol = $subvol_args[0] || die;
+    my $url = $subvol_args[0] || die;
     my $dump_uuid = 0;
 
-    my $detail = btr_subvolume_detail($subvol);
-    exit 1 unless($detail);
-
-    if($detail->{is_root}) {
-      ERROR "Subvolume is btrfs root: $subvol\n";
-      exit 1;
+    my $vol = $vinfo_cache{$url};
+    unless($vol) {
+      # specified volume is not in config
+      DEBUG "Subvolume not parsed yet, fetching info: $url";
+      $vol = vinfo($url, { CONTEXT => "cmdline" });
+      unless(vinfo_root($vol)) {
+        ERROR "Failed to fetch subvolume detail for: $url";
+        exit 1;
+      }
     }
-    my $uuid = $detail->{uuid} || die;
-    my $node = $uuid_info{$uuid};
-
-    unless($node) {
-      DEBUG "Subvolume not parsed yet, fetching info: $subvol";
-      $vol_info{$subvol} //= btr_fs_info($subvol);
-      $node = $uuid_info{$uuid} || die;
+    if($vol->{is_root}) {
+      ERROR "Subvolume is btrfs root: $url\n";
+      exit 1;
     }
 
     my $lines = [];
-    _origin_tree("", $uuid, $lines);
+    _origin_tree("", $vol->{uuid}, $lines);
 
     print "--------------------------------------------------------------------------------\n";
     print "Origin Tree\n\n";
@@ -1462,44 +1643,48 @@ MAIN:
     # print snapshot tree
     #
     # TODO: reverse tree: print all backups from $droot and their corresponding source snapshots
+    my @out;
     foreach my $config_vol (@{$config->{VOLUME}})
     {
+      next if($config_vol->{ABORTED});
       my %droot_compat;
       my $sroot = $config_vol->{sroot} || die;
-      print "$sroot\n";
-      next unless $vol_info{$sroot};
+      push @out, "$sroot->{PRINT}";
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
-        my $svol = $config_subvol->{svol} // die;
-        print "|-- $svol\n";
-        unless($vol_info{$sroot}->{$svol}) {
-          print "    !!! error: no subvolume \"$svol\" found in \"$sroot\"\n";
-          next;
-        }
-
-        my $sroot_uuid = $vol_info{$sroot}->{$svol}->{node}->{uuid} || die;
-        foreach my $snapshot (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } (values %{$vol_info{$sroot}}))
+        next if($config_subvol->{ABORTED});
+        my $svol = $config_subvol->{svol} || die;
+        push @out, "|-- $svol->{PRINT}";
+        foreach my $snapshot (sort { $a->{PATH} cmp $b->{PATH} } get_snapshot_children($sroot, $svol))
         {
-          next unless($snapshot->{node}->{parent_uuid} eq $sroot_uuid);
-          # next unless($snapshot->{SUBVOL_PATH} =~ /^$snapdir/);  # don't print non-btrbk snapshots
-          print "|   ^-- $snapshot->{SUBVOL_PATH}\n";
+          push @out, "|   ^-- $snapshot->{PATH}";
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
+            next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
-            next unless $vol_info{$droot};
-            $droot_compat{$droot} = 1 if($vol_btrfs_progs_compat{$droot});
+            $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
-              print "|   |   ^== $_->{FS_PATH}\n";
+              push @out, "|   |   ^== $_->{PRINT}";
             }
           }
         }
       }
       if(keys %droot_compat) {
-        print "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:\n";
-        print "      - " . join("\n      - ", (sort keys %droot_compat));
+        push @out, "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:";
+        push @out, "      - " . join("\n      - ", (sort keys %droot_compat));
       }
-      print "\n";
+      push @out, "";
     }
+    print "--------------------------------------------------------------------------------\n";
+    print "Backup Tree\n\n";
+    print "    Date:   " . localtime($start_time) . "\n";
+    print "    Config: $config->{SRC_FILE}\n";
+    print "\nLegend:\n";
+    print "    ^---  snapshot\n";
+    print "    ^===  received subvolume (backup)\n";
+    print "--------------------------------------------------------------------------------\n";
+
+    print join("\n", @out);
     exit 0;
   }
 
@@ -1510,7 +1695,6 @@ MAIN:
     # create snapshots
     #
     my $timestamp = sprintf("%04d%02d%02d", @today);
-    my %snapshot_cache;
     foreach my $config_vol (@{$config->{VOLUME}})
     {
       next if($config_vol->{ABORTED});
@@ -1518,68 +1702,46 @@ MAIN:
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
         next if($config_subvol->{ABORTED});
-        my $svol = $config_subvol->{svol} // die;
+        my $svol = $config_subvol->{svol} || die;
         my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
-        my $snapshot;
-        my $snapshot_name;
-        if($snapshot_cache{"$sroot/$svol"})
-        {
-          $snapshot      = $snapshot_cache{"$sroot/$svol"}->{file};
-          $snapshot_name = $snapshot_cache{"$sroot/$svol"}->{name};
-        }
-        else
-        {
-          # find unique snapshot name
-          my @lookup = keys %{$vol_info{$sroot}};
-          @lookup = grep s/^$snapdir// , @lookup;
-          foreach (@{$config_subvol->{TARGET}}){
-            push(@lookup, keys %{$vol_info{$_->{droot}}});
-          }
-          @lookup = grep /^$svol\.$timestamp(_[0-9]+)?$/ ,@lookup;
-          TRACE "Present snapshot names for \"$sroot/$svol\": " . join(', ', @lookup);
-          @lookup = map { /_([0-9]+)$/ ? $1 : 0 } @lookup;
-          @lookup = sort { $b <=> $a } @lookup;
-          my $postfix_counter = $lookup[0] // -1;
-          $postfix_counter++;
+        my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
 
-          $snapshot_name = $svol . '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
-          $snapshot = "$sroot/$snapdir$snapshot_name";
-        }
-
+        # check if we need to create a snapshot
         my $create_snapshot = config_key($config_subvol, "snapshot_create_always");
-        foreach my $config_target (@{$config_subvol->{TARGET}})
-        {
+        foreach my $config_target (@{$config_subvol->{TARGET}}) {
           next if($config_target->{ABORTED});
-          my $droot = $config_target->{droot} || die;
-          if(subvol($droot, $snapshot_name)) {
-            $config_target->{ABORTED} = "Subvolume already exists at destination: $droot/$snapshot_name";
-            WARN "Skipping target: $config_target->{ABORTED}";
-            next;
-          }
-          if($config_target->{target_type} eq "send-receive") {
-            $create_snapshot = 1;
-          }
+          $create_snapshot = 1 if($config_target->{target_type} eq "send-receive");
         }
         unless($create_snapshot) {
-          $config_subvol->{ABORTED} = "No targets defined for subvolume: $sroot/$svol";
+          $config_subvol->{ABORTED} = "No targets defined for subvolume: $svol->{PRINT}";
           WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
           next;
         }
 
-        # make snapshot of svol, if not already created by another job
-        unless($snapshot_cache{"$sroot/$svol"})
-        {
-          INFO "Creating subvolume snapshot for: $sroot/$svol";
-
-          unless(btrfs_snapshot("$sroot/$svol", $snapshot, $config_subvol)) {
-            $config_subvol->{ABORTED} = "Failed to create snapshot, skipping subvolume: $sroot/$svol";
-            WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
-          }
-          $snapshot_cache{"$sroot/$svol"} = { name => $snapshot_name,
-                                              file => $snapshot };
+        # find unique snapshot name
+        my @lookup = keys %{vinfo_subvol_list($sroot)};
+        @lookup = grep s/^\Q$snapdir\E\/// , @lookup;
+        foreach my $config_target (@{$config_subvol->{TARGET}}) {
+          my $droot = $config_target->{droot} || die;
+          push(@lookup, keys %{vinfo_subvol_list($droot)});
         }
-        $config_subvol->{snapshot}      = $snapshot;
-        $config_subvol->{snapshot_name} = $snapshot_name;
+        @lookup = grep /^\Q$snapshot_basename.$timestamp\E(_[0-9]+)?$/ ,@lookup;
+        TRACE "Present snapshot names for \"$svol->{PRINT}\": " . join(', ', @lookup);
+        @lookup = map { /_([0-9]+)$/ ? $1 : 0 } @lookup;
+        @lookup = sort { $b <=> $a } @lookup;
+        my $postfix_counter = $lookup[0] // -1;
+        $postfix_counter++;
+        my $snapshot_name = $snapshot_basename . '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
+
+        # finally create the snapshot
+        INFO "Creating subvolume snapshot for: $svol->{PRINT}";
+        if(btrfs_subvolume_snapshot($svol, "$sroot->{PATH}/$snapdir/$snapshot_name")) {
+          $config_subvol->{SNAPSHOT} = vinfo_child($sroot, "$snapdir/$snapshot_name");
+        }
+        else {
+          $config_subvol->{ABORTED} = "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir/$snapshot_name";
+          WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
+        }
       }
     }
 
@@ -1593,28 +1755,26 @@ MAIN:
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
         next if($config_subvol->{ABORTED});
-        my $svol          = $config_subvol->{svol}          // die;
-        my $snapshot      = $config_subvol->{snapshot}      || die;
-        my $snapshot_name = $config_subvol->{snapshot_name} || die;
-
+        my $svol = $config_subvol->{svol} || die;
         my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+        my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
 
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
           next if($config_target->{ABORTED});
-          my $droot       = $config_target->{droot}       || die;
+          my $droot = $config_target->{droot} || die;
           my $target_type = $config_target->{target_type} || die;
 
           if($target_type eq "send-receive")
           {
             if(config_key($config_target, "receive_log")) {
-              WARN "Ignoring deprecated option \"receive_log\" for target: $droot"
+              WARN "Ignoring deprecated option \"receive_log\" for target: $droot->{PRINT}"
             }
 
             # resume missing backups (resume_missing)
             if(config_key($config_target, "resume_missing"))
             {
-              INFO "Checking for missing backups of subvolume \"$sroot/$svol\" in: $droot/";
+              INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
               my @schedule;
               my $found_missing = 0;
 
@@ -1622,14 +1782,14 @@ MAIN:
               foreach my $child (get_snapshot_children($sroot, $svol))
               {
                 if(scalar get_receive_targets($droot, $child)) {
-                  DEBUG "Found matching receive target, skipping: $child->{FS_PATH}";
+                  DEBUG "Found matching receive target, skipping: $child->{PRINT}";
                 }
                 else {
-                  DEBUG "No matching receive targets found, adding resume candidate: $child->{FS_PATH}";
+                  DEBUG "No matching receive targets found, adding resume candidate: $child->{PRINT}";
 
                   # check if the target would be preserved
                   my ($date, $date_ext) = get_date_tag($child->{SUBVOL_PATH});
-                  next unless($date && ($child->{SUBVOL_PATH} =~ /^$snapdir$svol\./));
+                  next unless($date && ($child->{SUBVOL_PATH} =~ /^\Q$snapdir\/$snapshot_basename\E$snapshot_postfix_match$/));
                   push(@schedule, { value => $child, date => $date, date_ext => $date_ext }),
                 }
               }
@@ -1639,12 +1799,12 @@ MAIN:
                 DEBUG "Checking schedule for resume candidates";
                 # add all present backups to schedule, with no value
                 # these are needed for correct results of schedule()
-                foreach my $vol (keys %{$vol_info{$droot}}) {
-                  my ($date, $date_ext) = get_date_tag($vol);
-                  next unless($date && ($vol =~ s/^$svol\.//));  # use only the date suffix for sorting
+                foreach my $vol (values %{vinfo_subvol_list($droot)}) {
+                  next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapshot_basename\E$snapshot_postfix_match$/);
+                  my ($date, $date_ext) = get_date_tag($vol->{NAME});
+                  next unless($date);
                   push(@schedule, { value => undef, date => $date, date_ext => $date_ext });
                 }
-
                 my ($preserve, undef) = schedule(
                   schedule             => \@schedule,
                   today                => \@today,
@@ -1655,19 +1815,19 @@ MAIN:
                  );
                 my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
 
-                foreach my $child (sort { $a->{node}->{gen} <=> $b->{node}->{gen} } @resume) {
-                  INFO "Resuming subvolume backup (send-receive) for: $child->{FS_PATH}";
+                foreach my $child (sort { $a->{gen} <=> $b->{gen} } @resume) {
+                  INFO "Resuming subvolume backup (send-receive) for: $child->{PRINT}";
                   $found_missing++;
-                  my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{node}->{gen});
+                  my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{gen});
                   if(macro_send_receive($config_target,
-                                        src    => $child->{FS_PATH},
-                                        target => $droot,
-                                        parent => $latest_common_src ? $latest_common_src->{FS_PATH} : undef,
-                                        resume => 1,     # propagated to $config_target->{subvol_received}
+                                        snapshot  => $child,
+                                        target    => $droot,
+                                        parent    => $latest_common_src,  # this is <undef> if no common found
+                                        resume    => 1,     # propagated to $config_target->{SUBVOL_RECEIVED}
                                        ))
                   {
                     # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
-                    $child->{RECEIVE_TARGET_PRESENT} = $droot;
+                    $child->{RECEIVE_TARGET_PRESENT} = $droot->{URL};
                   }
                   else {
                     # note: ABORTED flag is already set by macro_send_receive()
@@ -1686,18 +1846,19 @@ MAIN:
 
             # skip creation if resume_missing failed
             next if($config_target->{ABORTED});
+            die unless($config_subvol->{SNAPSHOT});
 
             # finally receive the previously created snapshot
-            INFO "Creating subvolume backup (send-receive) for: $sroot/$svol";
+            INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
             my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
             macro_send_receive($config_target,
-                               src    => $snapshot,
-                               target => $droot,
-                               parent => $latest_common_src ? $latest_common_src->{FS_PATH} : undef,
+                               snapshot => $config_subvol->{SNAPSHOT},
+                               target   => $droot,
+                               parent   => $latest_common_src,  # this is <undef> if no common found
                               );
           }
           else {
-            ERROR "Unknown target type \"$target_type\", skipping: $sroot/$svol";
+            ERROR "Unknown target type \"$target_type\", skipping: $svol->{PRINT}";
             $config_target->{ABORTED} = "Unknown target type \"$target_type\"";
           }
         }
@@ -1720,8 +1881,9 @@ MAIN:
         foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
         {
           next if($config_subvol->{ABORTED});
-          my $svol = $config_subvol->{svol} // die;
+          my $svol = $config_subvol->{svol} || die;
           my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+          my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
           my $target_aborted = 0;
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
@@ -1734,12 +1896,18 @@ MAIN:
             #
             # delete backups
             #
-            INFO "Cleaning backups of subvolume \"$sroot/$svol\": $droot/$svol.*";
+            INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
             my @schedule;
-            foreach my $vol (keys %{$vol_info{$droot}}) {
-              my ($date, $date_ext) = get_date_tag($vol);
-              next unless($date && ($vol =~ /^$svol\./));
-              push(@schedule, { value => "$droot/$vol", name => $vol, date => $date, date_ext => $date_ext });
+            foreach my $vol (values %{vinfo_subvol_list($droot)}) {
+              next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapshot_basename\E$snapshot_postfix_match$/);
+              # NOTE: checking received_uuid does not make much sense, as this received_uuid is propagated to snapshots
+              # if($vol->{received_uuid} && ($vol->{received_uuid} eq '-')) {
+              #   INFO "Target subvolume is not a received backup, skipping deletion of: $vol->{PRINT}";
+              #   next;
+              # }
+              my ($date, $date_ext) = get_date_tag($vol->{NAME});
+              next unless($date);
+              push(@schedule, { value => $vol, name => $vol->{PRINT}, date => $date, date_ext => $date_ext });
             }
             my (undef, $delete) = schedule(
               schedule             => \@schedule,
@@ -1750,13 +1918,13 @@ MAIN:
               preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
               log_verbose          => 1,
              );
-            my $ret = btrfs_subvolume_delete($config_target, @$delete);
+            my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_target, "btrfs_commit_delete"));
             if(defined($ret)) {
-              INFO "Deleted $ret subvolumes in: $droot/$svol.*";
-              $config_target->{subvol_deleted} = $delete;
+              INFO "Deleted $ret subvolumes in: $droot->{PRINT}/$snapshot_basename.*";
+              $config_target->{SUBVOL_DELETED} = $delete;
             }
             else {
-              $config_target->{ABORTED} = "btrfs subvolume delete command failed";
+              $config_target->{ABORTED} = "Failed to delete subvolume";
               $target_aborted = 1;
             }
           }
@@ -1765,15 +1933,16 @@ MAIN:
           # delete snapshots
           #
           if($target_aborted) {
-            WARN "Skipping cleanup of snapshots for subvolume \"$sroot/$svol\", as at least one target aborted earlier";
+            WARN "Skipping cleanup of snapshots for subvolume \"$svol->{PRINT}\", as at least one target aborted earlier";
             next;
           }
-          INFO "Cleaning snapshots: $sroot/$snapdir$svol.*";
+          INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir/$snapshot_basename.*";
           my @schedule;
-          foreach my $vol (keys %{$vol_info{$sroot}}) {
-            my ($date, $date_ext) = get_date_tag($vol);
-            next unless($date && ($vol =~ /^$snapdir$svol\./));
-            push(@schedule, { value => "$sroot/$vol", name => $vol, date => $date, date_ext => $date_ext });
+          foreach my $vol (values %{vinfo_subvol_list($sroot)}) {
+            next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapdir\/$snapshot_basename\E$snapshot_postfix_match$/);
+            my ($date, $date_ext) = get_date_tag($vol->{NAME});
+            next unless($date);
+            push(@schedule, { value => $vol, name => $vol->{PRINT}, date => $date, date_ext => $date_ext });
           }
           my (undef, $delete) = schedule(
             schedule             => \@schedule,
@@ -1784,13 +1953,13 @@ MAIN:
             preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
             log_verbose          => 1,
            );
-          my $ret = btrfs_subvolume_delete($config_subvol, @$delete);
+          my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_subvol, "btrfs_commit_delete"));
           if(defined($ret)) {
-            INFO "Deleted $ret subvolumes in: $sroot/$snapdir$svol.*";
-            $config_subvol->{subvol_deleted} = $delete;
+            INFO "Deleted $ret subvolumes in: $sroot->{PRINT}/$snapdir/$snapshot_basename.*";
+            $config_subvol->{SUBVOL_DELETED} = $delete;
           }
           else {
-            $config_subvol->{ABORTED} = "btrfs subvolume delete command failed";
+            $config_subvol->{ABORTED} = "Failed to delete delete subvolume";
           }
         }
       }
@@ -1804,7 +1973,51 @@ MAIN:
     #
     unless($quiet)
     {
+      my @out;
       my $err_count = 0;
+      foreach my $config_vol (@{$config->{VOLUME}})
+      {
+        my $sroot = $config_vol->{sroot} || vinfo($config_vol->{url}, $config_vol);
+        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+        {
+          my $svol = $config_subvol->{svol} || vinfo_child($sroot, $config_subvol->{rel_path});
+          push @out, "$svol->{PRINT}";
+          if($config_vol->{ABORTED}) {
+            push @out, "!!! $sroot->{PRINT}: ABORTED: $config_vol->{ABORTED}";
+            $err_count++ unless($config_vol->{ABORTED_NOERR});
+          }
+          if($config_subvol->{ABORTED}) {
+            push @out, "!!! Subvolume \"$svol->{PRINT}\" aborted: $config_subvol->{ABORTED}";
+            $err_count++ unless($config_subvol->{ABORTED_NOERR});
+          }
+          push @out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
+          if($config_subvol->{SUBVOL_DELETED}) {
+            push @out, "--- $_->{PRINT}" foreach(sort { $b->{PATH} cmp $a->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
+          }
+          foreach my $config_target (@{$config_subvol->{TARGET}})
+          {
+            my $droot = $config_target->{droot} || vinfo($config_target->{url}, $config_target);
+            foreach(@{$config_target->{SUBVOL_RECEIVED} // []}) {
+              my $create_mode = "***";
+              $create_mode = ">>>" if($_->{parent});
+              # substr($create_mode, 0, 1, '%') if($_->{resume});
+              $create_mode = "!!!" if($_->{ERROR});
+              push @out, "$create_mode $_->{received_name}";
+            }
+
+            if($config_target->{SUBVOL_DELETED}) {
+              push @out, "--- $_->{PRINT}" foreach(sort { $b->{PATH} cmp $a->{PATH} } @{$config_target->{SUBVOL_DELETED}});
+            }
+
+            if($config_target->{ABORTED}) {
+              push @out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
+              $err_count++ unless($config_target->{ABORTED_NOERR});
+            }
+          }
+          push @out, "";
+        }
+      }
+
       print "--------------------------------------------------------------------------------\n";
       print "Backup Summary ($version_info)\n\n";
       print "    Date:   " . localtime($start_time) . "\n";
@@ -1815,45 +2028,10 @@ MAIN:
       print "    ***  received subvolume (non-incremental)\n";
       print "    >>>  received subvolume (incremental)\n";
       # print "    %>>  received subvolume (incremental, resume_missing)\n";
-      print "--------------------------------------------------------------------------------";
-      foreach my $config_vol (@{$config->{VOLUME}})
-      {
-        if($config_vol->{ABORTED}) {
-          print "!!! $config_vol->{sroot}: ABORTED: $config_vol->{ABORTED}\n";
-          $err_count++ unless($config_vol->{ABORTED_NOERR});
-        }
-        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-        {
-          print "\n$config_vol->{sroot}/$config_subvol->{svol}\n";
-          if($config_subvol->{ABORTED}) {
-            print "!!! Subvolume \"$config_subvol->{svol}\" aborted: $config_subvol->{ABORTED}\n";
-            $err_count++ unless($config_subvol->{ABORTED_NOERR});
-          }
-          print "+++ $config_subvol->{snapshot}\n" if($config_subvol->{snapshot});
-          if($config_subvol->{subvol_deleted}) {
-            print "--- $_\n" foreach(sort { $b cmp $a} @{$config_subvol->{subvol_deleted}});
-          }
-          foreach my $config_target (@{$config_subvol->{TARGET}})
-          {
-            foreach(@{$config_target->{subvol_received} // []}) {
-              my $create_mode = "***";
-              $create_mode = ">>>" if($_->{parent});
-              # substr($create_mode, 0, 1, '%') if($_->{resume});
-              $create_mode = "!!!" if($_->{ERROR});
-              print "$create_mode $_->{received_name}\n";
-            }
+      print "--------------------------------------------------------------------------------\n";
 
-            if($config_target->{subvol_deleted}) {
-              print "--- $_\n" foreach(sort { $b cmp $a} @{$config_target->{subvol_deleted}});
-            }
+      print join("\n", @out);
 
-            if($config_target->{ABORTED}) {
-              print "!!! Target \"$config_target->{droot}\" aborted: $config_target->{ABORTED}\n";
-              $err_count++ unless($config_target->{ABORTED_NOERR});
-            }
-          }
-        }
-      }
       if($err_count) {
         print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
         print "Please check warning and error messages above.\n";

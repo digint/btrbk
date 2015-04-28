@@ -1,12 +1,24 @@
 btrbk-current
 
-  * Bugfix: allow "0" as subvolume name (closes: #10)
+  * New versioning scheme using more common three-level versions.
+  * Code refactoring: cleanup of data structures and handling of btrfs
+    subvolume tree, as well as security related code parts.
+  * Correct handling of symlinks to btrfs subvolumes (closes: #12).
+  * Added configuration option "snapshot_name" (closes: #5).
+  * Log messages now go to stderr, only the summary is printed on
+    stdout.
+  * Bugfix: allow "0" as subvolume name (closes: #10).
+  * Bugfix: allow "/" as volume name (closes: #15).
   * Bugfix: check source AND targets for determining snapshot postfix
-    (closes: #11)
+    (closes: #11).
+  * Bugfix: fixed "diff" action (colses: #14).
+  * Allow '+' character for subvolume names.
+  * Filesystems on remote hosts are now printed as
+    "{my.remote-host.com}" in summary and logs.
 
 btrbk-0.16
 
-  * Bugfix: correctly check retention policy for missing backups
+  * Bugfix: correctly check retention policy for missing backups.
 
 btrbk-0.15
 

@@ -40,8 +40,6 @@ case "$SSH_ORIGINAL_COMMAND" in
     /sbin/btrfs\ receive\ *)              run_cmd ;;   # mandatory if this host is backup target
     /sbin/btrfs\ subvolume\ delete\ *)    run_cmd ;;   # mandatory if scheduling is active
     /sbin/btrfs\ subvolume\ find-new\ *)  run_cmd ;;   # needed for "btrbk diff"
-    /sbin/btrfs\ filesystem\ show\ *)     run_cmd ;;   # needed for "btrbk info"
-    /sbin/btrfs\ filesystem\ df\ *)       run_cmd ;;   # needed for "btrbk info"
     /sbin/btrfs\ filesystem\ usage\ *)    run_cmd ;;   # needed for "btrbk info"
     *) reject_and_die ;;
 esac
