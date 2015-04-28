@@ -550,7 +550,7 @@ sub btrfs_filesystem_show($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
-  my $ret = run_cmd("$rsh /sbin/btrfs filesystem show $path", 1);
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem show '$path'", 1);
   return $ret;
 }
 
@@ -560,7 +560,7 @@ sub btrfs_filesystem_df($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
-  my $ret = run_cmd("$rsh /sbin/btrfs filesystem df $path", 1);
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem df '$path'", 1);
   return $ret;
 }
 
@@ -570,7 +570,7 @@ sub btrfs_filesystem_usage($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
-  my $ret = run_cmd("$rsh /sbin/btrfs filesystem usage $path", 1);
+  my $ret = run_cmd("$rsh /sbin/btrfs filesystem usage '$path'", 1);
   return $ret;
 }
 
@@ -580,7 +580,7 @@ sub btrfs_subvolume_detail($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume show $path 2>/dev/null", 1);
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume show '$path' 2>/dev/null", 1);
   return undef unless(defined($ret));
 
   my $real_path;
@@ -639,7 +639,7 @@ sub btrfs_subvolume_list($;@)
   $filter_option = "-o" if($opts{subvol_only});
   my $display_options = "-c -u -q";
   $display_options .= " -R" unless($btrfs_progs_compat);
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume list $filter_option $display_options $path", 1);
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume list $filter_option $display_options '$path'", 1);
   return undef unless(defined($ret));
 
   my @nodes;
@@ -699,7 +699,7 @@ sub btrfs_subvolume_find_new($$;$)
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
   my $lastgen = shift // die;
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume find-new $path $lastgen");
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume find-new '$path' $lastgen");
   unless(defined($ret)) {
     ERROR "Failed to fetch modified files for: $vol->{PRINT}";
     return undef;
@@ -762,7 +762,7 @@ sub btrfs_subvolume_snapshot($$)
   DEBUG "[btrfs]   source: $src_path";
   DEBUG "[btrfs]   target: $target_path";
   INFO ">>> " . ($svol->{HOST} ? "$svol->{HOST}:" : "") .  $target_path;
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume snapshot -r $src_path $target_path");
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume snapshot -r '$src_path' '$target_path'");
   ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
   return defined($ret) ? $target_path : undef;
 }
@@ -786,7 +786,7 @@ sub btrfs_subvolume_delete($@)
   DEBUG "[btrfs]   subvolume: $_->{PRINT}" foreach(@$targets);
   my $options = "";
   $options = "--commit-$commit " if($commit);
-  my $ret = run_cmd("$rsh /sbin/btrfs subvolume delete $options" . join(' ', map( { $_->{PATH} } @$targets)));
+  my $ret = run_cmd("$rsh /sbin/btrfs subvolume delete $options" . join(' ', map( { "'$_->{PATH}'" } @$targets)));
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
   return defined($ret) ? scalar(@$targets) : undef;
 }
@@ -812,11 +812,11 @@ sub btrfs_send_receive($$$)
   DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
   DEBUG "[btrfs]   target: $target->{PRINT}";
 
-  my $parent_option = $parent_path ? "-p $parent_path" : "";
+  my $parent_option = $parent_path ? "-p '$parent_path'" : "";
   my $receive_option = "";
   $receive_option = "-v" if($loglevel >= 3);
 
-  my $cmd = "$snapshot_rsh /sbin/btrfs send $parent_option $snapshot_path | $target_rsh /sbin/btrfs receive $receive_option $target_path/";
+  my $cmd = "$snapshot_rsh /sbin/btrfs send $parent_option '$snapshot_path' | $target_rsh /sbin/btrfs receive $receive_option '$target_path/'";
   my $ret = run_cmd($cmd);
   unless(defined($ret)) {
     ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
