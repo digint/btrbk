@@ -1,15 +1,20 @@
 #
 # Example btrbk configuration file
 #
-# Note that the options can be overridden in the
-# volume/subvolume/target sections. Refer to man btrbk.conf(5) for a
-# more detailed explanation of this.
 #
+# Please refer to the btrbk.conf(5) man-page for more details.
+#
+# Note that the options can be overridden in the
+# volume/subvolume/target sections.
+#
+
 
 # Directory in which the btrfs snapshots are created. Relative to
 # <volume-directory> of the volume section.
-# If not set, the snapshots are directly created in:
-#   <volume>/<volume-directory>
+# If not set, the snapshots are created in <volume-directory>.
+#
+# If you want to set a custom name for the snapshot (and backups),
+# use the "snapshot_name" option within the subvolume section.
 #
 # NOTE: btrbk does not autmatically create this directory, and the
 # snapshot creation will fail if it is not present.
@@ -17,10 +22,10 @@
 snapshot_dir               _btrbk_snap
 
 # Perform incremental backups (set to "strict" if you want to prevent
-# creation of initial backups if no parent is found)
+# creation of initial backups if no parent is found).
 incremental                yes
 
-# Always create snapshots, even if the target volume is unreachable
+# Always create snapshots, even if the target volume is unreachable.
 snapshot_create_always     yes
 
 # Resume missing backups if the target volume is reachable again.
@@ -54,23 +59,22 @@ btrfs_commit_delete        after
 
 #
 # Volume section: "volume <volume-directory>"
-#   <volume-directory> Directory of a btrfs volume (or subvolume)
-#                      containing the subvolume to be backuped
-#                      (usually the mount-point of a btrfs filesystem
-#                      mounted with subvolid=0 option)
+#
+#   <volume-directory>  Directory of a btrfs volume (or subvolume)
+#                       containing the subvolume to be backuped
+#                       (usually the mount-point of a btrfs filesystem
+#                       mounted with subvolid=0 option)
 #
 # Subvolume section: "subvolume <subvolume-name>
-
-#   <subvolume-name> Subvolume to be backuped, relative to
-#                    <volume-directory> in volume section
+#
+#   <subvolume-name>    Subvolume to be backuped, relative to
+#                       <volume-directory> in volume section.
 #
 # Target section: "target <type> <volume-directory>"
-
-#   <type>              Backup type, currently only "send-receive"
-
-#   <volume-directory> Directory of a btrfs volume (or subvolume)
-#                      receiving the backups
 #
+#   <type>              Backup type, currently only "send-receive".
+#   <volume-directory>  Directory of a btrfs volume (or subvolume)
+#                       receiving the backups.
 #
 # NOTE: The parser does not care about indentation, this is only for
 # human readability. The options always apply to the last section
@@ -83,7 +87,6 @@ volume /mnt/btr_system
   subvolume  root_gentoo
     target send-receive    /mnt/btr_ext/_btrbk
     target send-receive    /mnt/btr_backup/_btrbk
-      receive_log sidecar
 
   subvolume  kvm
     # use different preserve matrix for kvm backups
@@ -106,14 +109,9 @@ volume /mnt/btr_ext
   subvolume data
     target send-receive    /mnt/btr_backup/_btrbk
 
-volume /mnt/btr_boot
-  incremental yes
-
-  subvolume boot
-    target send-receive    /mnt/btr_ext/_btrbk
-    target send-receive    /mnt/btr_backup/_btrbk
-
 
 volume ssh://my-remote-host.com/mnt/btr_pool
-  subvolume system
+  subvolume data_0
+    snapshot_dir  snapshots/btrbk
+    snapshot_name data_main
     target send-receive    /mnt/btr_backup/_btrbk/my-remote-host.com
