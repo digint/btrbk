@@ -1646,11 +1646,13 @@ MAIN:
     my @out;
     foreach my $config_vol (@{$config->{VOLUME}})
     {
+      next if($config_vol->{ABORTED});
       my %droot_compat;
       my $sroot = $config_vol->{sroot} || die;
       push @out, "$sroot->{PRINT}";
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
+        next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
         push @out, "|-- $svol->{PRINT}";
         foreach my $snapshot (sort { $a->{PATH} cmp $b->{PATH} } get_snapshot_children($sroot, $svol))
@@ -1658,6 +1660,7 @@ MAIN:
           push @out, "|   ^-- $snapshot->{PATH}";
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
+            next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
