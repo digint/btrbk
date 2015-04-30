@@ -761,7 +761,7 @@ sub btrfs_subvolume_snapshot($$)
   DEBUG "[btrfs]   host  : $svol->{HOST}" if($svol->{HOST});
   DEBUG "[btrfs]   source: $src_path";
   DEBUG "[btrfs]   target: $target_path";
-  INFO ">>> " . ($svol->{HOST} ? "$svol->{HOST}:" : "") .  $target_path;
+  INFO ">>> " . ($svol->{HOST} ? "{$svol->{HOST}}" : "") .  $target_path;
   my $ret = run_cmd("$rsh /sbin/btrfs subvolume snapshot -r '$src_path' '$target_path'");
   ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
   return defined($ret) ? $target_path : undef;
