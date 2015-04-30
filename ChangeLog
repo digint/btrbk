@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.17.0
 
   * New versioning scheme using more common three-level versions.
   * Code refactoring: cleanup of data structures and handling of btrfs
