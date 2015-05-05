@@ -263,6 +263,68 @@ executable is not needed on the remote side, but you will need
 "/sbin/btrfs" from the btrfs-progs package.
 
 
+Restoring Backups
+=================
+
+btrbk does not provide any mechanism to restore your backups, this has
+to be done manually. In the examples below, we assume that you have a
+btrfs volume mounted at `/mnt/btr_pool`, and the subvolume you want to
+have restored is at `/mnt/btr_pool/data`.
+
+Example: Restore a Snapshot
+-----------------------------
+
+First, pick a snapshot to be restored:
+
+    btrbk tree
+
+From the list, pick the snapshot you want to restore. Let's say it's
+`/mnt/btr_pool/_btrbk_snap/data.20150101`.
+
+If the broken subvolume is still present, move it away:
+
+    mv /mnt/btr_pool/data /mnt/btr_pool/data.BROKEN
+
+Now restore the snapshot:
+
+    btrfs subvolume snapshot /mnt/btr_pool/_btrbk_snap/data.20150101 /mnt/btr_pool/data
+
+That's it, your `data` subvolume is restored. If everything went fine,
+it's time to nuke the broken subvolume:
+
+    btrfs subvolume delete /mnt/btr_pool/data.BROKEN
+
+
+Example: Restore a Backup
+-------------------------
+
+First, pick a backup to be restored:
+
+    btrbk tree
+
+From the list, pick the backup you want to restore. Let's say it's
+`/mnt/btr_backup/data.20150101`.
+
+If the broken subvolume is still present, move it away:
+
+    mv /mnt/btr_pool/data /mnt/btr_pool/data.BROKEN
+
+Now restore the backup:
+
+    btrfs send /mnt/btr_backup/data.20150101 | btrfs receive /mnt/btr_pool/
+    btrfs subvolume snapshot /mnt/btr_pool/data.20150101 /mnt/btr_pool/data
+    btrfs subvolume delete /mnt/btr_pool/data.20150101
+
+Alternatively, if you're restoring data on a remote host, do something
+like this:
+
+    btrfs send /mnt/btr_backup/data.20150101 | ssh root@my-remote-host.com btrfs receive /mnt/btr_pool/
+
+If everything went fine, nuke the broken subvolume:
+
+    btrfs subvolume delete /mnt/btr_pool/data.BROKEN
+
+
 Development
 ===========
 
