@@ -774,7 +774,7 @@ sub btrfs_subvolume_delete($@)
   my %opts = @_;
   my $commit = $opts{commit};
   die if($commit && ($commit ne "after") && ($commit ne "each"));
-  $targets = [ $targets ] unless(ref($targets));
+  $targets = [ $targets ] unless(ref($targets) eq "ARRAY");
   return 0 unless(scalar(@$targets));
   my $rsh = $targets->[0]->{RSH} || "";
   foreach (@$targets) {
