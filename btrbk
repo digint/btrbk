@@ -972,7 +972,8 @@ sub macro_send_receive($@)
   INFO "Receiving from snapshot: $snapshot->{PRINT}";
 
   # add info to $config->{SUBVOL_RECEIVED}
-  $info{received_name} = "$target->{PRINT}/$snapshot->{NAME}";
+  my $vol_received = vinfo_child($target, $snapshot->{NAME});
+  $info{received_subvolume} = $vol_received;
   $config_target->{SUBVOL_RECEIVED} //= [];
   push(@{$config_target->{SUBVOL_RECEIVED}}, \%info);
 
@@ -1002,6 +1003,19 @@ sub macro_send_receive($@)
   } else {
     $info{ERROR} = 1;
     $config_target->{ABORTED} = "Failed to send/receive subvolume";
+
+    # NOTE: btrfs-progs v3.19.1 does not delete garbled received subvolume,
+    #       we need to do this by hand.
+    # TODO: remove this as soon as btrfs-progs handle receive errors correctly.
+    DEBUG "send/received failed, deleting (possibly present and garbled) received subvolume: $vol_received->{PRINT}";
+    my $ret = btrfs_subvolume_delete($vol_received, commit => "after");
+    if(defined($ret)) {
+      WARN "Deleted partially received (garbled) subvolume: $vol_received->{PRINT}";
+    }
+    else {
+      WARN "Deletion of partially received (garbled) subvolume failed, assuming clean environment: $vol_received->{PRINT}";
+    }
+
     return undef;
   }
 }
@@ -2002,7 +2016,7 @@ MAIN:
               $create_mode = ">>>" if($_->{parent});
               # substr($create_mode, 0, 1, '%') if($_->{resume});
               $create_mode = "!!!" if($_->{ERROR});
-              push @out, "$create_mode $_->{received_name}";
+              push @out, "$create_mode $_->{received_subvolume}->{PRINT}";
             }
 
             if($config_target->{SUBVOL_DELETED}) {
