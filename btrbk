@@ -1048,12 +1048,8 @@ sub get_receive_targets($$)
   {
     # guess matches by subvolume name (node->received_uuid is not available if BTRFS_PROGS_COMPAT is set)
     DEBUG "Fallback to compatibility mode (get_receive_targets)";
-    my $src_name = $src_vol->{SUBVOL_PATH};
-    $src_name =~ s/^.*\///; # strip path
     foreach my $target (values %$droot_subvols) {
-      my $target_name = $target->{SUBVOL_PATH};
-      $target_name =~ s/^.*\///; # strip path
-      if($target_name eq $src_name) {
+      if($target->{NAME} eq $src_vol->{NAME}) {
         TRACE "get_receive_targets: by-name: Found receive target: $target->{SUBVOL_PATH}";
         push(@ret, $target);
       }
