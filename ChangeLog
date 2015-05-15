@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.17.1
 
   * Bugfix: send/receive: delete possibly left-behind garbled
     subvolume on failure. Fail with unrecoverable error if stray
