@@ -1,5 +1,8 @@
 btrbk-current
 
+  * Bugfix: send/receive: delete possibly left-behind garbled
+    subvolume on failure. Fail with unrecoverable error if stray
+    target subvolume is in the way (closes: #17).
   * Bugfix: assume unreachable target as clean on snapshot creation if
     snapshot_create_always is set (closes: #19).
 
