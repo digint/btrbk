@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.17.0";
+our $VERSION       = "0.17.1-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -971,6 +971,16 @@ sub macro_send_receive($@)
 
   INFO "Receiving from snapshot: $snapshot->{PRINT}";
 
+  # check for existing target subvolume
+  if(my $err_vol = vinfo_subvol($target, $snapshot->{NAME})) {
+    $config_target->{ABORTED} = "Target subvolume \"$err_vol->{PRINT}\" already exists";
+    $config_target->{UNRECOVERABLE} = "Please delete stray subvolume: $err_vol->{PRINT}";
+    ERROR $config_target->{ABORTED} . ", aborting send/receive of: $snapshot->{PRINT}";
+    ERROR $config_target->{UNRECOVERABLE};
+    $info{ERROR} = 1;
+    return undef;
+  }
+
   # add info to $config->{SUBVOL_RECEIVED}
   my $vol_received = vinfo_child($target, $snapshot->{NAME});
   $info{received_subvolume} = $vol_received;
@@ -1792,14 +1802,17 @@ MAIN:
               my @schedule;
               my $found_missing = 0;
 
-              # sort children of svol ascending by generation
-              foreach my $child (get_snapshot_children($sroot, $svol))
+              foreach my $child (sort { $a->{gen} <=> $b->{gen} } get_snapshot_children($sroot, $svol))
               {
                 if(scalar get_receive_targets($droot, $child)) {
                   DEBUG "Found matching receive target, skipping: $child->{PRINT}";
                 }
                 else {
                   DEBUG "No matching receive targets found, adding resume candidate: $child->{PRINT}";
+
+                  if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
+                    WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
+                  }
 
                   # check if the target would be preserved
                   my ($date, $date_ext) = get_date_tag($child->{SUBVOL_PATH});
@@ -1988,6 +2001,7 @@ MAIN:
     unless($quiet)
     {
       my @out;
+      my @unrecoverable;
       my $err_count = 0;
       foreach my $config_vol (@{$config->{VOLUME}})
       {
@@ -2027,6 +2041,8 @@ MAIN:
               push @out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
               $err_count++ unless($config_target->{ABORTED_NOERR});
             }
+
+            push(@unrecoverable, $config_target->{UNRECOVERABLE}) if($config_target->{UNRECOVERABLE});
           }
           push @out, "";
         }
@@ -2046,12 +2062,13 @@ MAIN:
 
       print join("\n", @out);
 
+      if($preserve_backups) {
+        print "\nNOTE: Preserved all backups (option -p present)\n";
+      }
       if($err_count) {
         print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
         print "Please check warning and error messages above.\n";
-      }
-      if($preserve_backups) {
-        print "\nNOTE: Preserved all backups (option -p present)\n";
+        print join("\n", @unrecoverable) . "\n" if(@unrecoverable);
       }
       if($dryrun) {
         print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";

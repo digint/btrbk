@@ -1,3 +1,9 @@
+btrbk-current
+
+  * Bugfix: send/receive: delete possibly left-behind garbled
+    subvolume on failure. Fail with unrecoverable error if stray
+    target subvolume is in the way (closes: #17).
+
 btrbk-0.17.0
 
   * New versioning scheme using more common three-level versions.
