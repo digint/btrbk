@@ -1805,7 +1805,8 @@ MAIN:
             {
               INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
               my @schedule;
-              my $found_missing = 0;
+              my $resume_total = 0;
+              my $resume_success = 0;
 
               foreach my $child (sort { $a->{gen} <=> $b->{gen} } get_snapshot_children($sroot, $svol))
               {
@@ -1846,10 +1847,10 @@ MAIN:
                   preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
                  );
                 my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
+                $resume_total = scalar @resume;
 
                 foreach my $child (sort { $a->{gen} <=> $b->{gen} } @resume) {
                   INFO "Resuming subvolume backup (send-receive) for: $child->{PRINT}";
-                  $found_missing++;
                   my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{gen});
                   if(macro_send_receive($config_target,
                                         snapshot  => $child,
@@ -1860,6 +1861,7 @@ MAIN:
                   {
                     # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
                     $child->{RECEIVE_TARGET_PRESENT} = $droot->{URL};
+                    $resume_success++;
                   }
                   else {
                     # note: ABORTED flag is already set by macro_send_receive()
@@ -1869,8 +1871,8 @@ MAIN:
                 }
               }
 
-              if($found_missing) {
-                INFO "Resumed $found_missing backups";
+              if($resume_total) {
+                INFO "Resumed $resume_success/$resume_total missing backups";
               } else {
                 INFO "No missing backups found";
               }
