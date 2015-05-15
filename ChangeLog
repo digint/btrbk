@@ -1,3 +1,8 @@
+btrbk-current
+
+  * Bugfix: assume unreachable target as clean on snapshot creation if
+    snapshot_create_always is set (closes: #19).
+
 btrbk-0.17.0
 
   * New versioning scheme using more common three-level versions.

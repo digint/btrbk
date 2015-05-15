@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.17.0";
+our $VERSION       = "0.17.1-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -1719,9 +1719,14 @@ MAIN:
         }
 
         # find unique snapshot name
+        my @unconfirmed_target_name;
         my @lookup = keys %{vinfo_subvol_list($sroot)};
         @lookup = grep s/^\Q$snapdir\E\/// , @lookup;
         foreach my $config_target (@{$config_subvol->{TARGET}}) {
+          if($config_target->{ABORTED}) {
+            push(@unconfirmed_target_name, vinfo($config_target->{url}, $config_target));
+            next;
+          }
           my $droot = $config_target->{droot} || die;
           push(@lookup, keys %{vinfo_subvol_list($droot)});
         }
@@ -1732,6 +1737,10 @@ MAIN:
         my $postfix_counter = $lookup[0] // -1;
         $postfix_counter++;
         my $snapshot_name = $snapshot_basename . '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
+
+        if(@unconfirmed_target_name) {
+          INFO "Failed to check all targets, assuming non-present subvolume \"$snapshot_name\" in: " . join(", ", map { "\"$_->{PRINT}\"" } @unconfirmed_target_name);
+        }
 
         # finally create the snapshot
         INFO "Creating subvolume snapshot for: $svol->{PRINT}";
