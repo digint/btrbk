@@ -1,6 +1,6 @@
 #!/bin/sh
 
-export PATH=
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin
 
 if [ "$1" = "-l" ]; then
     enable_log=1
@@ -33,13 +33,13 @@ case "$SSH_ORIGINAL_COMMAND" in
     *\>*) reject_and_die ;;
     *\`*) reject_and_die ;;
     *\|*) reject_and_die ;;
-    /sbin/btrfs\ subvolume\ show\ *)      run_cmd ;;   # mandatory
-    /sbin/btrfs\ subvolume\ list\ *)      run_cmd ;;   # mandatory
-    /sbin/btrfs\ subvolume\ snapshot\ *)  run_cmd ;;   # mandatory if this host is backup source
-    /sbin/btrfs\ send\ *)                 run_cmd ;;   # mandatory if this host is backup source
-    /sbin/btrfs\ receive\ *)              run_cmd ;;   # mandatory if this host is backup target
-    /sbin/btrfs\ subvolume\ delete\ *)    run_cmd ;;   # mandatory if scheduling is active
-    /sbin/btrfs\ subvolume\ find-new\ *)  run_cmd ;;   # needed for "btrbk diff"
-    /sbin/btrfs\ filesystem\ usage\ *)    run_cmd ;;   # needed for "btrbk info"
+    btrfs\ subvolume\ show\ *)      run_cmd ;;   # mandatory
+    btrfs\ subvolume\ list\ *)      run_cmd ;;   # mandatory
+    btrfs\ subvolume\ snapshot\ *)  run_cmd ;;   # mandatory if this host is backup source
+    btrfs\ send\ *)                 run_cmd ;;   # mandatory if this host is backup source
+    btrfs\ receive\ *)              run_cmd ;;   # mandatory if this host is backup target
+    btrfs\ subvolume\ delete\ *)    run_cmd ;;   # mandatory if scheduling is active
+    btrfs\ subvolume\ find-new\ *)  run_cmd ;;   # needed for "btrbk diff"
+    btrfs\ filesystem\ usage\ *)    run_cmd ;;   # needed for "btrbk info"
     *) reject_and_die ;;
 esac
