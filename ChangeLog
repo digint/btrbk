@@ -1,3 +1,11 @@
+btrbk-current
+
+  * IMPORTANT: please update ssh_filter_btrbk.sh on all remote hosts!
+  * Set PATH variable instead of using absolute "/sbin/btrfs" for
+    compatibility with all linux distros out there, which all install
+    'btrfs' in different locations (closes: #20).
+  * Catch and display errors from "btrfs subvolume show".
+
 btrbk-0.17.1
 
   * Bugfix: send/receive: delete possibly left-behind garbled

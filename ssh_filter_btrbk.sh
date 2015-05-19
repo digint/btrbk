@@ -11,7 +11,7 @@ reject_and_die()
     if [ -n "$enable_log" ]; then
         /usr/bin/logger -p auth.err -t ssh_filter_btrbk.sh "$LOGNAME $SSH_CLIENT REJECT: $SSH_ORIGINAL_COMMAND"
     fi
-    /bin/echo "ssh command rejected" 1>&2;
+    /bin/echo "ERROR: ssh command rejected" 1>&2;
     exit 1;
 }
 

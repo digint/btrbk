@@ -88,6 +88,7 @@ my %uuid_fs_map;        # map UUID to URL
 
 my $dryrun;
 my $loglevel = 1;
+my $err = "";
 
 my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
@@ -146,6 +147,7 @@ sub run_cmd($;$)
   my $ret = "";
   $cmd =~ s/^\s+//;
   $cmd =~ s/\s+$//;
+  $err = "";
   if($non_destructive || (not $dryrun)) {
     DEBUG "### $cmd";
     $ret = `$cmd`;
@@ -155,6 +157,19 @@ sub run_cmd($;$)
       my $exitcode= $? >> 8;
       my $signal = $? & 127;
       DEBUG "Command execution failed (exitcode=$exitcode" . ($signal ? ", signal=$signal" : "") . "): \"$cmd\"";
+
+      if($ret =~ /ssh command rejected/) {
+        # catch errors from ssh_filter_btrbk.sh
+        $err = "ssh command rejected (please fix ssh_filter_btrbk.sh)";
+      }
+      elsif($ret =~ /^ERROR: (.*)/) {
+        # catch errors from btrfs command
+        $err = $1;
+      }
+      else {
+        DEBUG "Unparseable error: $ret";
+        $err = "unparseable error";
+      }
       return undef;
     }
     else {
@@ -580,7 +595,7 @@ sub btrfs_subvolume_detail($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
-  my $ret = run_cmd("$rsh btrfs subvolume show '$path' 2>/dev/null", 1);
+  my $ret = run_cmd("$rsh btrfs subvolume show '$path' 2>&1", 1);
   return undef unless(defined($ret));
 
   my $real_path;
@@ -1352,12 +1367,12 @@ MAIN:
     # FIXME: allow ssh:// src/dest (does not work since the configuration is not yet read).
 
     my $src_vol = vinfo($src_url, { CONTEXT => "cmdline" });
-    unless(vinfo_root($src_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}"; exit 1; }
+    unless(vinfo_root($src_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}" . ($err ? ": $err" : ""); exit 1; }
     if($src_vol->{is_root})  { ERROR "Subvolume at \"$src_url\" is btrfs root!"; exit 1; }
     unless($src_vol->{cgen}) { ERROR "Subvolume at \"$src_url\" does not provide cgen"; exit 1; }
 
     my $target_vol = vinfo($target_url, { CONTEXT => "cmdline" });
-    unless(vinfo_root($target_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}"; exit 1; }
+    unless(vinfo_root($target_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}" . ($err ? ": $err" : ""); exit 1; }
     unless($src_vol->{cgen}) { ERROR "Subvolume at \"$src_url\" does not provide cgen"; exit 1; }
 
     my $uuid_list = vinfo_fs_list($src_vol);
@@ -1541,7 +1556,7 @@ MAIN:
     next if($config_vol->{ABORTED});
     my $sroot = vinfo($config_vol->{url}, $config_vol);
     unless(vinfo_root($sroot)) {
-      $config_vol->{ABORTED} = "Failed to fetch subvolume detail";
+      $config_vol->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
       WARN "Skipping volume \"$sroot->{PRINT}\": $config_vol->{ABORTED}";
       next;
     }
@@ -1559,7 +1574,7 @@ MAIN:
         $svol = vinfo_child($sroot, $config_subvol->{rel_path});
         my $detail = btrfs_subvolume_detail($svol);
         unless($detail) {
-          $config_subvol->{ABORTED} = "Failed to fetch subvolume detail";
+          $config_subvol->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
           WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
           next;
         }
@@ -1596,7 +1611,7 @@ MAIN:
       {
         my $droot = vinfo($config_target->{url}, $config_target);
         unless(vinfo_root($droot)) {
-          $config_target->{ABORTED} = "Failed to fetch subvolume detail";
+          $config_target->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
           WARN "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
           next;
         }
@@ -1629,7 +1644,7 @@ MAIN:
       DEBUG "Subvolume not parsed yet, fetching info: $url";
       $vol = vinfo($url, { CONTEXT => "cmdline" });
       unless(vinfo_root($vol)) {
-        ERROR "Failed to fetch subvolume detail for: $url";
+        ERROR "Failed to fetch subvolume detail for: $url" . ($err ? ": $err" : "");
         exit 1;
       }
     }
