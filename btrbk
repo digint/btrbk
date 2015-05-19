@@ -1366,13 +1366,13 @@ MAIN:
     # FIXME: allow ssh:// src/dest (does not work since the configuration is not yet read).
 
     my $src_vol = vinfo($src_url, { CONTEXT => "cmdline" });
-    unless(vinfo_root($src_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}" . ($err ? ": $err" : ""); exit 1; }
+    unless(vinfo_root($src_vol)) { ERROR "Failed to fetch subvolume detail for '$src_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
     if($src_vol->{is_root})  { ERROR "Subvolume at \"$src_url\" is btrfs root!"; exit 1; }
     unless($src_vol->{cgen}) { ERROR "Subvolume at \"$src_url\" does not provide cgen"; exit 1; }
 
     my $target_vol = vinfo($target_url, { CONTEXT => "cmdline" });
-    unless(vinfo_root($target_vol)) { ERROR "Failed to fetch subvolume detail for: $src_vol->{PRINT}" . ($err ? ": $err" : ""); exit 1; }
-    unless($src_vol->{cgen}) { ERROR "Subvolume at \"$src_url\" does not provide cgen"; exit 1; }
+    unless(vinfo_root($target_vol)) { ERROR "Failed to fetch subvolume detail for '$target_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
+    unless($target_vol->{cgen}) { ERROR "Subvolume at \"$target_url\" does not provide cgen"; exit 1; }
 
     my $uuid_list = vinfo_fs_list($src_vol);
     unless($uuid_list->{$target_vol->{uuid}}) {
