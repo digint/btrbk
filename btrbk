@@ -140,15 +140,16 @@ sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
 sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 
 
-sub run_cmd($;$)
+sub run_cmd($;@)
 {
   my $cmd = shift || die;
-  my $non_destructive = shift;
+  my %opts = @_;
   my $ret = "";
   $cmd =~ s/^\s+//;
   $cmd =~ s/\s+$//;
+  $cmd .= ' 2>&1' if($opts{catch_stderr});
   $err = "";
-  if($non_destructive || (not $dryrun)) {
+  if($opts{non_destructive} || (not $dryrun)) {
     DEBUG "### $cmd";
     $ret = `$cmd`;
     chomp($ret);
@@ -158,17 +159,19 @@ sub run_cmd($;$)
       my $signal = $? & 127;
       DEBUG "Command execution failed (exitcode=$exitcode" . ($signal ? ", signal=$signal" : "") . "): \"$cmd\"";
 
-      if($ret =~ /ssh command rejected/) {
-        # catch errors from ssh_filter_btrbk.sh
-        $err = "ssh command rejected (please fix ssh_filter_btrbk.sh)";
-      }
-      elsif($ret =~ /^ERROR: (.*)/) {
-        # catch errors from btrfs command
-        $err = $1;
-      }
-      else {
-        DEBUG "Unparseable error: $ret";
-        $err = "unparseable error";
+      if($opts{catch_stderr}) {
+        if($ret =~ /ssh command rejected/) {
+          # catch errors from ssh_filter_btrbk.sh
+          $err = "ssh command rejected (please fix ssh_filter_btrbk.sh)";
+        }
+        elsif($ret =~ /^ERROR: (.*)/) {
+          # catch errors from btrfs command
+          $err = $1;
+        }
+        else {
+          DEBUG "Unparseable error: $ret";
+          $err = "unparseable error";
+        }
       }
       return undef;
     }
@@ -556,7 +559,7 @@ sub parse_config(@)
 
 sub btrfs_filesystem_show_all_local()
 {
-  return run_cmd("btrfs filesystem show", 1);
+  return run_cmd("btrfs filesystem show", non_destructive => 1);
 }
 
 
@@ -565,8 +568,7 @@ sub btrfs_filesystem_show($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
-  my $ret = run_cmd("$rsh btrfs filesystem show '$path'", 1);
-  return $ret;
+  return run_cmd("$rsh btrfs filesystem show '$path'", non_destructive => 1);
 }
 
 
@@ -575,8 +577,7 @@ sub btrfs_filesystem_df($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
-  my $ret = run_cmd("$rsh btrfs filesystem df '$path'", 1);
-  return $ret;
+  return run_cmd("$rsh btrfs filesystem df '$path'", non_destructive => 1);
 }
 
 
@@ -585,8 +586,7 @@ sub btrfs_filesystem_usage($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
-  my $ret = run_cmd("$rsh btrfs filesystem usage '$path'", 1);
-  return $ret;
+  return run_cmd("$rsh btrfs filesystem usage '$path'", non_destructive => 1);
 }
 
 
@@ -595,7 +595,7 @@ sub btrfs_subvolume_detail($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
-  my $ret = run_cmd("$rsh btrfs subvolume show '$path' 2>&1", 1);
+  my $ret = run_cmd("$rsh btrfs subvolume show '$path'", non_destructive => 1, catch_stderr => 1);
   return undef unless(defined($ret));
 
   my $real_path;
@@ -654,7 +654,7 @@ sub btrfs_subvolume_list($;@)
   $filter_option = "-o" if($opts{subvol_only});
   my $display_options = "-c -u -q";
   $display_options .= " -R" unless($btrfs_progs_compat);
-  my $ret = run_cmd("$rsh btrfs subvolume list $filter_option $display_options '$path'", 1);
+  my $ret = run_cmd("$rsh btrfs subvolume list $filter_option $display_options '$path'", non_destructive => 1);
   return undef unless(defined($ret));
 
   my @nodes;
@@ -714,7 +714,7 @@ sub btrfs_subvolume_find_new($$;$)
   my $path = $vol->{PATH} // die;
   my $rsh = $vol->{RSH} || "";
   my $lastgen = shift // die;
-  my $ret = run_cmd("$rsh btrfs subvolume find-new '$path' $lastgen");
+  my $ret = run_cmd("$rsh btrfs subvolume find-new '$path' $lastgen", non_destructive => 1);
   unless(defined($ret)) {
     ERROR "Failed to fetch modified files for: $vol->{PRINT}";
     return undef;
@@ -831,8 +831,7 @@ sub btrfs_send_receive($$$)
   my $receive_option = "";
   $receive_option = "-v" if($loglevel >= 3);
 
-  my $cmd = "$snapshot_rsh btrfs send $parent_option '$snapshot_path' | $target_rsh btrfs receive $receive_option '$target_path/'";
-  my $ret = run_cmd($cmd);
+  my $ret = run_cmd("$snapshot_rsh btrfs send $parent_option '$snapshot_path' | $target_rsh btrfs receive $receive_option '$target_path/'");
   unless(defined($ret)) {
     ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
     return undef;
