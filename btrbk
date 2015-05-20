@@ -1212,6 +1212,7 @@ sub schedule(@)
   my $preserve_daily       = $args{preserve_daily}       // die;
   my $preserve_weekly      = $args{preserve_weekly}      // die;
   my $preserve_monthly     = $args{preserve_monthly}     // die;
+  my $preserve_latest      = $args{preserve_latest}      || 0;
   my $log_verbose          = $args{log_verbose};
 
   if($log_verbose) {
@@ -1245,6 +1246,11 @@ sub schedule(@)
       $href->{delta_months} = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
       $href->{month}        = "$date[0]-$date[1]";
     }
+  }
+
+  if($preserve_latest && (scalar @sorted_schedule)) {
+    my $href = $sorted_schedule[-1];
+    $href->{preserve} ||= "preserve forced: latest in list";
   }
 
   # filter daily, weekly, monthly
@@ -1776,15 +1782,33 @@ MAIN:
           my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
 
           # check if we need to create a snapshot
-          my $create_snapshot = config_key($config_subvol, "snapshot_create_always");
-          foreach my $config_target (@{$config_subvol->{TARGET}}) {
-            next if($config_target->{ABORTED});
-            $create_snapshot = 1 if($config_target->{target_type} eq "send-receive");
-          }
-          unless($create_snapshot) {
-            $config_subvol->{ABORTED} = "No targets defined for subvolume: $svol->{PRINT}";
-            WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
+          my $snapshot_create = config_key($config_subvol, "snapshot_create") // "no";
+          if($snapshot_create eq "no") {
+            DEBUG "Snapshot creation disabled: snapshot_create=no";
             next;
+          }
+          if($snapshot_create eq "always") {
+            DEBUG "Snapshot creation enabled: snapshot_create=always";
+          }
+          elsif($snapshot_create eq "ondemand") {
+            my $snapshot_needed = 0;
+            foreach my $config_target (@{$config_subvol->{TARGET}}) {
+              next if($config_target->{ABORTED});
+              if($config_target->{target_type} eq "send-receive") {
+                $snapshot_needed = 1;
+                last;
+              }
+            }
+            if($snapshot_needed) {
+              DEBUG "Snapshot creation enabled: snapshot_create=ondemand, and at least one send-receive target is present";
+            }
+            else {
+              DEBUG "Snapshot creation disabled: snapshot_create=ondemand, but no send-receive target is present";
+              next;
+            }
+          }
+          else {
+            die "illegal value for snapshot_create configuration option: $snapshot_create";
           }
 
           # find unique snapshot name
@@ -1837,6 +1861,7 @@ MAIN:
         my $svol = $config_subvol->{svol} || die;
         my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
         my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
+        my $preserve_latest = $config_subvol->{SNAPSHOT} ? 0 : 1;
 
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
@@ -1893,6 +1918,7 @@ MAIN:
                   preserve_daily       => config_key($config_target, "target_preserve_daily"),
                   preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
                   preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+                  preserve_latest      => $preserve_latest,
                  );
                 my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
                 $resume_total = scalar @resume;
@@ -1924,13 +1950,13 @@ MAIN:
               } else {
                 INFO "No missing backups found";
               }
-            }
+            } # /resume_missing
 
             unless($resume_only)
             {
               # skip creation if resume_missing failed
               next if($config_target->{ABORTED});
-              die unless($config_subvol->{SNAPSHOT});
+              next unless($config_subvol->{SNAPSHOT});
 
               # finally receive the previously created snapshot
               INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
@@ -1969,7 +1995,9 @@ MAIN:
           my $svol = $config_subvol->{svol} || die;
           my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
           my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
+          my $preserve_latest = $config_subvol->{SNAPSHOT} ? 0 : 1;
           my $target_aborted = 0;
+
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             if($config_target->{ABORTED}) {
@@ -2001,6 +2029,7 @@ MAIN:
               preserve_daily       => config_key($config_target, "target_preserve_daily"),
               preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
               preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+              preserve_latest      => $preserve_latest,
               log_verbose          => 1,
              );
             my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_target, "btrfs_commit_delete"));
@@ -2036,6 +2065,7 @@ MAIN:
             preserve_daily       => config_key($config_subvol, "snapshot_preserve_daily"),
             preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
             preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
+            preserve_latest      => $preserve_latest,
             log_verbose          => 1,
            );
           my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_subvol, "btrfs_commit_delete"));
