@@ -62,9 +62,8 @@ my %config_options = (
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   snapshot_dir              => { default => undef,    accept_file => { relative => 1 } },
   snapshot_name             => { default => undef,    accept_file => { name_only => 1 }, context => [ "subvolume" ] },
-  receive_log               => { default => undef,    accept => [ "sidecar", "no" ], accept_file => { absolute => 1 }, deprecated => "removed" },
+  snapshot_create           => { default => "always", accept => [ "no", "always", "ondemand" ] },
   incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
-  snapshot_create_always    => { default => undef,    accept => [ "yes", "no" ] },
   resume_missing            => { default => "yes",    accept => [ "yes", "no" ] },
   preserve_day_of_week      => { default => "sunday", accept => [ (keys %day_of_week_map) ] },
   snapshot_preserve_daily   => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
@@ -77,6 +76,22 @@ my %config_options = (
   ssh_identity              => { default => undef,    accept_file => { absolute => 1 } },
   ssh_user                  => { default => "root",   accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
   btrfs_progs_compat        => { default => undef,    accept => [ "yes", "no" ] },
+
+  # deprecated options
+  snapshot_create_always    => { default => undef, accept => [ "yes", "no" ],
+                                 deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
+                                                          replace_key   => "snapshot_create",
+                                                          replace_value => "always",
+                                                         },
+                                                 no  => { warn => "Please use \"snapshot_create no\" or \"snapshot_create ondemand\"",
+                                                          replace_key   => "snapshot_create",
+                                                          replace_value => "ondemand",
+                                                         }
+                                                },
+                               },
+  receive_log               => { default => undef, accept => [ "sidecar", "no" ], accept_file => { absolute => 1 },
+                                 deprecated => { DEFAULT => { warn => "ignoring" } },
+                               }
  );
 
 my @config_target_types = qw(send-receive);
@@ -323,8 +338,8 @@ sub config_key($$)
   my $key = shift || die;
   TRACE "config_key: context=$node->{CONTEXT}, key=$key";
   while(not exists($node->{$key})) {
-    return undef unless($node->{PARENT});
-    $node = $node->{PARENT};
+    # note: all config keys exist in root context (at least with default values)
+    $node = $node->{PARENT} || die;
   }
   TRACE "config_key: found value=" . ($node->{$key} // "<undef>");
   return $node->{$key};
@@ -395,6 +410,7 @@ sub parse_config(@)
   my $cur = $root;
   # set defaults
   foreach (keys %config_options) {
+    next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
     $root->{$_} = $config_options{$_}->{default};
   }
 
@@ -530,13 +546,21 @@ sub parse_config(@)
           return undef;
         }
 
+        if($config_options{$key}->{deprecated}) {
+          WARN "Found deprecated option \"$key $value\" in \"$file\" line $.: " .
+               ($config_options{$key}->{deprecated}->{$value}->{warn} // $config_options{$key}->{deprecated}->{DEFAULT}->{warn});
+          my $replace_key   = $config_options{$key}->{deprecated}->{$value}->{replace_key};
+          my $replace_value = $config_options{$key}->{deprecated}->{$value}->{replace_value};
+          if(defined($replace_key)) {
+            $key = $replace_key;
+            $value = $replace_value;
+            WARN "Using \"$key $value\"";
+          }
+        }
+
         TRACE "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
         $value = undef if($value eq "no");  # we don't want to check for "no" all the time
         $cur->{$key} = $value;
-
-        if($config_options{$key}->{deprecated}) {
-          WARN "Found deprecated configuration option \"$key\" in \"$file\" line $.";
-        }
       }
       else
       {
@@ -1822,10 +1846,6 @@ MAIN:
 
           if($target_type eq "send-receive")
           {
-            if(config_key($config_target, "receive_log")) {
-              WARN "Ignoring deprecated option \"receive_log\" for target: $droot->{PRINT}"
-            }
-
             #
             # resume missing backups (resume_missing)
             #
