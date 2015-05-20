@@ -2108,7 +2108,7 @@ MAIN:
           }
           push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
           if($config_subvol->{SUBVOL_DELETED}) {
-            push @subvol_out, "--- $_->{PRINT}" foreach(sort { $b->{PATH} cmp $a->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
+            push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
           }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
@@ -2122,7 +2122,7 @@ MAIN:
             }
 
             if($config_target->{SUBVOL_DELETED}) {
-              push @subvol_out, "--- $_->{PRINT}" foreach(sort { $b->{PATH} cmp $a->{PATH} } @{$config_target->{SUBVOL_DELETED}});
+              push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_target->{SUBVOL_DELETED}});
             }
 
             if($config_target->{ABORTED}) {
