@@ -4,6 +4,9 @@ btrbk-current
   * Set PATH variable instead of using absolute "/sbin/btrfs" for
     compatibility with all linux distros out there, which all install
     'btrfs' in different locations (closes: #20).
+  * Added configuration option "snapshot_create", replacing option
+    "snapshot_create_always". This allows setups with multiple btrbk
+    instances on several hosts (closes: #18).
   * Added command line option -r (resume only).
   * Catch and display errors from "btrfs subvolume show".
   * Include systemd service and timer unit for daily backups.

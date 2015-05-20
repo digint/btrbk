@@ -56,14 +56,15 @@ Base name of the created snapshot (and backup). Defaults to
 \fI<subvolume-name>\fR. This option is only valid in the \fItarget\fR
 section.
 .TP
-\fBsnapshot_create_always\fR  yes|no
-If set, the snapshots are always created, even if the backup subvolume
-cannot be created (e.g. if the target subvolume cannot be
-reached). Use in conjunction with the \fIresume_missing\fR option to
-make sure that the backups are created as soon as the target subvolume
-is reachable again. Useful for laptop filesystems in order to make
-sure the snapshots are created even if you are on the road. Defaults
-to \[lq]no\[rq].
+\fBsnapshot_create\fR  always|ondemand|no
+If set to \[lq]ondemand\[rq], the snapshots are only created if the
+target subvolume is reachable (useful if you are tight on disk space
+and you only need btrbk for backups to an external disk which is not
+always connected). If set to \[lq]always\[rq], the snapshots are
+always created, regardless of the target reachability. If set to
+\[lq]no\[rq], the snapshots are never created (useful in conjunction
+with the \fIresume_missing\fR option if another instance of btrbk is
+taking care of snapshot creation). Defaults to \[lq]always\[rq].
 .TP
 \fBincremental\fR  yes|no|strict
 Perform incremental backups. Defaults to \[lq]yes\[rq]. If set to
