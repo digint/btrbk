@@ -156,11 +156,10 @@ Retention policy:
   - `/mnt/btr_backup/mylaptop/rootfs.YYYYMMDD`
   - `/mnt/btr_backup/mylaptop/home.YYYYMMDD`
 
-If you want the snapshots to be created even if the backup disk is not
-attached (when you're on the road), simply add the following line to
-the config:
+If you want the snapshots to be created only if the backup disk is
+attached, simply add the following line to the config:
 
-    snapshot_create_always     yes
+    snapshot_create            ondemand
 
 
 Example: host-initiated backup on fileserver
@@ -215,19 +214,51 @@ This will pull backups from alpha/beta.mydomain.com and locally create:
 Example: local time-machine (daily snapshots)
 ---------------------------------------------
 
-If all you want is a local time-machine of your home directory:
+If all you want is creating snapshots of your home directory on a
+regular basis:
 
-/etc/btrbk/btrbk-timemachine.conf:
+/etc/btrbk/btrbk.conf:
 
     volume /mnt/btr_pool
+      snapshot_dir btrbk_snapshots
       subvolume home
-        snapshot_dir btrbk_snapshots
-        snapshot_create_always yes
 
 /etc/cron.daily/btrbk:
 
     #!/bin/bash
-    /usr/sbin/btrbk -c /etc/btrbk/btrbk-timemachine.conf run
+    /usr/sbin/btrbk run
+
+Note that you can run btrbk more than once a day, e.g. by creating the
+above script in `/etc/cron.hourly/btrbk`, or by calling `sudo btrbk
+run` from the command line.
+
+
+Example: multiple btrbk instances
+---------------------------------
+
+Let's say we have a host (at 192.168.0.42) running btrbk with the
+setup of the time-machine example above, and we need a backup server
+to only fetch the snapshots.
+
+/etc/btrbk/btrbk.conf (on backup server):
+
+    volume ssh://192.168.0.42/mnt/btr_pool
+      subvolume home
+        snapshot_dir             btrbk_snapshots
+        snapshot_preserve_daily  all
+        snapshot_create          no
+        resume_missing           yes
+
+        target_preserve_daily    0
+        target_preserve_weekly   10
+        target_preserve_monthly  all
+
+        target send-receive  /mnt/btr_backup/my-laptop.com
+
+If the server runs btrbk with this config, the latest snapshot (which
+is *always* transferred) as well as 10 weeklies and all monthlies are
+received from 192.168.0.42. The source filesystem is never altered
+because of `snapshot_preserve_daily all`.
 
 
 Setting up SSH

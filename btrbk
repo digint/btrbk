@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.17.2-dev";
+our $VERSION       = "0.18.0-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -62,9 +62,8 @@ my %config_options = (
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   snapshot_dir              => { default => undef,    accept_file => { relative => 1 } },
   snapshot_name             => { default => undef,    accept_file => { name_only => 1 }, context => [ "subvolume" ] },
-  receive_log               => { default => undef,    accept => [ "sidecar", "no" ], accept_file => { absolute => 1 }, deprecated => "removed" },
+  snapshot_create           => { default => "always", accept => [ "no", "always", "ondemand" ] },
   incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
-  snapshot_create_always    => { default => undef,    accept => [ "yes", "no" ] },
   resume_missing            => { default => "yes",    accept => [ "yes", "no" ] },
   preserve_day_of_week      => { default => "sunday", accept => [ (keys %day_of_week_map) ] },
   snapshot_preserve_daily   => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
@@ -77,6 +76,22 @@ my %config_options = (
   ssh_identity              => { default => undef,    accept_file => { absolute => 1 } },
   ssh_user                  => { default => "root",   accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
   btrfs_progs_compat        => { default => undef,    accept => [ "yes", "no" ] },
+
+  # deprecated options
+  snapshot_create_always    => { default => undef, accept => [ "yes", "no" ],
+                                 deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
+                                                          replace_key   => "snapshot_create",
+                                                          replace_value => "always",
+                                                         },
+                                                 no  => { warn => "Please use \"snapshot_create no\" or \"snapshot_create ondemand\"",
+                                                          replace_key   => "snapshot_create",
+                                                          replace_value => "ondemand",
+                                                         }
+                                                },
+                               },
+  receive_log               => { default => undef, accept => [ "sidecar", "no" ], accept_file => { absolute => 1 },
+                                 deprecated => { DEFAULT => { warn => "ignoring" } },
+                               }
  );
 
 my @config_target_types = qw(send-receive);
@@ -118,6 +133,7 @@ sub HELP_MESSAGE
   print STDERR "   --version   display version information\n";
   print STDERR "   -c FILE     specify configuration file\n";
   print STDERR "   -p          preserve all backups (do not delete any old targets)\n";
+  print STDERR "   -r          resume only (no new snapshots, resume all missing backups)\n";
   print STDERR "   -v          be verbose (set loglevel=info)\n";
   print STDERR "   -q          be quiet (do not print summary at end of \"run\" command)\n";
   print STDERR "   -l LEVEL    set loglevel (warn, info, debug, trace)\n";
@@ -322,8 +338,8 @@ sub config_key($$)
   my $key = shift || die;
   TRACE "config_key: context=$node->{CONTEXT}, key=$key";
   while(not exists($node->{$key})) {
-    return undef unless($node->{PARENT});
-    $node = $node->{PARENT};
+    # note: all config keys exist in root context (at least with default values)
+    $node = $node->{PARENT} || die;
   }
   TRACE "config_key: found value=" . ($node->{$key} // "<undef>");
   return $node->{$key};
@@ -394,6 +410,7 @@ sub parse_config(@)
   my $cur = $root;
   # set defaults
   foreach (keys %config_options) {
+    next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
     $root->{$_} = $config_options{$_}->{default};
   }
 
@@ -529,13 +546,21 @@ sub parse_config(@)
           return undef;
         }
 
+        if($config_options{$key}->{deprecated}) {
+          WARN "Found deprecated option \"$key $value\" in \"$file\" line $.: " .
+               ($config_options{$key}->{deprecated}->{$value}->{warn} // $config_options{$key}->{deprecated}->{DEFAULT}->{warn});
+          my $replace_key   = $config_options{$key}->{deprecated}->{$value}->{replace_key};
+          my $replace_value = $config_options{$key}->{deprecated}->{$value}->{replace_value};
+          if(defined($replace_key)) {
+            $key = $replace_key;
+            $value = $replace_value;
+            WARN "Using \"$key $value\"";
+          }
+        }
+
         TRACE "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
         $value = undef if($value eq "no");  # we don't want to check for "no" all the time
         $cur->{$key} = $value;
-
-        if($config_options{$key}->{deprecated}) {
-          WARN "Found deprecated configuration option \"$key\" in \"$file\" line $.";
-        }
       }
       else
       {
@@ -1187,6 +1212,7 @@ sub schedule(@)
   my $preserve_daily       = $args{preserve_daily}       // die;
   my $preserve_weekly      = $args{preserve_weekly}      // die;
   my $preserve_monthly     = $args{preserve_monthly}     // die;
+  my $preserve_latest      = $args{preserve_latest}      || 0;
   my $log_verbose          = $args{log_verbose};
 
   if($log_verbose) {
@@ -1220,6 +1246,11 @@ sub schedule(@)
       $href->{delta_months} = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
       $href->{month}        = "$date[0]-$date[1]";
     }
+  }
+
+  if($preserve_latest && (scalar @sorted_schedule)) {
+    my $href = $sorted_schedule[-1];
+    $href->{preserve} ||= "preserve forced: latest in list";
   }
 
   # filter daily, weekly, monthly
@@ -1277,7 +1308,7 @@ MAIN:
   my @today = Today();
 
   my %opts;
-  unless(getopts('hc:vql:p', \%opts)) {
+  unless(getopts('hc:prvql:', \%opts)) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 1;
@@ -1297,6 +1328,7 @@ MAIN:
   @config_src = ( $opts{c} ) if($opts{c});
   my $quiet = $opts{q};
   my $preserve_backups = $opts{p};
+  my $resume_only = $opts{r};
 
   # check command line options
   if($opts{h} || (not $command)) {
@@ -1729,65 +1761,89 @@ MAIN:
 
   if($action_run)
   {
-    #
-    # create snapshots
-    #
-    my $timestamp = sprintf("%04d%02d%02d", @today);
-    foreach my $config_vol (@{$config->{VOLUME}})
+    if($resume_only) {
+      INFO "Skipping snapshot creation (option \"-r\" present)";
+    }
+    else
     {
-      next if($config_vol->{ABORTED});
-      my $sroot = $config_vol->{sroot} || die;
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+      #
+      # create snapshots
+      #
+      my $timestamp = sprintf("%04d%02d%02d", @today);
+      foreach my $config_vol (@{$config->{VOLUME}})
       {
-        next if($config_subvol->{ABORTED});
-        my $svol = $config_subvol->{svol} || die;
-        my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
-        my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
+        next if($config_vol->{ABORTED});
+        my $sroot = $config_vol->{sroot} || die;
+        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+        {
+          next if($config_subvol->{ABORTED});
+          my $svol = $config_subvol->{svol} || die;
+          my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+          my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
 
-        # check if we need to create a snapshot
-        my $create_snapshot = config_key($config_subvol, "snapshot_create_always");
-        foreach my $config_target (@{$config_subvol->{TARGET}}) {
-          next if($config_target->{ABORTED});
-          $create_snapshot = 1 if($config_target->{target_type} eq "send-receive");
-        }
-        unless($create_snapshot) {
-          $config_subvol->{ABORTED} = "No targets defined for subvolume: $svol->{PRINT}";
-          WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
-          next;
-        }
-
-        # find unique snapshot name
-        my @unconfirmed_target_name;
-        my @lookup = keys %{vinfo_subvol_list($sroot)};
-        @lookup = grep s/^\Q$snapdir\E\/// , @lookup;
-        foreach my $config_target (@{$config_subvol->{TARGET}}) {
-          if($config_target->{ABORTED}) {
-            push(@unconfirmed_target_name, vinfo($config_target->{url}, $config_target));
+          # check if we need to create a snapshot
+          my $snapshot_create = config_key($config_subvol, "snapshot_create") // "no";
+          if($snapshot_create eq "no") {
+            DEBUG "Snapshot creation disabled: snapshot_create=no";
             next;
           }
-          my $droot = $config_target->{droot} || die;
-          push(@lookup, keys %{vinfo_subvol_list($droot)});
-        }
-        @lookup = grep /^\Q$snapshot_basename.$timestamp\E(_[0-9]+)?$/ ,@lookup;
-        TRACE "Present snapshot names for \"$svol->{PRINT}\": " . join(', ', @lookup);
-        @lookup = map { /_([0-9]+)$/ ? $1 : 0 } @lookup;
-        @lookup = sort { $b <=> $a } @lookup;
-        my $postfix_counter = $lookup[0] // -1;
-        $postfix_counter++;
-        my $snapshot_name = $snapshot_basename . '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
+          if($snapshot_create eq "always") {
+            DEBUG "Snapshot creation enabled: snapshot_create=always";
+          }
+          elsif($snapshot_create eq "ondemand") {
+            my $snapshot_needed = 0;
+            foreach my $config_target (@{$config_subvol->{TARGET}}) {
+              next if($config_target->{ABORTED});
+              if($config_target->{target_type} eq "send-receive") {
+                $snapshot_needed = 1;
+                last;
+              }
+            }
+            if($snapshot_needed) {
+              DEBUG "Snapshot creation enabled: snapshot_create=ondemand, and at least one send-receive target is present";
+            }
+            else {
+              DEBUG "Snapshot creation disabled: snapshot_create=ondemand, but no send-receive target is present";
+              next;
+            }
+          }
+          else {
+            die "illegal value for snapshot_create configuration option: $snapshot_create";
+          }
 
-        if(@unconfirmed_target_name) {
-          INFO "Failed to check all targets, assuming non-present subvolume \"$snapshot_name\" in: " . join(", ", map { "\"$_->{PRINT}\"" } @unconfirmed_target_name);
-        }
+          # find unique snapshot name
+          my @unconfirmed_target_name;
+          my @lookup = keys %{vinfo_subvol_list($sroot)};
+          @lookup = grep s/^\Q$snapdir\E\/// , @lookup;
+          foreach my $config_target (@{$config_subvol->{TARGET}}) {
+            if($config_target->{ABORTED}) {
+              push(@unconfirmed_target_name, vinfo($config_target->{url}, $config_target));
+              next;
+            }
+            my $droot = $config_target->{droot} || die;
+            push(@lookup, keys %{vinfo_subvol_list($droot)});
+          }
+          @lookup = grep /^\Q$snapshot_basename.$timestamp\E(_[0-9]+)?$/ ,@lookup;
+          TRACE "Present snapshot names for \"$svol->{PRINT}\": " . join(', ', @lookup);
+          @lookup = map { /_([0-9]+)$/ ? $1 : 0 } @lookup;
+          @lookup = sort { $b <=> $a } @lookup;
+          my $postfix_counter = $lookup[0] // -1;
+          $postfix_counter++;
+          my $snapshot_name = $snapshot_basename . '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
 
-        # finally create the snapshot
-        INFO "Creating subvolume snapshot for: $svol->{PRINT}";
-        if(btrfs_subvolume_snapshot($svol, "$sroot->{PATH}/$snapdir/$snapshot_name")) {
-          $config_subvol->{SNAPSHOT} = vinfo_child($sroot, "$snapdir/$snapshot_name");
-        }
-        else {
-          $config_subvol->{ABORTED} = "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir/$snapshot_name";
-          WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
+          if(@unconfirmed_target_name) {
+            INFO "Failed to check all targets, assuming non-present subvolume \"$snapshot_name\" in: " . join(", ", map { "\"$_->{PRINT}\"" } @unconfirmed_target_name);
+          }
+
+          # finally create the snapshot
+          INFO "Creating subvolume snapshot for: $svol->{PRINT}";
+          if(btrfs_subvolume_snapshot($svol, "$sroot->{PATH}/$snapdir/$snapshot_name")) {
+            $config_subvol->{SNAPSHOT} = vinfo_child($sroot, "$snapdir/$snapshot_name");
+          }
+          else {
+            $config_subvol->{ABORTED} = "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir/$snapshot_name";
+            WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
+          }
         }
       }
     }
@@ -1805,6 +1861,7 @@ MAIN:
         my $svol = $config_subvol->{svol} || die;
         my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
         my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
+        my $preserve_latest = $config_subvol->{SNAPSHOT} ? 0 : 1;
 
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
@@ -1814,11 +1871,9 @@ MAIN:
 
           if($target_type eq "send-receive")
           {
-            if(config_key($config_target, "receive_log")) {
-              WARN "Ignoring deprecated option \"receive_log\" for target: $droot->{PRINT}"
-            }
-
+            #
             # resume missing backups (resume_missing)
+            #
             if(config_key($config_target, "resume_missing"))
             {
               INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
@@ -1863,6 +1918,7 @@ MAIN:
                   preserve_daily       => config_key($config_target, "target_preserve_daily"),
                   preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
                   preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+                  preserve_latest      => $preserve_latest,
                  );
                 my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
                 $resume_total = scalar @resume;
@@ -1894,20 +1950,23 @@ MAIN:
               } else {
                 INFO "No missing backups found";
               }
+            } # /resume_missing
+
+            unless($resume_only)
+            {
+              # skip creation if resume_missing failed
+              next if($config_target->{ABORTED});
+              next unless($config_subvol->{SNAPSHOT});
+
+              # finally receive the previously created snapshot
+              INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
+              my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
+              macro_send_receive($config_target,
+                                 snapshot => $config_subvol->{SNAPSHOT},
+                                 target   => $droot,
+                                 parent   => $latest_common_src,  # this is <undef> if no common found
+                                );
             }
-
-            # skip creation if resume_missing failed
-            next if($config_target->{ABORTED});
-            die unless($config_subvol->{SNAPSHOT});
-
-            # finally receive the previously created snapshot
-            INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
-            my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
-            macro_send_receive($config_target,
-                               snapshot => $config_subvol->{SNAPSHOT},
-                               target   => $droot,
-                               parent   => $latest_common_src,  # this is <undef> if no common found
-                              );
           }
           else {
             ERROR "Unknown target type \"$target_type\", skipping: $svol->{PRINT}";
@@ -1921,8 +1980,8 @@ MAIN:
     #
     # remove backups following a preserve daily/weekly/monthly scheme
     #
-    if($preserve_backups) {
-      INFO "Preserving all backups (option \"-p\" present)";
+    if($preserve_backups || $resume_only) {
+      INFO "Preserving all backups (option \"-p\" or \"-r\" present)";
     }
     else
     {
@@ -1936,7 +1995,9 @@ MAIN:
           my $svol = $config_subvol->{svol} || die;
           my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
           my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
+          my $preserve_latest = $config_subvol->{SNAPSHOT} ? 0 : 1;
           my $target_aborted = 0;
+
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             if($config_target->{ABORTED}) {
@@ -1968,6 +2029,7 @@ MAIN:
               preserve_daily       => config_key($config_target, "target_preserve_daily"),
               preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
               preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+              preserve_latest      => $preserve_latest,
               log_verbose          => 1,
              );
             my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_target, "btrfs_commit_delete"));
@@ -2003,6 +2065,7 @@ MAIN:
             preserve_daily       => config_key($config_subvol, "snapshot_preserve_daily"),
             preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
             preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
+            preserve_latest      => $preserve_latest,
             log_verbose          => 1,
            );
           my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_subvol, "btrfs_commit_delete"));
@@ -2033,19 +2096,19 @@ MAIN:
         my $sroot = $config_vol->{sroot} || vinfo($config_vol->{url}, $config_vol);
         foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
         {
+          my @subvol_out;
           my $svol = $config_subvol->{svol} || vinfo_child($sroot, $config_subvol->{rel_path});
-          push @out, "$svol->{PRINT}";
           if($config_vol->{ABORTED}) {
-            push @out, "!!! $sroot->{PRINT}: ABORTED: $config_vol->{ABORTED}";
+            push @subvol_out, "!!! $sroot->{PRINT}: ABORTED: $config_vol->{ABORTED}";
             $err_count++ unless($config_vol->{ABORTED_NOERR});
           }
           if($config_subvol->{ABORTED}) {
-            push @out, "!!! Subvolume \"$svol->{PRINT}\" aborted: $config_subvol->{ABORTED}";
+            push @subvol_out, "!!! Subvolume \"$svol->{PRINT}\" aborted: $config_subvol->{ABORTED}";
             $err_count++ unless($config_subvol->{ABORTED_NOERR});
           }
-          push @out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
+          push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
           if($config_subvol->{SUBVOL_DELETED}) {
-            push @out, "--- $_->{PRINT}" foreach(sort { $b->{PATH} cmp $a->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
+            push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
           }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
@@ -2055,21 +2118,26 @@ MAIN:
               $create_mode = ">>>" if($_->{parent});
               # substr($create_mode, 0, 1, '%') if($_->{resume});
               $create_mode = "!!!" if($_->{ERROR});
-              push @out, "$create_mode $_->{received_subvolume}->{PRINT}";
+              push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
             }
 
             if($config_target->{SUBVOL_DELETED}) {
-              push @out, "--- $_->{PRINT}" foreach(sort { $b->{PATH} cmp $a->{PATH} } @{$config_target->{SUBVOL_DELETED}});
+              push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_target->{SUBVOL_DELETED}});
             }
 
             if($config_target->{ABORTED}) {
-              push @out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
+              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
               $err_count++ unless($config_target->{ABORTED_NOERR});
             }
 
             push(@unrecoverable, $config_target->{UNRECOVERABLE}) if($config_target->{UNRECOVERABLE});
           }
-          push @out, "";
+          if(@subvol_out) {
+            push @out, "$svol->{PRINT}", @subvol_out, "";
+          }
+          else {
+            push @out, "$svol->{PRINT}", "<no_action>", "";
+          }
         }
       }
 
@@ -2087,8 +2155,11 @@ MAIN:
 
       print join("\n", @out);
 
-      if($preserve_backups) {
-        print "\nNOTE: Preserved all backups (option -p present)\n";
+      if($resume_only) {
+        print "\nNOTE: No snapshots created (option -r present)\n";
+      }
+      if($preserve_backups || $resume_only) {
+        print "\nNOTE: Preserved all backups (option -p or -r present)\n";
       }
       if($err_count) {
         print "\nNOTE: Some errors occurred, which may result in missing backups!\n";

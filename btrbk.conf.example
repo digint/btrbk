@@ -22,14 +22,15 @@
 snapshot_dir               _btrbk_snap
 
 # Perform incremental backups (set to "strict" if you want to prevent
-# creation of initial backups if no parent is found).
+# creation of non-incremental backups if no parent is found).
 incremental                yes
 
-# Always create snapshots, even if the target volume is unreachable.
-snapshot_create_always     yes
+# Always create snapshots (set to "ondemand" to only create snapshots
+# if the target volume is reachable).
+snapshot_create            always
 
-# Resume missing backups if the target volume is reachable again.
-# Useful in conjunction with "snapshot_create_always".
+# Resume missing backups if the target volume is reachable again (set
+# to "no" if you don't want to resume missing backups).
 resume_missing             yes
 
 # ssh key for ssh volumes/targets
@@ -114,4 +115,16 @@ volume ssh://my-remote-host.com/mnt/btr_pool
   subvolume data_0
     snapshot_dir  snapshots/btrbk
     snapshot_name data_main
+    target send-receive    /mnt/btr_backup/_btrbk/my-remote-host.com
+
+
+# Resume backups from remote host which runs its own btrbk instance
+# creating snapshots for "home" in "/mnt/btr_pool/btrbk_snapshots".
+volume ssh://my-remote-host.com/mnt/btr_pool
+  subvolume home
+    snapshot_dir  btrbk_snapshots
+    snapshot_preserve_daily  all
+    snapshot_create          no
+    resume_missing           yes
+
     target send-receive    /mnt/btr_backup/_btrbk/my-remote-host.com
