@@ -53,21 +53,26 @@ volume/subvolume declaration in the configuration file), and the -p
 (preserve backups) option is implied.
 .PP
 First, btrbk reads information from the source and target btrfs
-volumes in order to perform sanity checks and identify parent/child
-and received-from relationships.
+filesystems in order to perform sanity checks and identify
+parent/child and received-from relationships.
 .PP
 If the checks succeed, btrbk creates snapshots for all the source
 subvolumes specified in the configuration file.
 .PP
-Then, for each specified target, btrbk creates a new backup subvolume,
-incremental from the latest common snapshot / backup subvolume
-found. If no common parent subvolume is found, a full backup is
-created. This is also done for all missing backups if the
-\fIresume_missing\fR option is set.
+Then, for each specified target, btrbk creates the backups as follows:
+If the \fIresume_missing\fR option is set (the default), btrbk
+transfers all missing snapshots needed to satisfy the configured
+\fItarget_preserve_{daily,weekly,monthly}\fR retention policy, always
+incremental from the latest common parent subvolume found. If no
+common parent subvolume is found, a full backup is created for the
+first transfer. Note that the latest snapshot (the one created in the
+first step) is always transferred, regardless of the retention policy.
 .PP
-In a last step, previous snapshots and backup subvolumes that are not
-preserved by their configured retention policy will be deleted. This
-step will be skipped if the -p (preserve backups) option is present.
+In a last step, unless the -p (preserve backups) option is set,
+snapshots and backup subvolumes that are not preserved by their
+configured retention policy will be deleted. Note that the latest
+snapshot as well as the latest backup is always preserved, regardless
+of the retention policy.
 .RE
 .PP
 .B dryrun
