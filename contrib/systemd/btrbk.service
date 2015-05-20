@@ -1,0 +1,6 @@
+[Unit]
+Description=btrbk backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/btrbk run

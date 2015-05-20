@@ -5,6 +5,7 @@ btrbk-current
     compatibility with all linux distros out there, which all install
     'btrfs' in different locations (closes: #20).
   * Catch and display errors from "btrfs subvolume show".
+  * Include systemd service and timer unit for daily backups.
 
 btrbk-0.17.1
 
