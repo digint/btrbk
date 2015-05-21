@@ -3,4 +3,4 @@ Description=btrbk backup
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/btrbk run
+ExecStart=/usr/sbin/btrbk run
