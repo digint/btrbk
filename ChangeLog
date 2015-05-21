@@ -1,6 +1,10 @@
-btrbk-current
+btrbk-0.18.0
 
-  * IMPORTANT: please update ssh_filter_btrbk.sh on all remote hosts!
+  * MIGRATION
+    - update ssh_filter_btrbk.sh on all remote hosts
+    - update configuration file (/etc/btrbk/btrbk.conf):
+      - "snapshot_create_always yes" -> "snapshot_create always"
+      - "snapshot_create_always no"  -> "snapshot_create ondemand"
   * Set PATH variable instead of using absolute "/sbin/btrfs" for
     compatibility with all linux distros out there, which all install
     'btrfs' in different locations (closes: #20).
