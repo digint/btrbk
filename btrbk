@@ -1822,19 +1822,12 @@ MAIN:
             DEBUG "Snapshot creation enabled: snapshot_create=onchange, gen=$svol->{gen} > snapshot_gen=$latest->{gen}";
           }
           elsif($snapshot_create eq "ondemand") {
-            my $snapshot_needed = 0;
-            foreach my $config_target (@{$config_subvol->{TARGET}}) {
-              next if($config_target->{ABORTED});
-              if($config_target->{target_type} eq "send-receive") {
-                $snapshot_needed = 1;
-                last;
-              }
-            }
-            if($snapshot_needed) {
-              DEBUG "Snapshot creation enabled: snapshot_create=ondemand, and at least one send-receive target is present";
+            # check if at least one target is present
+            if(scalar grep { not $_->{ABORTED} } @{$config_subvol->{TARGET}}) {
+              DEBUG "Snapshot creation enabled (snapshot_create=ondemand): at least one send-receive target is present";
             }
             else {
-              DEBUG "Snapshot creation disabled: snapshot_create=ondemand, but no send-receive target is present";
+              INFO "Snapshot creation skipped: snapshot_create=ondemand, and no send-receive target is present for: $svol->{PRINT}";
               next;
             }
           }
