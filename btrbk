@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.18.0";
+our $VERSION       = "0.19.0-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -62,7 +62,7 @@ my %config_options = (
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   snapshot_dir              => { default => undef,    accept_file => { relative => 1 } },
   snapshot_name             => { default => undef,    accept_file => { name_only => 1 }, context => [ "subvolume" ] },
-  snapshot_create           => { default => "always", accept => [ "no", "always", "ondemand" ] },
+  snapshot_create           => { default => "always", accept => [ "no", "always", "ondemand", "onchange" ] },
   incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
   resume_missing            => { default => "yes",    accept => [ "yes", "no" ] },
   preserve_day_of_week      => { default => "sunday", accept => [ (keys %day_of_week_map) ] },
@@ -1173,6 +1173,27 @@ sub get_latest_common($$$;$)
 }
 
 
+sub get_latest_snapshot_child($$)
+{
+  my $sroot = shift || die;
+  my $svol = shift // die;
+  my $latest = undef;
+  my $gen = -1;
+  foreach (get_snapshot_children($sroot, $svol)) {
+    if($_->{gen} > $gen) {
+      $latest = $_;
+      $gen = $_->{gen};
+    }
+  }
+  if($latest) {
+    DEBUG "Latest snapshot child for \"$svol->{PRINT}#$svol->{gen}\" is: $latest->{PRINT}#$latest->{gen}";
+  } else {
+    DEBUG "No latest snapshots found for: $svol->{PRINT}";
+  }
+  return $latest;
+}
+
+
 sub _origin_tree
 {
   my $prefix = shift;
@@ -1782,13 +1803,23 @@ MAIN:
           my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
 
           # check if we need to create a snapshot
-          my $snapshot_create = config_key($config_subvol, "snapshot_create") // "no";
-          if($snapshot_create eq "no") {
-            DEBUG "Snapshot creation disabled: snapshot_create=no";
+          my $snapshot_create = config_key($config_subvol, "snapshot_create");
+          if(not $snapshot_create) {
+            DEBUG "Snapshot creation disabled (snapshot_create=no)";
             next;
           }
-          if($snapshot_create eq "always") {
-            DEBUG "Snapshot creation enabled: snapshot_create=always";
+          elsif($snapshot_create eq "always") {
+            DEBUG "Snapshot creation enabled (snapshot_create=always)";
+          }
+          elsif($snapshot_create eq "onchange") {
+            # check if latest snapshot is up-to-date with source subvolume (by generation)
+            my $latest = get_latest_snapshot_child($sroot, $svol);
+            if($latest && ($latest->{gen} == $svol->{gen})) {
+              INFO "Snapshot creation skipped: snapshot_create=onchange, snapshot is up-to-date: $latest->{PRINT}";
+              $config_subvol->{SNAPSHOT_UP_TO_DATE} = $latest;
+              next;
+            }
+            DEBUG "Snapshot creation enabled: snapshot_create=onchange, gen=$svol->{gen} > snapshot_gen=$latest->{gen}";
           }
           elsif($snapshot_create eq "ondemand") {
             my $snapshot_needed = 0;
@@ -2106,6 +2137,7 @@ MAIN:
             push @subvol_out, "!!! Subvolume \"$svol->{PRINT}\" aborted: $config_subvol->{ABORTED}";
             $err_count++ unless($config_subvol->{ABORTED_NOERR});
           }
+          push @subvol_out, "=== $config_subvol->{SNAPSHOT_UP_TO_DATE}->{PRINT}" if($config_subvol->{SNAPSHOT_UP_TO_DATE});
           push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
           if($config_subvol->{SUBVOL_DELETED}) {
             push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
@@ -2146,6 +2178,7 @@ MAIN:
       print "    Date:   " . localtime($start_time) . "\n";
       print "    Config: $config->{SRC_FILE}\n";
       print "\nLegend:\n";
+      print "    ===  up-to-date subvolume (source snapshot)\n";
       print "    +++  created subvolume (source snapshot)\n";
       print "    ---  deleted subvolume\n";
       print "    ***  received subvolume (non-incremental)\n";

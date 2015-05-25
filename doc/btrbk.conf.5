@@ -55,15 +55,18 @@ will fail if it is not present.
 backup). This option is only valid in the \fItarget\fR
 section. Defaults to \fI<subvolume-name>\fR.
 .TP
-\fBsnapshot_create\fR  always|ondemand|no
-If set to \[lq]ondemand\[rq], the snapshots are only created if the
-target subvolume is reachable (useful if you are tight on disk space
-and you only need btrbk for backups to an external disk which is not
-always connected). If set to \[lq]always\[rq], the snapshots are
-always created, regardless of the target reachability. If set to
-\[lq]no\[rq], the snapshots are never created (useful in conjunction
-with the \fIresume_missing\fR option if another instance of btrbk is
-taking care of snapshot creation). Defaults to \[lq]always\[rq].
+\fBsnapshot_create\fR  always|ondemand|onchange|no
+If set to \[lq]ondemand\[rq], snapshots are only created if the target
+subvolume is reachable (useful if you are tight on disk space and you
+only need btrbk for backups to an external disk which is not always
+connected).  If set to \[lq]onchange\[rq], snapshots are only created
+if the source subvolume has changed since the last snapshot (more
+precisely: if the btrfs generation has been increased since the last
+snapshot). If set to \[lq]always\[rq], snapshots are always
+created. If set to \[lq]no\[rq], the snapshots are never created
+(useful in conjunction with the \fIresume_missing\fR option if another
+instance of btrbk is taking care of snapshot creation). Defaults to
+\[lq]always\[rq].
 .TP
 \fBincremental\fR  yes|no|strict
 If set, incremental backups are created. If set to \[lq]strict\[rq],
