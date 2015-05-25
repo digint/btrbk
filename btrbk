@@ -1213,10 +1213,11 @@ sub _origin_tree
   $prefix =~ s/./ /g;
   if($node->{received_uuid}) {
     if($node->{received_uuid} ne '-') {
-      _origin_tree("${prefix}^---", $node->{received_uuid}, $lines);
+      _origin_tree("${prefix}^-- ", $node->{received_uuid}, $lines);
     }
   } else {
-    push(@$lines,  ["$prefix^---<missing_received_uuid>", $uuid]);  # printed if "btrfs_progs_compat" is set
+    # printed if "btrfs_progs_compat" is set
+    push(@$lines,  ["$prefix^-- <missing_received_uuid>", $uuid]);
   }
   if($node->{parent_uuid} ne '-') {
     _origin_tree("${prefix}", $node->{parent_uuid}, $lines);
@@ -1710,7 +1711,7 @@ MAIN:
 
     print "--------------------------------------------------------------------------------\n";
     print "Origin Tree\n\n";
-    print "    ^---    : received from subvolume\n";
+    print "    ^--     : received from subvolume\n";
     print "    newline : parent subvolume\n";
     print "    orphaned: subvolume uuid could not be resolved (probably deleted)\n";
     print "--------------------------------------------------------------------------------\n";
@@ -1748,14 +1749,18 @@ MAIN:
         push @out, "|-- $svol->{PRINT}";
         foreach my $snapshot (sort { $a->{PATH} cmp $b->{PATH} } get_snapshot_children($sroot, $svol))
         {
-          push @out, "|   ^-- $snapshot->{PATH}";
+          if($snapshot->{gen} == $svol->{gen}) {
+            push @out, "|   ^== $snapshot->{PATH}";
+          } else {
+            push @out, "|   ^-- $snapshot->{PATH}";
+          }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
-              push @out, "|   |   ^== $_->{PRINT}";
+              push @out, "|   |   >>> $_->{PRINT}";
             }
           }
         }
@@ -1771,8 +1776,9 @@ MAIN:
     print "    Date:   " . localtime($start_time) . "\n";
     print "    Config: $config->{SRC_FILE}\n";
     print "\nLegend:\n";
-    print "    ^---  snapshot\n";
-    print "    ^===  received subvolume (backup)\n";
+    print "    ^--  snapshot\n";
+    print "    ^==  snapshot (up-to-date)\n";
+    print "    >>>  received subvolume (backup)\n";
     print "--------------------------------------------------------------------------------\n";
 
     print join("\n", @out);
