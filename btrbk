@@ -1399,12 +1399,17 @@ MAIN:
   # input validation
   foreach (@subvol_args) {
     s/\/+$//;   # remove trailing slash
-    unless(/^(($ssh_prefix_match)?\/$file_match)$/) {  # matches ssh statement or absolute file
+    if(/^(($ssh_prefix_match)?\/$file_match)$/) {  # matches ssh statement or absolute file
+      $_ = $1; # untaint argument
+    }
+    elsif(/^(?<host>$ip_addr_match|$host_name_match):\/(?<file>$file_match)$/) {  # convert "my.host.com:/my/path" to ssh url
+      $_ = "ssh://$+{host}/$+{file}";
+    }
+    else {
       ERROR "Bad argument: not a subvolume declaration: $_";
       HELP_MESSAGE(0);
       exit 1;
     }
-    $_ = $1; # untaint argument
   }
 
 
