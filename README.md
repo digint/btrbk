@@ -5,10 +5,11 @@ btrbk is a backup tool for btrfs subvolumes, taking advantage of btrfs
 specific capabilities to create atomic snapshots and transfer them
 incrementally to your backup locations.
 
-The source and target locations are specified in a config file. This
-allows simple setups on a single machine with locally attached backup
-disks, as well as handling more complex scenarios on a server
-receiving backups from several hosts via ssh.
+The source and target locations are specified in a config file, which
+allows to easily configure simple scenarios like "laptop with locally
+attached backup disks", as well as more complex ones, e.g. "server
+receiving backups from several hosts via ssh, with different retention
+policy".
 
 Key Features:
 
@@ -165,7 +166,7 @@ attached, simply add the following line to the config:
 Example: host-initiated backup on fileserver
 --------------------------------------------
 
-Lets say you have a fileserver at "myserver.mydomain.com" where you
+Let's say you have a fileserver at "myserver.mydomain.com" where you
 want to create backups of your laptop disk, the config would look like
 this:
 
@@ -214,7 +215,7 @@ This will pull backups from alpha/beta.mydomain.com and locally create:
 Example: local time-machine (daily snapshots)
 ---------------------------------------------
 
-If all you want is creating snapshots of your home directory on a
+If all you want is to create snapshots of your home directory on a
 regular basis:
 
 /etc/btrbk/btrbk.conf:
@@ -256,19 +257,19 @@ to only fetch the snapshots.
         target send-receive  /mnt/btr_backup/my-laptop.com
 
 If the server runs btrbk with this config, the latest snapshot (which
-is *always* transferred) as well as 10 weeklies and all monthlies are
-received from 192.168.0.42. The source filesystem is never altered
-because of `snapshot_preserve_daily all`.
+is *always* transferred), 10 weeklies and all monthlies are received
+from 192.168.0.42. The source filesystem is never altered because of
+`snapshot_preserve_daily all`.
 
 
 Setting up SSH
 ==============
 
 Since btrbk needs root access on the remote side, it is *very
-advisable* to take all security precautions you can. Usually backups
-are generated periodically without user interaction, so it is not
-possible to protect your ssh key with a password. The steps below
-shall give you hints on how to secure your ssh server for a backup
+advisable* to take all the security precautions you can. Usually
+backups are generated periodically without user interaction, so it is
+not possible to protect your ssh key with a password. The steps below
+will give you hints on how to secure your ssh server for a backup
 scenario.
 
 btrbk provides a little shell script called "ssh_filter_btrbk.sh",
@@ -320,7 +321,7 @@ Now restore the snapshot:
 
     btrfs subvolume snapshot /mnt/btr_pool/_btrbk_snap/data.20150101 /mnt/btr_pool/data
 
-That's it, your `data` subvolume is restored. If everything went fine,
+That's it; your `data` subvolume is restored. If everything went fine,
 it's time to nuke the broken subvolume:
 
     btrfs subvolume delete /mnt/btr_pool/data.BROKEN
@@ -373,7 +374,7 @@ How to Contribute
 
 Your contributions are welcome!
 
-If you would like to contribute or found bugs:
+If you would like to contribute or have found bugs:
 
 - Visit the [btrbk project page on GitHub] and use the [issues
   tracker] there.

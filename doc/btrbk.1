@@ -1,4 +1,4 @@
-.TH "btrbk" "1" "2015-05-21" "btrbk v0.18.0" ""
+.TH "btrbk" "1" "2015-05-25" "btrbk v0.18.0" ""
 .SH NAME
 btrbk \- backup tool for btrfs volumes
 .SH SYNOPSIS
@@ -63,12 +63,12 @@ Then, for each specified target, btrbk creates the backups as follows:
 If the \fIresume_missing\fR option is set (the default), btrbk
 transfers all missing snapshots needed to satisfy the configured
 \fItarget_preserve_{daily,weekly,monthly}\fR retention policy, always
-incremental from the latest common parent subvolume found. If no
+incrementally from the latest common parent subvolume found. If no
 common parent subvolume is found, a full backup is created for the
 first transfer. Note that the latest snapshot (the one created in the
 first step) is always transferred, regardless of the retention policy.
 .PP
-In a last step, unless the -p (preserve backups) option is set,
+As a last step, unless the -p (preserve backups) option is set,
 snapshots and backup subvolumes that are not preserved by their
 configured retention policy will be deleted. Note that the latest
 snapshot as well as the latest backup is always preserved, regardless
@@ -119,7 +119,7 @@ are described in
 .PD
 .SH EXIT STATUS
 .sp
-\fBbtrbk\fR returns a zero exit status if it succeeds. Non zero is
+\fBbtrbk\fR returns a zero exit status if it succeeds. Non-zero is
 returned in case of failure.
 .SH AVAILABILITY
 Please refer to the btrbk project page
