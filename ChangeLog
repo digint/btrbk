@@ -2,7 +2,9 @@ btrbk-current
 
   * Added "snapshot_create onchange", which skips snapshot creation if
     the latest snapshot is up-to-date (i.e. has same generation as the
-    source subvolume)
+    source subvolume).
+  * Improved handling of command line subvolume filter for run/dryrun
+    action (closes: #21).
 
 btrbk-0.18.0
 

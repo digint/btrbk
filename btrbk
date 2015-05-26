@@ -139,12 +139,12 @@ sub HELP_MESSAGE
   print STDERR "   -l LEVEL    set loglevel (warn, info, debug, trace)\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   run         perform backup operations as defined in the configuration\n";
-  print STDERR "   dryrun      don't run btrfs commands, just show what would be executed\n";
-  print STDERR "   info        print useful filesystem information\n";
-  print STDERR "   tree        shows backup tree\n";
-  print STDERR "   origin <subvol>   print origin information for subvolume\n";
-  print STDERR "   diff <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
+  print STDERR "   run    [subvol...]  perform backup operations as defined in the config file\n";
+  print STDERR "   dryrun [subvol...]  don't run btrfs commands; show what would be executed\n";
+  print STDERR "   info                print useful filesystem information\n";
+  print STDERR "   tree                shows backup tree\n";
+  print STDERR "   origin <subvol>     print origin information for subvolume\n";
+  print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
@@ -1575,25 +1575,32 @@ MAIN:
   if($action_run && scalar(@subvol_args))
   {
     my $filter_count = undef;
+    $config->{RUN_FILTER} = [];
     foreach my $config_vol (@{$config->{VOLUME}})
     {
+      my $vol_url = $config_vol->{url} // die;
+      if(grep(/^\Q$vol_url\E$/, @subvol_args)) {
+        $filter_count++;
+        push(@{$config->{RUN_FILTER}}, vinfo($vol_url, $config_vol));
+        next;
+      }
+
       my $subvol_filter_count = 0;
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
         my $svol_url = $config_subvol->{url} // die;
         if(grep(/^\Q$svol_url\E$/, @subvol_args)) {
           $subvol_filter_count++;
+          push(@{$config->{RUN_FILTER}}, vinfo($svol_url, $config_subvol));
         }
         else {
-          DEBUG "No match on subvolume command line argument, skipping: $svol_url";
-          $config_subvol->{ABORTED} = "No match on subvolume command line arguments";
-          $config_subvol->{ABORTED_NOERR} = 1;
-          next;
+          DEBUG "No match on subvolume command line argument, skipping subvolume: $svol_url";
+          $config_subvol->{ABORTED} = "USER_SKIP";
         }
       }
       if($subvol_filter_count == 0) {
-        $config_vol->{ABORTED} = "No match on subvolume command line arguments";
-        $config_vol->{ABORTED_NOERR} = 1;
+        DEBUG "No match on subvolume command line argument, skipping volume: $vol_url";
+        $config_vol->{ABORTED} = "USER_SKIP";
       }
       $filter_count += $subvol_filter_count;
     }
@@ -2138,14 +2145,6 @@ MAIN:
         {
           my @subvol_out;
           my $svol = $config_subvol->{svol} || vinfo_child($sroot, $config_subvol->{rel_path});
-          if($config_vol->{ABORTED}) {
-            push @subvol_out, "!!! $sroot->{PRINT}: ABORTED: $config_vol->{ABORTED}";
-            $err_count++ unless($config_vol->{ABORTED_NOERR});
-          }
-          if($config_subvol->{ABORTED}) {
-            push @subvol_out, "!!! Subvolume \"$svol->{PRINT}\" aborted: $config_subvol->{ABORTED}";
-            $err_count++ unless($config_subvol->{ABORTED_NOERR});
-          }
           push @subvol_out, "=== $config_subvol->{SNAPSHOT_UP_TO_DATE}->{PRINT}" if($config_subvol->{SNAPSHOT_UP_TO_DATE});
           push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
           if($config_subvol->{SUBVOL_DELETED}) {
@@ -2166,17 +2165,26 @@ MAIN:
               push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_target->{SUBVOL_DELETED}});
             }
 
-            if($config_target->{ABORTED}) {
+            if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) {
               push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
-              $err_count++ unless($config_target->{ABORTED_NOERR});
+              $err_count++;
             }
 
             push(@unrecoverable, $config_target->{UNRECOVERABLE}) if($config_target->{UNRECOVERABLE});
           }
+          if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
+            push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: $config_vol->{ABORTED}";
+            $err_count++;
+          }
+          if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) {
+            push @subvol_out, "!!! Aborted: $config_subvol->{ABORTED}";
+            $err_count++;
+          }
+
           if(@subvol_out) {
             push @out, "$svol->{PRINT}", @subvol_out, "";
           }
-          else {
+          elsif($config_subvol->{ABORTED} ne "USER_SKIP") {
             push @out, "$svol->{PRINT}", "<no_action>", "";
           }
         }
@@ -2186,6 +2194,11 @@ MAIN:
       print "Backup Summary ($version_info)\n\n";
       print "    Date:   " . localtime($start_time) . "\n";
       print "    Config: $config->{SRC_FILE}\n";
+      if($config->{RUN_FILTER}) {
+        print "    Filter: ";
+        print join("\n            ", map { $_->{PRINT} } @{$config->{RUN_FILTER}});
+        print "\n";
+      }
       print "\nLegend:\n";
       print "    ===  up-to-date subvolume (source snapshot)\n";
       print "    +++  created subvolume (source snapshot)\n";
