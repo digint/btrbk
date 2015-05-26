@@ -1317,6 +1317,35 @@ sub schedule(@)
 }
 
 
+sub print_header(@) {
+  my %args = @_;
+  my $config = $args{config};
+
+  print "--------------------------------------------------------------------------------\n";
+  print "$args{title} ($version_info)\n\n";
+  if($args{time}) {
+    print "    Date:   " . localtime($args{time}) . "\n";
+  }
+  if($config) {
+    print "    Config: $config->{SRC_FILE}\n";
+    if($config->{RUN_FILTER}) {
+      print "    Filter: ";
+      print join("\n            ", map { $_->{PRINT} } @{$config->{RUN_FILTER}});
+      print "\n";
+    }
+  }
+  if($args{info}) {
+    print "\n" . join("\n", grep(defined, @{$args{info}})) . "\n";
+  }
+  if($args{legend}) {
+    print "\nLegend:\n    ";
+    print join("\n    ", @{$args{legend}});
+    print "\n";
+  }
+  print "--------------------------------------------------------------------------------\n";
+}
+
+
 MAIN:
 {
   # set PATH instead of using absolute "/sbin/btrfs" (for now), as
@@ -1464,19 +1493,28 @@ MAIN:
     my $ret = btrfs_subvolume_find_new($target_vol, $lastgen);
     exit 1 unless(ref($ret));
 
-    print "--------------------------------------------------------------------------------\n";
-    print "Showing changed files for subvolume:\n  $target_vol->{PRINT}  (gen=$target_vol->{gen})\n";
-    print "\nStarting at creation generation of subvolume:\n  $src_vol->{PRINT}  (cgen=$src_vol->{cgen})\n";
-    print "\nThis will show all files modified within generation range: [$lastgen..$target_vol->{gen}]\n";
-    print "Newest file generation (transid marker) was: $ret->{transid_marker}\n";
-    print "Parse errors: $ret->{parse_errors}\n" if($ret->{parse_errors});
-    print "\nLegend: <flags> <count> <size> <filename>\n";
-    print "  +..     file accessed at offset 0 (at least once)\n";
-    print "  .c.     flags COMPRESS or COMPRESS|INLINE set (at least once)\n";
-    print "  ..i     flags INLINE or COMPRESS|INLINE set (at least once)\n";
-    print "  <count> file was modified in <count> generations\n";
-    print "  <size>  file was modified for a total of <size> bytes\n";
-    print "--------------------------------------------------------------------------------\n";
+    print_header(title => "Subvolume Diff",
+                 time => $start_time,
+                 info => [
+                   "Showing changed files for subvolume:",
+                   "  $target_vol->{PRINT}  (gen=$target_vol->{gen})",
+                   "",
+                   "Starting at creation generation of subvolume:",
+                   "  $src_vol->{PRINT}  (cgen=$src_vol->{cgen})",
+                   "",
+                   "This will show all files modified within generation range: [$lastgen..$target_vol->{gen}]",
+                   "Newest file generation (transid marker) was: $ret->{transid_marker}",
+                   ($ret->{parse_errors} ? "Parse errors: $ret->{parse_errors}" : undef),
+                  ],
+                 legend => [
+                   "+..     file accessed at offset 0 (at least once)",
+                   ".c.     flags COMPRESS or COMPRESS|INLINE set (at least once)",
+                   "..i     flags INLINE or COMPRESS|INLINE set (at least once)",
+                   "<count> file was modified in <count> generations",
+                   "<size>  file was modified for a total of <size> bytes",
+                  ]
+                );
+
     my $files = $ret->{files};
 
     # calculate the character offsets
@@ -1724,12 +1762,15 @@ MAIN:
     my $lines = [];
     _origin_tree("", $vol->{uuid}, $lines);
 
-    print "--------------------------------------------------------------------------------\n";
-    print "Origin Tree\n\n";
-    print "    ^--     : received from subvolume\n";
-    print "    newline : parent subvolume\n";
-    print "    orphaned: subvolume uuid could not be resolved (probably deleted)\n";
-    print "--------------------------------------------------------------------------------\n";
+    print_header(title => "Origin Tree",
+                 config => $config,
+                 time => $start_time,
+                 legend => [
+                   "^--     : received from subvolume",
+                   "newline : parent subvolume",
+                   "orphaned: subvolume uuid could not be resolved (probably deleted)",
+                  ]
+                );
 
     my $len = 0;
     if($dump_uuid) {
@@ -1786,16 +1827,16 @@ MAIN:
       }
       push @out, "";
     }
-    print "--------------------------------------------------------------------------------\n";
-    print "Backup Tree\n\n";
-    print "    Date:   " . localtime($start_time) . "\n";
-    print "    Config: $config->{SRC_FILE}\n";
-    print "\nLegend:\n";
-    print "    ^--  snapshot\n";
-    print "    ^==  snapshot (up-to-date)\n";
-    print "    >>>  received subvolume (backup)\n";
-    print "--------------------------------------------------------------------------------\n";
 
+    print_header(title => "Backup Tree",
+                 config => $config,
+                 time => $start_time,
+                 legend => [
+                   "^--  snapshot",
+                   "^==  snapshot (up-to-date)",
+                   ">>>  received subvolume (backup)",
+                  ]
+                );
     print join("\n", @out);
     exit 0;
   }
@@ -2193,24 +2234,18 @@ MAIN:
         }
       }
 
-      print "--------------------------------------------------------------------------------\n";
-      print "Backup Summary ($version_info)\n\n";
-      print "    Date:   " . localtime($start_time) . "\n";
-      print "    Config: $config->{SRC_FILE}\n";
-      if($config->{RUN_FILTER}) {
-        print "    Filter: ";
-        print join("\n            ", map { $_->{PRINT} } @{$config->{RUN_FILTER}});
-        print "\n";
-      }
-      print "\nLegend:\n";
-      print "    ===  up-to-date subvolume (source snapshot)\n";
-      print "    +++  created subvolume (source snapshot)\n";
-      print "    ---  deleted subvolume\n";
-      print "    ***  received subvolume (non-incremental)\n";
-      print "    >>>  received subvolume (incremental)\n";
-      # print "    %>>  received subvolume (incremental, resume_missing)\n";
-      print "--------------------------------------------------------------------------------\n";
-
+      print_header(title => "Backup Summary",
+                   config => $config,
+                   time => $start_time,
+                   legend => [
+                     "===  up-to-date subvolume (source snapshot)",
+                     "+++  created subvolume (source snapshot)",
+                     "---  deleted subvolume",
+                     "***  received subvolume (non-incremental)",
+                     ">>>  received subvolume (incremental)",
+                     # "%>>  received subvolume (incremental, resume_missing)",
+                    ],
+                  );
       print join("\n", @out);
 
       if($resume_only) {
