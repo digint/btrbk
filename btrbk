@@ -1825,12 +1825,17 @@ MAIN:
           elsif($snapshot_create eq "onchange") {
             # check if latest snapshot is up-to-date with source subvolume (by generation)
             my $latest = get_latest_snapshot_child($sroot, $svol);
-            if($latest && ($latest->{gen} == $svol->{gen})) {
-              INFO "Snapshot creation skipped: snapshot_create=onchange, snapshot is up-to-date: $latest->{PRINT}";
-              $config_subvol->{SNAPSHOT_UP_TO_DATE} = $latest;
-              next;
+            if($latest) {
+              if($latest->{gen} == $svol->{gen}) {
+                INFO "Snapshot creation skipped: snapshot_create=onchange, snapshot is up-to-date: $latest->{PRINT}";
+                $config_subvol->{SNAPSHOT_UP_TO_DATE} = $latest;
+                next;
+              }
+              DEBUG "Snapshot creation enabled: snapshot_create=onchange, gen=$svol->{gen} > snapshot_gen=$latest->{gen}";
             }
-            DEBUG "Snapshot creation enabled: snapshot_create=onchange, gen=$svol->{gen} > snapshot_gen=$latest->{gen}";
+            else {
+              DEBUG "Snapshot creation enabled: snapshot_create=onchange, no snapshots found";
+            }
           }
           elsif($snapshot_create eq "ondemand") {
             # check if at least one target is present
