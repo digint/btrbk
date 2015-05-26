@@ -141,8 +141,8 @@ sub HELP_MESSAGE
   print STDERR "commands:\n";
   print STDERR "   run    [subvol...]  perform backup operations as defined in the config file\n";
   print STDERR "   dryrun [subvol...]  don't run btrfs commands; show what would be executed\n";
+  print STDERR "   tree   [subvol...]  shows backup tree\n";
   print STDERR "   info                print useful filesystem information\n";
-  print STDERR "   tree                shows backup tree\n";
   print STDERR "   origin <subvol>     print origin information for subvolume\n";
   print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
   print STDERR "\n";
@@ -1374,6 +1374,9 @@ MAIN:
   }
   elsif ($command eq "tree") {
     $action_tree = 1;
+    $args_expected_min = 0;
+    $args_expected_max = 9999;
+    @subvol_args = @ARGV;
   }
   elsif ($command eq "diff") {
     $action_diff = 1;
@@ -1572,7 +1575,7 @@ MAIN:
   #
   # filter subvolumes matching command line arguments
   #
-  if($action_run && scalar(@subvol_args))
+  if(($action_run || $action_tree) && scalar(@subvol_args))
   {
     my $filter_count = undef;
     $config->{RUN_FILTER} = [];
