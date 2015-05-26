@@ -338,8 +338,10 @@ sub config_key($$)
   my $key = shift || die;
   TRACE "config_key: context=$node->{CONTEXT}, key=$key";
   while(not exists($node->{$key})) {
-    # note: all config keys exist in root context (at least with default values)
-    $node = $node->{PARENT} || die;
+    # note: while all config keys exist in root context (at least with default values),
+    #       we also allow fake configs (CONTEXT="cmdline") which have no PARENT.
+    return undef unless($node->{PARENT});
+    $node = $node->{PARENT};
   }
   TRACE "config_key: found value=" . ($node->{$key} // "<undef>");
   return $node->{$key};

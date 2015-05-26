@@ -5,6 +5,7 @@ btrbk-current
     source subvolume).
   * Improved handling of command line subvolume filter for "run",
     "dryrun" and "tree" actions (closes: #21).
+  * Bugfix: fixed crash in action "diff".
 
 btrbk-0.18.0
 
