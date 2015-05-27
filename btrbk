@@ -142,7 +142,7 @@ sub HELP_MESSAGE
   print STDERR "   run    [subvol...]  perform backup operations as defined in the config file\n";
   print STDERR "   dryrun [subvol...]  don't run btrfs commands; show what would be executed\n";
   print STDERR "   tree   [subvol...]  shows backup tree\n";
-  print STDERR "   info                print useful filesystem information\n";
+  print STDERR "   info   [subvol...]  print useful filesystem information\n";
   print STDERR "   origin <subvol>     print origin information for subvolume\n";
   print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
   print STDERR "\n";
@@ -1330,9 +1330,9 @@ sub print_header(@) {
   }
   if($config) {
     print "    Config: $config->{SRC_FILE}\n";
-    if($config->{CMDLINE_FILTER}) {
+    if($config->{CMDLINE_FILTER_LIST}) {
       print "    Filter: ";
-      print join("\n            ", map { $_->{PRINT} } @{$config->{CMDLINE_FILTER}});
+      print join("\n            ", map { $_->{PRINT} } @{$config->{CMDLINE_FILTER_LIST}});
       print "\n";
     }
   }
@@ -1402,6 +1402,9 @@ MAIN:
   }
   elsif ($command eq "info") {
     $action_info = 1;
+    $args_expected_min = 0;
+    $args_expected_max = 9999;
+    @subvol_args = @ARGV;
   }
   elsif ($command eq "tree") {
     $action_tree = 1;
@@ -1562,60 +1565,10 @@ MAIN:
   }
 
 
-
-  if($action_info)
-  {
-    #
-    # print filesystem information
-    #
-    print "================================================================================\n";
-    print "Filesystem information ($version_info)\n\n";
-    print "    Date:   " . localtime($start_time) . "\n";
-    print "    Config: $config->{SRC_FILE}\n";
-    print "================================================================================\n";
-
-    my %processed;
-    foreach my $config_vol (@{$config->{VOLUME}})
-    {
-      my $sroot = vinfo($config_vol->{url}, $config_vol);
-      unless($processed{$sroot->{URL}})
-      {
-        print "\n--------------------------------------------------------------------------------\n";
-        print "Source volume: $sroot->{PRINT}\n";
-        print "--------------------------------------------------------------------------------\n";
-        print (btrfs_filesystem_usage($sroot) // "");
-        print "\n";
-        $processed{$sroot->{URL}} = 1;
-      }
-    }
-
-    foreach my $config_vol (@{$config->{VOLUME}}) {
-      my $sroot = vinfo($config_vol->{url}, $config_vol);
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-        foreach my $config_target (@{$config_subvol->{TARGET}})
-        {
-          my $droot = vinfo($config_target->{url}, $config_target);
-          unless($processed{$droot->{URL}})
-          {
-            print "\n--------------------------------------------------------------------------------\n";
-            print "Target volume: $droot->{PRINT}\n";
-            print "               ^--- $sroot->{PRINT}\n";
-            print "--------------------------------------------------------------------------------\n";
-            print (btrfs_filesystem_usage($droot) // "");
-            print "\n";
-            $processed{$droot->{URL}} = 1;
-          }
-        }
-      }
-    }
-    exit 0;
-  }
-
-
   #
   # filter subvolumes matching command line arguments
   #
-  if(($action_run || $action_tree) && scalar(@subvol_args))
+  if(($action_run || $action_tree || $action_info) && scalar(@subvol_args))
   {
     my $filter_count = undef;
     my @filter;
@@ -1652,7 +1605,59 @@ MAIN:
       }
       exit 1;
     }
-    $config->{CMDLINE_FILTER} = \@filter;
+    $config->{CMDLINE_FILTER_LIST} = \@filter;
+  }
+
+
+  if($action_info)
+  {
+    #
+    # print filesystem information
+    #
+    print "================================================================================\n";
+    print "Filesystem information ($version_info)\n\n";
+    print "    Date:   " . localtime($start_time) . "\n";
+    print "    Config: $config->{SRC_FILE}\n";
+    print "================================================================================\n";
+
+    my %processed;
+    foreach my $config_vol (@{$config->{VOLUME}})
+    {
+      next if($config_vol->{ABORTED});
+      my $sroot = vinfo($config_vol->{url}, $config_vol);
+      unless($processed{$sroot->{URL}})
+      {
+        print "\n--------------------------------------------------------------------------------\n";
+        print "Source volume: $sroot->{PRINT}\n";
+        print "--------------------------------------------------------------------------------\n";
+        print (btrfs_filesystem_usage($sroot) // "");
+        print "\n";
+        $processed{$sroot->{URL}} = 1;
+      }
+    }
+
+    foreach my $config_vol (@{$config->{VOLUME}}) {
+      next if($config_vol->{ABORTED});
+      my $sroot = vinfo($config_vol->{url}, $config_vol);
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+        next if($config_subvol->{ABORTED});
+        foreach my $config_target (@{$config_subvol->{TARGET}})
+        {
+          my $droot = vinfo($config_target->{url}, $config_target);
+          unless($processed{$droot->{URL}})
+          {
+            print "\n--------------------------------------------------------------------------------\n";
+            print "Target volume: $droot->{PRINT}\n";
+            print "               ^--- $sroot->{PRINT}\n";
+            print "--------------------------------------------------------------------------------\n";
+            print (btrfs_filesystem_usage($droot) // "");
+            print "\n";
+            $processed{$droot->{URL}} = 1;
+          }
+        }
+      }
+    }
+    exit 0;
   }
 
 
