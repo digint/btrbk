@@ -21,41 +21,45 @@
 #
 snapshot_dir               _btrbk_snap
 
+# Always create snapshots. Set this to "ondemand" to only create
+# snapshots if the target volume is reachable. Set this to "no" if
+# snapshot creation is done by another instance of btrbk.
+#snapshot_create            always
+
 # Perform incremental backups (set to "strict" if you want to prevent
 # creation of non-incremental backups if no parent is found).
-incremental                yes
+#incremental                yes
 
-# Always create snapshots (set to "ondemand" to only create snapshots
-# if the target volume is reachable).
-snapshot_create            always
+# Resume missing backups (set to "no" if you don't want to resume
+# missing backups).
+#resume_missing             yes
 
-# Resume missing backups if the target volume is reachable again (set
-# to "no" if you don't want to resume missing backups).
-resume_missing             yes
+# Specify on which day of week weekly/monthly backups are to be
+# preserved.
+#preserve_day_of_week       sunday
 
-# ssh key for ssh volumes/targets
-ssh_identity               /etc/btrbk/ssh/id_ed25519
-ssh_user                   root
+# Preserve matrix for source snapshots:
+#snapshot_preserve_daily    all
+#snapshot_preserve_weekly   0
+#snapshot_preserve_monthly  all
 
-# Preserve weekly/monthly backups from given day of week
-preserve_day_of_week       sunday
+# Preserve matrix for backup targets:
+#target_preserve_daily      all
+#target_preserve_weekly     0
+#target_preserve_monthly    all
 
-# Preserve matrix for snapshots
-snapshot_preserve_daily    14
-snapshot_preserve_weekly   0
-snapshot_preserve_monthly  0
+# Specify SSH private key for "ssh://" volumes / targets:
+#ssh_identity               /etc/btrbk/ssh/id_ed25519
+#ssh_user                   root
 
-# Preserve matrix for backups
-target_preserve_daily      20
-target_preserve_weekly     10
-target_preserve_monthly    all
+# Don't wait for transaction commit on deletion. Set this to "after"
+# or "each" to make sure the deletion of subvolumes is committed to
+# disk when btrbk terminates.
+#btrfs_commit_delete        no
 
-# Make sure the deletion of subvolumes is committed to disk when btrbk terminates
-btrfs_commit_delete        after
-
-# Enable compatibility mode for btrfs-progs < 3.17.
+# Set this to "yes" to enable btrfs-progs < 3.17 compatibility.
 # Set this either globally or in a specific "target" section.
-#btrfs_progs_compat         yes
+#btrfs_progs_compat         no
 
 
 #
@@ -84,47 +88,58 @@ btrfs_commit_delete        after
 # "volume" section.
 #
 
-volume /mnt/btr_system
+
+#
+# Example configuration:
+#
+snapshot_preserve_daily    14
+snapshot_preserve_weekly   0
+snapshot_preserve_monthly  0
+
+target_preserve_daily      20
+target_preserve_weekly     10
+target_preserve_monthly    all
+
+
+# Backup to external disk mounted on /mnt/btr_backup
+volume /mnt/btr_pool
+  # no action if external disk is not attached
+  snapshot_create  ondemand
+
   subvolume  root_gentoo
-    target send-receive    /mnt/btr_ext/_btrbk
-    target send-receive    /mnt/btr_backup/_btrbk
+    target send-receive      /mnt/btr_backup/_btrbk
 
   subvolume  kvm
     # use different preserve matrix for kvm backups
-    target_preserve_daily  7
-    target_preserve_weekly 4
+    target_preserve_daily    7
+    target_preserve_weekly   4
 
-    target send-receive    /mnt/btr_ext/_btrbk
-      target_preserve_weekly 0
-
-    target send-receive    /mnt/btr_backup/_btrbk
+    target send-receive      /mnt/btr_backup/_btrbk
 
 
+# Backup to external disk as well as some remote host
 volume /mnt/btr_data
   subvolume  home
-    target send-receive    /mnt/btr_backup/_btrbk
-    target send-receive    ssh://backup.my-remote-host.com/mnt/btr_backup
+    # always create snapshot, even if targets are unreachable
+    snapshot_create  always
+    target send-receive      /mnt/btr_backup/_btrbk
+    target send-receive      ssh://backup.my-remote-host.com/mnt/btr_backup
 
 
-volume /mnt/btr_ext
-  subvolume data
-    target send-receive    /mnt/btr_backup/_btrbk
-
-
+# Backup from remote host, with different naming
 volume ssh://my-remote-host.com/mnt/btr_pool
   subvolume data_0
-    snapshot_dir  snapshots/btrbk
-    snapshot_name data_main
-    target send-receive    /mnt/btr_backup/_btrbk/my-remote-host.com
+    snapshot_dir             snapshots/btrbk
+    snapshot_name            data_main
+    target send-receive      /mnt/btr_backup/_btrbk/my-remote-host.com
 
 
 # Resume backups from remote host which runs its own btrbk instance
 # creating snapshots for "home" in "/mnt/btr_pool/btrbk_snapshots".
 volume ssh://my-remote-host.com/mnt/btr_pool
   subvolume home
-    snapshot_dir  btrbk_snapshots
+    snapshot_dir             btrbk_snapshots
     snapshot_preserve_daily  all
     snapshot_create          no
     resume_missing           yes
-
-    target send-receive    /mnt/btr_backup/_btrbk/my-remote-host.com
+    target send-receive      /mnt/btr_backup/_btrbk/my-remote-host.com
