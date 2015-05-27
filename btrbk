@@ -1330,9 +1330,9 @@ sub print_header(@) {
   }
   if($config) {
     print "    Config: $config->{SRC_FILE}\n";
-    if($config->{RUN_FILTER}) {
+    if($config->{CMDLINE_FILTER}) {
       print "    Filter: ";
-      print join("\n            ", map { $_->{PRINT} } @{$config->{RUN_FILTER}});
+      print join("\n            ", map { $_->{PRINT} } @{$config->{CMDLINE_FILTER}});
       print "\n";
     }
   }
@@ -1618,39 +1618,41 @@ MAIN:
   if(($action_run || $action_tree) && scalar(@subvol_args))
   {
     my $filter_count = undef;
-    $config->{RUN_FILTER} = [];
-    foreach my $config_vol (@{$config->{VOLUME}})
-    {
+    my @filter;
+    my %match;
+    foreach my $config_vol (@{$config->{VOLUME}}) {
       my $vol_url = $config_vol->{url} // die;
       if(grep(/^\Q$vol_url\E$/, @subvol_args)) {
-        $filter_count++;
-        push(@{$config->{RUN_FILTER}}, vinfo($vol_url, $config_vol));
+        push(@filter, vinfo($vol_url, $config_vol));
+        $match{$vol_url} = 1;
         next;
       }
-
-      my $subvol_filter_count = 0;
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-      {
-        my $svol_url = $config_subvol->{url} // die;
-        if(grep(/^\Q$svol_url\E$/, @subvol_args)) {
-          $subvol_filter_count++;
-          push(@{$config->{RUN_FILTER}}, vinfo($svol_url, $config_subvol));
-        }
-        else {
-          DEBUG "No match on subvolume command line argument, skipping subvolume: $svol_url";
+      my @filter_subvol;
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+        my $subvol_url = $config_subvol->{url} // die;
+        if(grep(/^\Q$subvol_url\E$/, @subvol_args)) {
+          push(@filter_subvol, vinfo($subvol_url, $config_subvol));
+          $match{$subvol_url} = 1;
+        } else {
+          DEBUG "No match on subvolume command line argument, skipping subvolume: $subvol_url";
           $config_subvol->{ABORTED} = "USER_SKIP";
         }
       }
-      if($subvol_filter_count == 0) {
+      unless(@filter_subvol) {
         DEBUG "No match on subvolume command line argument, skipping volume: $vol_url";
         $config_vol->{ABORTED} = "USER_SKIP";
       }
-      $filter_count += $subvol_filter_count;
+      push(@filter, @filter_subvol);
     }
-    if($filter_count == 0) {
-      ERROR "Subvolume command line arguments do not match any volume/subvolume declaration from configuration file, aborting.";
+    # make sure all args have a match
+    my @nomatch = map { $match{$_} ? () : $_ } @subvol_args;
+    if(@nomatch) {
+      foreach(@nomatch) {
+        ERROR "Command line argument does not match any volume/subvolume declaration: $_";
+      }
       exit 1;
     }
+    $config->{CMDLINE_FILTER} = \@filter;
   }
 
 
