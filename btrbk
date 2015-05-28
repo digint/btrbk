@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.19.0";
+our $VERSION       = "0.19.1-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -1141,7 +1141,7 @@ sub get_latest_common($$$;$)
   my $sroot = shift || die;
   my $svol = shift // die;
   my $droot = shift || die;
-  my $threshold_gen = shift;  # skip all snapshot children with generation >= $threshold_gen
+  my $threshold_gen = shift;  # skip all snapshot children with generation (cgen) >= $threshold_gen
 
   die("source subvolume info not present: $sroot->{URL}") unless($sroot->{URL});
   die("target subvolume info not present: $droot->{URL}") unless($droot->{URL});
@@ -1150,10 +1150,10 @@ sub get_latest_common($$$;$)
   $debug_src .= "#" . $threshold_gen if($threshold_gen);
 
   # sort children of svol descending by generation
-  foreach my $child (sort { $b->{gen} <=> $a->{gen} } get_snapshot_children($sroot, $svol)) {
+  foreach my $child (sort { $b->{cgen} <=> $a->{cgen} } get_snapshot_children($sroot, $svol)) {
     TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
-    if($threshold_gen && ($child->{gen} >= $threshold_gen)) {
-      TRACE "get_latest_common: skipped gen=$child->{gen} >= $threshold_gen: $child->{SUBVOL_PATH}";
+    if($threshold_gen && ($child->{cgen} >= $threshold_gen)) {
+      TRACE "get_latest_common: skipped gen=$child->{cgen} >= $threshold_gen: $child->{SUBVOL_PATH}";
       next;
     }
 
@@ -1182,13 +1182,13 @@ sub get_latest_snapshot_child($$)
   my $latest = undef;
   my $gen = -1;
   foreach (get_snapshot_children($sroot, $svol)) {
-    if($_->{gen} > $gen) {
+    if($_->{cgen} > $gen) {
       $latest = $_;
-      $gen = $_->{gen};
+      $gen = $_->{cgen};
     }
   }
   if($latest) {
-    DEBUG "Latest snapshot child for \"$svol->{PRINT}#$svol->{gen}\" is: $latest->{PRINT}#$latest->{gen}";
+    DEBUG "Latest snapshot child for \"$svol->{PRINT}#$svol->{gen}\" is: $latest->{PRINT}#$latest->{cgen}";
   } else {
     DEBUG "No latest snapshots found for: $svol->{PRINT}";
   }
@@ -1814,7 +1814,7 @@ MAIN:
         push @out, "|-- $svol->{PRINT}";
         foreach my $snapshot (sort { $a->{PATH} cmp $b->{PATH} } get_snapshot_children($sroot, $svol))
         {
-          if($snapshot->{gen} == $svol->{gen}) {
+          if($snapshot->{cgen} == $svol->{gen}) {
             push @out, "|   ^== $snapshot->{PATH}";
           } else {
             push @out, "|   ^-- $snapshot->{PATH}";
@@ -1886,12 +1886,12 @@ MAIN:
             # check if latest snapshot is up-to-date with source subvolume (by generation)
             my $latest = get_latest_snapshot_child($sroot, $svol);
             if($latest) {
-              if($latest->{gen} == $svol->{gen}) {
+              if($latest->{cgen} == $svol->{gen}) {
                 INFO "Snapshot creation skipped: snapshot_create=onchange, snapshot is up-to-date: $latest->{PRINT}";
                 $config_subvol->{SNAPSHOT_UP_TO_DATE} = $latest;
                 next;
               }
-              DEBUG "Snapshot creation enabled: snapshot_create=onchange, gen=$svol->{gen} > snapshot_gen=$latest->{gen}";
+              DEBUG "Snapshot creation enabled: snapshot_create=onchange, gen=$svol->{gen} > snapshot_cgen=$latest->{cgen}";
             }
             else {
               DEBUG "Snapshot creation enabled: snapshot_create=onchange, no snapshots found";
@@ -1981,7 +1981,7 @@ MAIN:
               my $resume_total = 0;
               my $resume_success = 0;
 
-              foreach my $child (sort { $a->{gen} <=> $b->{gen} } get_snapshot_children($sroot, $svol))
+              foreach my $child (sort { $a->{cgen} <=> $b->{cgen} } get_snapshot_children($sroot, $svol))
               {
                 if(scalar get_receive_targets($droot, $child)) {
                   DEBUG "Found matching receive target, skipping: $child->{PRINT}";
@@ -2023,9 +2023,9 @@ MAIN:
                 my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
                 $resume_total = scalar @resume;
 
-                foreach my $child (sort { $a->{gen} <=> $b->{gen} } @resume) {
+                foreach my $child (sort { $a->{cgen} <=> $b->{cgen} } @resume) {
                   INFO "Resuming subvolume backup (send-receive) for: $child->{PRINT}";
-                  my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{gen});
+                  my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{cgen});
                   if(macro_send_receive($config_target,
                                         snapshot  => $child,
                                         target    => $droot,
