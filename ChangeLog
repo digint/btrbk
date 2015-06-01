@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.19.1
 
   * Use "cgen" for snapshot comparison.
   * Bugfix: fix crash in summary display (closes: #22).
