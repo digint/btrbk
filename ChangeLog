@@ -1,6 +1,7 @@
 btrbk-current
 
   * Use "cgen" for snapshot comparison.
+  * Bugfix: fix crash in summary display (closes: #22).
 
 btrbk-0.19.0
 

@@ -2237,7 +2237,10 @@ MAIN:
           if(@subvol_out) {
             push @out, "$svol->{PRINT}", @subvol_out, "";
           }
-          elsif($config_subvol->{ABORTED} ne "USER_SKIP") {
+          elsif($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} eq "USER_SKIP")) {
+            # don't print "<no_action>" on USER_SKIP
+          }
+          else {
             push @out, "$svol->{PRINT}", "<no_action>", "";
           }
         }
