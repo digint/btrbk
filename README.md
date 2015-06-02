@@ -65,7 +65,7 @@ Download the newest stable [btrbk debian package], and
 Grab the digint portage overlay from:
 `git://dev.tty0.ch/portage/digint-overlay.git`
 
-    emerge btrbk
+    emerge app-backup/btrbk
 
 ### Arch Linux
 
