@@ -60,6 +60,7 @@ my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*
 my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 my $ssh_prefix_match = qr/ssh:\/\/($ip_addr_match|$host_name_match)/;
 my $snapshot_postfix_match = qr/\.[0-9]{8}(_[0-9]+)?/;
+my $uuid_match = qr/[0-9a-f\-]+/;  # simple, also matches empty ('-') uuid
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
 
@@ -86,6 +87,12 @@ my %config_options = (
   ssh_port                  => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   ssh_compression           => { default => undef,    accept => [ "yes", "no" ] },
   ssh_cipher_spec           => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
+
+  raw_target_compress       => { default => undef,    accept => [ "no", "gzip", "bzip2", "xz" ] },
+  raw_target_encrypt        => { default => undef,    accept => [ "no", "gpg" ] },
+  gpg_keyring               => { default => undef,    accept_file => { absolute => 1 } },
+  gpg_recipient             => { default => undef,    accept_regexp => qr/^[0-9a-zA-Z_@\+\-\.]+$/ },
+
   btrfs_progs_compat        => { default => undef,    accept => [ "yes", "no" ] },
   group                     => { default => undef,    accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
 
@@ -106,7 +113,7 @@ my %config_options = (
                                }
  );
 
-my @config_target_types = qw(send-receive);
+my @config_target_types = qw(send-receive raw);
 
 my %root_tree_cache;    # map URL to SUBTREE (needed since "btrfs subvolume list" does not provide us with the uuid of the btrfs root node)
 my %vinfo_cache;        # map URL to vinfo
@@ -927,21 +934,21 @@ sub btrfs_subvolume_delete($@)
 }
 
 
-sub btrfs_send_receive($$$)
+sub btrfs_send_receive($$$$)
 {
   my $snapshot = shift || die;
   my $target = shift || die;
   my $parent = shift;
+  my $ret_vol_received = shift;
   my $snapshot_path = $snapshot->{PATH} // die;
-  my $snapshot_rsh  = $snapshot->{RSH};
   my $target_path = $target->{PATH} // die;
-  my $target_rsh  = $target->{RSH};
   my $parent_path = $parent ? $parent->{PATH} : undef;
 
-   my $snapshot_name = $snapshot_path;
-   $snapshot_name =~ s/^.*\///;
-  INFO ">>> $target->{PRINT}/$snapshot_name";
-  print STDOUT "Receiving subvol: $target->{PRINT}/$snapshot_name\n" if($show_progress && (not $dryrun));
+  my $vol_received = vinfo_child($target, $snapshot->{NAME});
+  $$ret_vol_received = $vol_received if(ref $ret_vol_received);
+
+  INFO ">>> $vol_received->{PRINT}";
+  print STDOUT "Receiving subvol: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
 
   DEBUG "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
   DEBUG "[btrfs]   source: $snapshot->{PRINT}";
@@ -957,7 +964,7 @@ sub btrfs_send_receive($$$)
   my @cmd_pipe;
   push @cmd_pipe, {
     cmd => [ qw(btrfs send), @send_options, $snapshot_path ],
-    rsh => $snapshot_rsh,
+    rsh => $snapshot->{RSH},
     name => "btrfs send",
   };
   push @cmd_pipe, {
@@ -965,12 +972,103 @@ sub btrfs_send_receive($$$)
   } if($show_progress);
   push @cmd_pipe, {
     cmd => [ qw(btrfs receive), @receive_options, $target_path . '/' ],
-    rsh => $target_rsh,
+    rsh => $target->{RSH},
     name => "btrfs receive",
   };
   my $ret = run_cmd(@cmd_pipe);
   unless(defined($ret)) {
     ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
+
+    # NOTE: btrfs-progs v3.19.1 does not delete garbled received subvolume,
+    #       we need to do this by hand.
+    # TODO: remove this as soon as btrfs-progs handle receive errors correctly.
+    DEBUG "send/received failed, deleting (possibly present and garbled) received subvolume: $vol_received->{PRINT}";
+    my $ret = btrfs_subvolume_delete($vol_received, commit => "after");
+    if(defined($ret)) {
+      WARN "Deleted partially received (garbled) subvolume: $vol_received->{PRINT}";
+    }
+    else {
+      WARN "Deletion of partially received (garbled) subvolume failed, assuming clean environment: $vol_received->{PRINT}";
+    }
+
+    return undef;
+  }
+  return 1;
+}
+
+
+sub btrfs_send_to_file($$$$;@)
+{
+  my $snapshot = shift || die;
+  my $target = shift || die;
+  my $parent = shift;
+  my $ret_vol_received = shift;
+  my %opts = @_;
+  my $snapshot_path = $snapshot->{PATH} // die;
+  my $target_path   = $target->{PATH} // die;
+  my $parent_path   = $parent ? $parent->{PATH} : undef;
+  my $parent_uuid   = $parent ? $parent->{uuid} : "-" ;
+  my $received_uuid = $snapshot->{uuid};
+  $received_uuid = "__INSERT_SNAPSHOT_UUID_HERE__" if((not $received_uuid) && $dryrun);
+  die unless($parent_uuid);
+  die unless($received_uuid);
+
+  my $target_filename = $snapshot->{NAME} || die;
+  $target_filename .= ".$received_uuid.$parent_uuid.btrfs";
+
+  my %compress = ( gzip  => { pipe => { cmd => [ 'gzip'  ], name => 'gzip'  }, postfix => '.gz'  },
+                   bzip2 => { pipe => { cmd => [ 'bzip2' ], name => 'bzip2' }, postfix => '.bz2' },
+                   xz    => { pipe => { cmd => [ 'xz'    ], name => 'xz'    }, postfix => '.xz'  },
+                  );
+
+  my @send_options;
+  push(@send_options, '-v') if($loglevel >= 3);
+  push(@send_options, '-p', $parent_path) if($parent_path);
+
+  my @cmd_pipe;
+  push @cmd_pipe, {
+    cmd => [ qw(btrfs send), @send_options, $snapshot_path ],
+    rsh => $snapshot->{RSH},
+    name => "btrfs send",
+    filter_stderr => \&stderr_filter_send_receive,
+  };
+  if($opts{compress}) {
+    die unless($compress{$opts{compress}});
+    $target_filename .= $compress{$opts{compress}}->{postfix};
+    push @cmd_pipe, $compress{$opts{compress}}->{pipe};
+  }
+  if($opts{encrypt}) {
+    die unless($opts{encrypt}->{type} eq "gpg");
+    $target_filename .= '.gpg';
+    my @gpg_options = ( '--batch', '--no-tty', '--trust-model', 'always' );
+    push(@gpg_options, ( '--no-default-keyring', '--keyring', $opts{encrypt}->{keyring} )) if($opts{encrypt}->{keyring});
+    push(@gpg_options, ( '--default-recipient', $opts{encrypt}->{recipient} )) if($opts{encrypt}->{recipient});
+    push @cmd_pipe, {
+      cmd => [ 'gpg', @gpg_options, '--encrypt' ],
+      name => 'gpg',
+    };
+  }
+  push @cmd_pipe, {
+    cmd => [ 'dd', 'status=none', "of=$target_path/$target_filename" ],
+    rsh => $target->{RSH},
+    name => 'dd',
+  };
+
+  my $vol_received = vinfo_child($target, $target_filename);
+  $$ret_vol_received = $vol_received if(ref $ret_vol_received);
+
+  INFO ">>> $vol_received->{PRINT}";
+  DEBUG "[btrfs] send-to-file" . ($parent ? " (incremental)" : " (complete)") . ":";
+  DEBUG "[btrfs]   source: $snapshot->{PRINT}";
+  DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
+  DEBUG "[btrfs]   target: $target->{PRINT}";
+
+  my $ret = run_cmd(@cmd_pipe);
+  unless(defined($ret)) {
+    ERROR "Failed to send btrfs subvolume to raw file: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}";
+
+    # TODO: delete file
+    ERROR "Please delete incomplete raw file: $vol_received->{PRINT}";
     return undef;
   }
   return 1;
@@ -1122,6 +1220,7 @@ sub macro_send_receive($@)
   my $snapshot = $info{snapshot} || die;
   my $target = $info{target} || die;
   my $parent = $info{parent};
+  my $target_type = $config_target->{target_type} || die;
   my $incremental = config_key($config_target, "incremental");
 
   INFO "Receiving from snapshot: $snapshot->{PRINT}";
@@ -1135,12 +1234,6 @@ sub macro_send_receive($@)
     $info{ERROR} = 1;
     return undef;
   }
-
-  # add info to $config->{SUBVOL_RECEIVED}
-  my $vol_received = vinfo_child($target, $snapshot->{NAME});
-  $info{received_subvolume} = $vol_received;
-  $config_target->{SUBVOL_RECEIVED} //= [];
-  push(@{$config_target->{SUBVOL_RECEIVED}}, \%info);
 
   if($incremental)
   {
@@ -1163,26 +1256,54 @@ sub macro_send_receive($@)
     delete $info{parent};
   }
 
-  if(btrfs_send_receive($snapshot, $target, $parent)) {
-    return 1;
-  } else {
+  my $ret;
+  my $vol_received;
+  if($target_type eq "send-receive")
+  {
+    $ret = btrfs_send_receive($snapshot, $target, $parent, \$vol_received);
+    $config_target->{ABORTED} = "Failed to send/receive subvolume" unless($ret);
+  }
+  elsif($target_type eq "raw")
+  {
+    unless($dryrun) {
+      # make sure we know the snapshot uuid
+      unless($snapshot->{uuid}) {
+        DEBUG "Fetching uuid of new snapshot: $snapshot->{PRINT}";
+        my $detail = btrfs_subvolume_detail($snapshot);
+        die unless($detail->{uuid});
+        vinfo_set_detail($snapshot, { uuid => $detail->{uuid} });  # TODO: add complete detail?
+      }
+    }
+
+    my $compress = config_key($config_target, "raw_target_compress");
+    my $encrypt = undef;
+    my $encrypt_type = config_key($config_target, "raw_target_encrypt");
+    if($encrypt_type) {
+      die unless($encrypt_type eq "gpg");
+      $encrypt = { type => $encrypt_type,
+                   keyring => config_key($config_target, "gpg_keyring"),
+                   recipient => config_key($config_target, "gpg_recipient"),
+                 }
+    }
+    $ret = btrfs_send_to_file($snapshot, $target, $parent, \$vol_received, compress => $compress, encrypt => $encrypt);
+    $config_target->{ABORTED} = "Failed to send subvolume to raw file" unless($ret);
+  }
+  else
+  {
+    die "Illegal target type \"$target_type\"";
+  }
+
+  # add info to $config->{SUBVOL_RECEIVED}
+  $info{received_type} = $target_type || die;
+  $info{received_subvolume} = $vol_received || die;
+  $config_target->{SUBVOL_RECEIVED} //= [];
+  push(@{$config_target->{SUBVOL_RECEIVED}}, \%info);
+
+  unless($ret) {
     $info{ERROR} = 1;
-    $config_target->{ABORTED} = "Failed to send/receive subvolume";
-
-    # NOTE: btrfs-progs v3.19.1 does not delete garbled received subvolume,
-    #       we need to do this by hand.
-    # TODO: remove this as soon as btrfs-progs handle receive errors correctly.
-    DEBUG "send/received failed, deleting (possibly present and garbled) received subvolume: $vol_received->{PRINT}";
-    my $ret = btrfs_subvolume_delete($vol_received, commit => "after");
-    if(defined($ret)) {
-      WARN "Deleted partially received (garbled) subvolume: $vol_received->{PRINT}";
-    }
-    else {
-      WARN "Deletion of partially received (garbled) subvolume failed, assuming clean environment: $vol_received->{PRINT}";
-    }
-
     return undef;
   }
+  return 1;
 }
 
 
@@ -1969,10 +2090,65 @@ MAIN:
       {
         next if($config_target->{ABORTED});
         my $droot = vinfo($config_target->{url}, $config_target);
-        unless(vinfo_root($droot)) {
-          $config_target->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
-          WARN "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
-          next;
+
+        my $target_type = $config_target->{target_type} || die;
+        if($target_type eq "send-receive")
+        {
+          unless(vinfo_root($droot)) {
+            $config_target->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
+            WARN "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
+            next;
+          }
+        }
+        elsif($target_type eq "raw")
+        {
+          DEBUG "Creating raw subvolume list: $droot->{PRINT}";
+          my $ret = run_cmd(
+            # NOTE: check for file size >0, which causes bad (zero-sized) images to be resumed
+            # TODO: fix btrfs_send_to_file() to never create bad images
+            cmd => [ 'find', $droot->{PATH} . '/', '-maxdepth', '1', '-type', 'f', '-size', '+0' ],
+            rsh => $droot->{RSH},
+            # note: use something like this to get the real (link resolved) path
+            # cmd => [ "find", $droot->{PATH} . '/', "-maxdepth", "1", "-name", "$snapshot_basename.\*.raw\*", '-printf', '%f\0', '-exec', 'realpath', '-z', '{}', ';' ],
+            non_destructive => 1,
+           );
+          unless(defined($ret)) {
+            $config_target->{ABORTED} = "Failed to list files from: $droot->{PATH}";
+            WARN  "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
+            next;
+          }
+
+          my %subvol_list;
+          foreach my $file (split("\n", $ret))
+          {
+            unless($file =~ /^$file_match$/) {
+              DEBUG "Skipping non-parseable file: \"$file\"";
+              next;
+            }
+            unless($file =~ s/^\Q$droot->{PATH}\E\///) {
+              $config_target->{ABORTED} = "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"";
+              last;
+            }
+            unless($file =~ /^\Q$snapshot_basename\E$snapshot_postfix_match\.(?<received_uuid>$uuid_match)\.(?<parent_uuid>$uuid_match)\.btrfs/) {
+              DEBUG "Skipping unrecognized file: \"$file\"";
+              next;
+            }
+            my $detail = { received_uuid => $+{received_uuid},
+                           parent_uuid   => $+{parent_uuid},
+                         };
+            my $subvol = vinfo_child($droot, $file);
+            vinfo_set_detail($subvol, $detail);
+            $subvol_list{$file} = $subvol;
+          }
+          if($config_target->{ABORTED}) {
+            WARN "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
+            next;
+          }
+          DEBUG "Found " . scalar(keys %subvol_list) . " raw subvolume backups of: $svol->{PRINT}";
+          $droot->{SUBVOL_LIST} = \%subvol_list;
+          $droot->{REAL_URL} = $droot->{URL}; # ignore links here
+
+          # TRACE(Data::Dumper->Dump([\%subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
         }
         $config_target->{droot} = $droot;
 
@@ -2152,10 +2328,10 @@ MAIN:
           elsif($snapshot_create eq "ondemand") {
             # check if at least one target is present
             if(scalar grep { not $_->{ABORTED} } @{$config_subvol->{TARGET}}) {
-              DEBUG "Snapshot creation enabled (snapshot_create=ondemand): at least one send-receive target is present";
+              DEBUG "Snapshot creation enabled (snapshot_create=ondemand): at least one target is present";
             }
             else {
-              INFO "Snapshot creation skipped: snapshot_create=ondemand, and no send-receive target is present for: $svol->{PRINT}";
+              INFO "Snapshot creation skipped: snapshot_create=ondemand, and no target is present for: $svol->{PRINT}";
               next;
             }
           }
@@ -2219,110 +2395,103 @@ MAIN:
         {
           next if($config_target->{ABORTED});
           my $droot = $config_target->{droot} || die;
-          my $target_type = $config_target->{target_type} || die;
 
-          if($target_type eq "send-receive")
+          #
+          # resume missing backups (resume_missing)
+          #
+          if(config_key($config_target, "resume_missing"))
           {
-            #
-            # resume missing backups (resume_missing)
-            #
-            if(config_key($config_target, "resume_missing"))
-            {
-              INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
-              my @schedule;
-              my $resume_total = 0;
-              my $resume_success = 0;
+            INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
+            my @schedule;
+            my $resume_total = 0;
+            my $resume_success = 0;
 
-              foreach my $child (sort { $a->{cgen} <=> $b->{cgen} } get_snapshot_children($sroot, $svol))
+            foreach my $child (sort { $a->{cgen} <=> $b->{cgen} } get_snapshot_children($sroot, $svol))
+            {
+              if(scalar get_receive_targets($droot, $child)) {
+                DEBUG "Found matching receive target, skipping: $child->{PRINT}";
+              }
+              else {
+                DEBUG "No matching receive targets found, adding resume candidate: $child->{PRINT}";
+
+                if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
+                  WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
+                }
+
+                # check if the target would be preserved
+                my ($date, $date_ext) = get_date_tag($child->{SUBVOL_PATH});
+                next unless($date && ($child->{SUBVOL_PATH} =~ /^\Q$snapdir$snapshot_basename\E$snapshot_postfix_match$/));
+                push(@schedule, { value => $child, date => $date, date_ext => $date_ext }),
+              }
+            }
+
+            if(scalar @schedule)
+            {
+              DEBUG "Checking schedule for resume candidates";
+              # add all present backups to schedule, with no value
+              # these are needed for correct results of schedule()
+              foreach my $vol (values %{vinfo_subvol_list($droot)}) {
+                next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapshot_basename\E$snapshot_postfix_match$/);
+                my ($date, $date_ext) = get_date_tag($vol->{NAME});
+                next unless($date);
+                push(@schedule, { value => undef, date => $date, date_ext => $date_ext });
+              }
+              my ($preserve, undef) = schedule(
+                schedule             => \@schedule,
+                today                => \@today,
+                preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
+                preserve_daily       => config_key($config_target, "target_preserve_daily"),
+                preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
+                preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+                preserve_latest      => $preserve_latest,
+               );
+              my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
+              $resume_total = scalar @resume;
+
+              foreach my $child (sort { $a->{cgen} <=> $b->{cgen} } @resume)
               {
-                if(scalar get_receive_targets($droot, $child)) {
-                  DEBUG "Found matching receive target, skipping: $child->{PRINT}";
+                INFO "Resuming subvolume backup (send-receive) for: $child->{PRINT}";
+                my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{cgen});
+                if(macro_send_receive($config_target,
+                                      snapshot  => $child,
+                                      target    => $droot,
+                                      parent    => $latest_common_src,  # this is <undef> if no common found
+                                      resume    => 1,     # propagated to $config_target->{SUBVOL_RECEIVED}
+                                     ))
+                {
+                  # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
+                  $child->{RECEIVE_TARGET_PRESENT} = $droot->{URL};
+                  $resume_success++;
                 }
                 else {
-                  DEBUG "No matching receive targets found, adding resume candidate: $child->{PRINT}";
-
-                  if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
-                    WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
-                  }
-
-                  # check if the target would be preserved
-                  my ($date, $date_ext) = get_date_tag($child->{SUBVOL_PATH});
-                  next unless($date && ($child->{SUBVOL_PATH} =~ /^\Q$snapdir$snapshot_basename\E$snapshot_postfix_match$/));
-                  push(@schedule, { value => $child, date => $date, date_ext => $date_ext }),
+                  # note: ABORTED flag is already set by macro_send_receive()
+                  ERROR("Error while resuming backups, aborting");
+                  last;
                 }
               }
-
-              if(scalar @schedule)
-              {
-                DEBUG "Checking schedule for resume candidates";
-                # add all present backups to schedule, with no value
-                # these are needed for correct results of schedule()
-                foreach my $vol (values %{vinfo_subvol_list($droot)}) {
-                  next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapshot_basename\E$snapshot_postfix_match$/);
-                  my ($date, $date_ext) = get_date_tag($vol->{NAME});
-                  next unless($date);
-                  push(@schedule, { value => undef, date => $date, date_ext => $date_ext });
-                }
-                my ($preserve, undef) = schedule(
-                  schedule             => \@schedule,
-                  today                => \@today,
-                  preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
-                  preserve_daily       => config_key($config_target, "target_preserve_daily"),
-                  preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
-                  preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
-                  preserve_latest      => $preserve_latest,
-                 );
-                my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
-                $resume_total = scalar @resume;
-
-                foreach my $child (sort { $a->{cgen} <=> $b->{cgen} } @resume) {
-                  INFO "Resuming subvolume backup (send-receive) for: $child->{PRINT}";
-                  my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{cgen});
-                  if(macro_send_receive($config_target,
-                                        snapshot  => $child,
-                                        target    => $droot,
-                                        parent    => $latest_common_src,  # this is <undef> if no common found
-                                        resume    => 1,     # propagated to $config_target->{SUBVOL_RECEIVED}
-                                       ))
-                  {
-                    # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
-                    $child->{RECEIVE_TARGET_PRESENT} = $droot->{URL};
-                    $resume_success++;
-                  }
-                  else {
-                    # note: ABORTED flag is already set by macro_send_receive()
-                    ERROR("Error while resuming backups, aborting");
-                    last;
-                  }
-                }
-              }
-
-              if($resume_total) {
-                INFO "Resumed $resume_success/$resume_total missing backups";
-              } else {
-                INFO "No missing backups found";
-              }
-            } # /resume_missing
-
-            unless($resume_only)
-            {
-              # skip creation if resume_missing failed
-              next if($config_target->{ABORTED});
-              next unless($config_subvol->{SNAPSHOT});
-
-              # finally receive the previously created snapshot
-              INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
-              my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
-              macro_send_receive($config_target,
-                                 snapshot => $config_subvol->{SNAPSHOT},
-                                 target   => $droot,
-                                 parent   => $latest_common_src,  # this is <undef> if no common found
-                                );
             }
-          }
-          else {
-            ERROR "Unknown target type \"$target_type\", skipping: $svol->{PRINT}";
-            $config_target->{ABORTED} = "Unknown target type \"$target_type\"";
+
+            if($resume_total) {
+              INFO "Resumed $resume_success/$resume_total missing backups";
+            } else {
+              INFO "No missing backups found";
+            }
+          } # /resume_missing
+
+          unless($resume_only)
+          {
+            # skip creation if resume_missing failed
+            next if($config_target->{ABORTED});
+            next unless($config_subvol->{SNAPSHOT});
+
+            # finally receive the previously created snapshot
+            INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
+            my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
+            macro_send_receive($config_target,
+                               snapshot => $config_subvol->{SNAPSHOT},
+                               target   => $droot,
+                               parent   => $latest_common_src,  # this is <undef> if no common found
+                              );
           }
         }
       }
@@ -2358,6 +2527,11 @@ MAIN:
               } else {
                 $target_aborted = 1;
               }
+              next;
+            }
+            if($config_target->{target_type} eq "raw") {
+              WARN "Preserving all backups (target_type=raw) in: $config_target->{droot}->{PRINT}";
+              $target_aborted = 1;
               next;
             }
             my $droot = $config_target->{droot} || die;
