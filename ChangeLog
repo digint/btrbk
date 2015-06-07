@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.19.2
 
   * Bugfix: fix crash when using btrfs-progs < 3.17.3 (closes: #24).
 
