@@ -47,7 +47,7 @@ use Date::Calc qw(Today Delta_Days Day_of_Week);
 use Getopt::Std;
 use Data::Dumper;
 
-our $VERSION       = "0.19.1";
+our $VERSION       = "0.19.2-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -357,26 +357,26 @@ sub check_file($$;$$)
 
   if($accept->{ssh} && ($file =~ /^ssh:\/\//)) {
     unless($file =~ /^$ssh_prefix_match\/$file_match$/) {
-      ERROR "Ambiguous ssh url for option \"$key\" in \"$config_file\" line $.: $file";
+      ERROR "Ambiguous ssh url for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
       return undef;
     }
   }
   elsif($file =~ /^$file_match$/) {
     if($accept->{absolute}) {
       unless($file =~ /^\//) {
-        ERROR "Only absolute files allowed for option \"$key\" in \"$config_file\" line $.: $file";
+        ERROR "Only absolute files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
         return undef;
       }
     }
     elsif($accept->{relative}) {
       if($file =~ /^\//) {
-        ERROR "Only relative files allowed for option \"$key\" in \"$config_file\" line $.: $file";
+        ERROR "Only relative files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
         return undef;
       }
     }
     elsif($accept->{name_only}) {
       if($file =~ /\//) {
-        ERROR "Option \"$key\" is not a valid file name in \"$config_file\" line $.: $file";
+        ERROR "Option \"$key\" is not a valid file name in \"$config_file\" line $.: $file" if($key && $config_file);
         return undef;
       }
     }
@@ -385,7 +385,7 @@ sub check_file($$;$$)
     }
   }
   else {
-    ERROR "Ambiguous file for option \"$key\" in \"$config_file\" line $.: $file";
+    ERROR "Ambiguous file for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
     return undef;
   }
   return 1;
