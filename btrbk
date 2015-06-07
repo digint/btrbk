@@ -625,6 +625,12 @@ sub btrfs_subvolume_detail($)
   my $ret = run_cmd("$rsh btrfs subvolume show '$path'", non_destructive => 1, catch_stderr => 1);
   return undef unless(defined($ret));
 
+  # workaround for btrfs-progs < 3.17.3 (returns exit status 0 on errors)
+  if($ret =~ /^ERROR: (.*)/) {
+    $err = $1;
+    return undef;
+  }
+
   my $real_path;
   if($ret =~ /^($file_match)/) {
     $real_path = $1;

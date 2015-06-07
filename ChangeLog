@@ -1,3 +1,7 @@
+btrbk-current
+
+  * Bugfix: fix crash when using btrfs-progs < 3.17.3 (closes: #24).
+
 btrbk-0.19.1
 
   * Use "cgen" for snapshot comparison.
