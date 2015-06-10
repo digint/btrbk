@@ -66,20 +66,19 @@ Note that this command does NOT make any physical copy of the files of
 your subvolumes within "/", it will only add some metadata.
 
 
-## Step 2: make sure that `/rootfs/etc/fstab` is ok.
+## Step 2: make sure that "/rootfs/etc/fstab" is ok.
 
 Add mount point for subvolid=0 to fstab, something like this:
 
-/etc/fstab:
+/rootfs/etc/fstab:
 
     /dev/sda1  /mnt/btr_pool  btrfs  subvolid=0,noatime  0 0
 
 
 ## Step 3: boot from the new subvolume "rootfs".
 
-Either:
-- add `rootflags=subvol=rootfs` to grub.cfg
-- set subvolume "rootfs" as default:
+Either add `rootflags=subvol=rootfs` to grub.cfg, or set subvolume
+"rootfs" as default:
 
     # btrfs subvolume set-default <subvolid> /
 
@@ -102,7 +101,7 @@ This means that the root volume (subvolid=0) is correctly mounted.
 
 
 
-#### Step 5: delete old (duplicate) files
+## Step 5: delete old (duplicate) files
 
 Carefully delete all old files from `/mnt/btr_pool`, except "rootfs"
 and all other subvolumes within "/". You can list all these by typing:
