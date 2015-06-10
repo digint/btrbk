@@ -1255,7 +1255,7 @@ sub schedule(@)
   my @sorted_schedule = sort { ($a->{date}->[0] <=> $b->{date}->[0]) ||
                                ($a->{date}->[1] <=> $b->{date}->[1]) ||
                                ($a->{date}->[2] <=> $b->{date}->[2]) ||
-                               ($a->{date_ext}  <=> $a->{date_ext})
+                               ($a->{date_ext}  <=> $b->{date_ext})
                              } @$schedule;
 
   # first, do our calendar calculations
