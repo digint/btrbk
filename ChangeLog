@@ -1,6 +1,7 @@
 btrbk-current
 
   * Bugfix: fix sorting of dates in schedule().
+  * Bugfix: correct parsing of btrfs subvolume list (closes: #28).
 
 btrbk-0.19.2
 

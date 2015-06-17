@@ -895,11 +895,15 @@ sub btr_tree($)
 
   foreach my $node (@$subvol_list)
   {
-    $id{$node->{id}} = $node;
-    $uuid_info{$node->{uuid}} = $node;
-
     $node->{SUBTREE} //= {};
 
+    $id{$node->{id}} = $node;
+    $uuid_info{$node->{uuid}} = $node;
+  }
+
+  # note: it is possible that id < top_level, e.g. after restoring
+  foreach my $node (@$subvol_list)
+  {
     # set SUBTREE / TOP_LEVEL node
     die unless exists($id{$node->{top_level}});
     my $top_level = $id{$node->{top_level}};
