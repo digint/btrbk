@@ -651,22 +651,31 @@ sub btrfs_subvolume_detail($)
   elsif($ret =~ /^$real_path/) {
     TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
     my %trans = (
-      name          => "Name",
-      uuid          => "uuid",
-      parent_uuid   => "Parent uuid",
-      creation_time => "Creation time",
-      id            => "Object ID",
-      gen           => "Generation \\(Gen\\)",
-      cgen          => "Gen at creation",
-      parent_id     => "Parent",
-      top_level     => "Top Level",
-      flags         => "Flags",
+      "Name"                  => "name",
+      "uuid"                  => "uuid",
+      "UUID"                  => "uuid",            # btrfs-progs >= 4.1
+      "Parent uuid"           => "parent_uuid",
+      "Parent UUID"           => "parent_uuid",     # btrfs-progs >= 4.1
+      "Received UUID"         => "received_uuid",   # btrfs-progs >= 4.1
+      "Creation time"         => "creation_time",
+      "Object ID"             => "id",
+      "Subvolume ID"          => "id",              # btrfs-progs >= 4.1
+      "Generation (Gen)"      => "gen",
+      "Generation"            => "gen",             # btrfs-progs >= 4.1
+      "Gen at creation"       => "cgen",
+      "Parent"                => "parent_id",
+      "Parent ID"             => "parent_id",       # btrfs-progs >= 4.1
+      "Top Level"             => "top_level",
+      "Top level ID"          => "top_level",       # btrfs-progs >= 4.1
+      "Flags"                 => "flags",
      );
-    foreach (keys %trans) {
-      if($ret =~ /^\s+$trans{$_}:\s+(.*)$/m) {
-        $detail{$_} = $1;
+    foreach (split("\n", $ret)) {
+      next unless /^\s+(.+):\s+(.*)$/;
+      my ($key, $value) = ($1, $2);
+      if($trans{$key}) {
+        $detail{$trans{$key}} = $value;
       } else {
-        WARN "Failed to parse subvolume detail \"$trans{$_}\": $ret";
+        WARN "Failed to parse subvolume detail \"$key: $value\" for: $vol->{PRINT}";
       }
     }
     DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
