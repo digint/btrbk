@@ -1,17 +1,17 @@
 btrbk-0.19.3
 
   * Bugfix: fix sorting of dates in schedule().
-  * Bugfix: correct parsing of btrfs subvolume list (closes: #28).
+  * Bugfix: correct parsing of btrfs subvolume list (close: #28).
   * Support for btrfs-progs v4.1-rc1.
 
 btrbk-0.19.2
 
-  * Bugfix: fix crash when using btrfs-progs < 3.17.3 (closes: #24).
+  * Bugfix: fix crash when using btrfs-progs < 3.17.3 (close: #24).
 
 btrbk-0.19.1
 
   * Use "cgen" for snapshot comparison.
-  * Bugfix: fix crash in summary display (closes: #22).
+  * Bugfix: fix crash in summary display (close: #22).
 
 btrbk-0.19.0
 
@@ -19,7 +19,7 @@ btrbk-0.19.0
     the latest snapshot is up-to-date (i.e. has same generation as the
     source subvolume).
   * Improved handling of command line subvolume filter for "run",
-    "dryrun" and "tree" actions (closes: #21).
+    "dryrun" and "tree" actions (close: #21).
   * Bugfix: fixed crash in action "diff".
 
 btrbk-0.18.0
@@ -31,10 +31,10 @@ btrbk-0.18.0
       - "snapshot_create_always no"  -> "snapshot_create ondemand"
   * Set PATH variable instead of using absolute "/sbin/btrfs" for
     compatibility with all linux distros out there, which all install
-    'btrfs' in different locations (closes: #20).
+    'btrfs' in different locations (close: #20).
   * Added configuration option "snapshot_create", replacing option
     "snapshot_create_always". This allows setups with multiple btrbk
-    instances on several hosts (closes: #18).
+    instances on several hosts (close: #18).
   * Added command line option -r (resume only).
   * Catch and display errors from "btrfs subvolume show".
   * Include systemd service and timer unit for daily backups.
@@ -43,23 +43,23 @@ btrbk-0.17.1
 
   * Bugfix: send/receive: delete possibly left-behind garbled
     subvolume on failure. Fail with unrecoverable error if stray
-    target subvolume is in the way (closes: #17).
+    target subvolume is in the way (close: #17).
   * Bugfix: assume unreachable target as clean on snapshot creation if
-    snapshot_create_always is set (closes: #19).
+    snapshot_create_always is set (close: #19).
 
 btrbk-0.17.0
 
   * New versioning scheme using more common three-level versions.
   * Code refactoring: cleanup of data structures and handling of btrfs
     subvolume tree, as well as security related code parts.
-  * Correct handling of symlinks to btrfs subvolumes (closes: #12).
-  * Added configuration option "snapshot_name" (closes: #5).
+  * Correct handling of symlinks to btrfs subvolumes (close: #12).
+  * Added configuration option "snapshot_name" (close: #5).
   * Log messages now go to stderr, only the summary is printed on
     stdout.
-  * Bugfix: allow "0" as subvolume name (closes: #10).
-  * Bugfix: allow "/" as volume name (closes: #15).
+  * Bugfix: allow "0" as subvolume name (close: #10).
+  * Bugfix: allow "/" as volume name (close: #15).
   * Bugfix: check source AND targets for determining snapshot postfix
-    (closes: #11).
+    (close: #11).
   * Bugfix: fixed "diff" action (colses: #14).
   * Allow '+' character for subvolume names.
   * Filesystems on remote hosts are now printed as
@@ -72,9 +72,9 @@ btrbk-0.16
 btrbk-0.15
 
   * Added configuration option "btrfs_progs_compat", to be enabled if
-    using btrfs-progs < 3.17 (closes: #6).
+    using btrfs-progs < 3.17 (close: #6).
   * Added configuration option "resume_missing", for automatic resume
-    of missing backups (closes: #8).
+    of missing backups (close: #8).
   * Removed configuration option "receive_log" in favor of printing
     errors from "btrfs receive".
   * Bugfix: show correct exit code on external command failure.
@@ -83,18 +83,18 @@ btrbk-0.15
 btrbk-0.14
 
   * Bugfix: correctly handle empty target subvolumes (blocker for all
-    new users; closes: #4).
+    new users; close: #4).
 
 btrbk-0.13
 
   * Bugfix: allow '@' character for subvolume names (blocker for
     ubuntu users, since ubuntu prefixes all subvolumes with '@' in its
-    subvolume layout; closes: #3).
+    subvolume layout; close: #3).
 
 btrbk-0.12
 
   * Cleaner and more generic parsing of btrfs subvolume list.
-  * Bugfix: subvolumes are also allowed for "snapshot_dir" (closes:
+  * Bugfix: subvolumes are also allowed for "snapshot_dir" (close:
     #1, #2).
 
 btrbk-0.11
