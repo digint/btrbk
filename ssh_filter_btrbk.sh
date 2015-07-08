@@ -1,8 +1,12 @@
 #!/bin/sh
 
+set -e
+set -u
+
 export PATH=/sbin:/bin:/usr/sbin:/usr/bin
 
-if [ "$1" = "-l" ]; then
+enable_log=
+if [ "$#" -ge 1 ] && [ "$1" = "-l" ]; then
     enable_log=1
 fi
 
