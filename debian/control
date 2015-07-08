@@ -3,6 +3,7 @@ Section: utils
 Priority: optional
 Maintainer: Axel Burri <axel@tty0.ch>
 Standards-Version: 3.9.4
+Build-Depends: debhelper (>= 7)
 Homepage: http://www.digint.ch/btrbk/
 
 Package: btrbk
