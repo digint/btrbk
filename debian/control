@@ -8,6 +8,7 @@ Homepage: http://www.digint.ch/btrbk/
 Package: btrbk
 Architecture: all
 Depends: perl, libdate-calc-perl, btrfs-tools (>= 3.14)
+Suggests: openssh-client
 Description: Backup tool for btrfs volumes
  Backup tool for btrfs volumes, using a configuration file, allows
  creation of backups from multiple sources to multiple destinations at
