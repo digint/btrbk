@@ -10,20 +10,23 @@ if [ "$#" -ge 1 ] && [ "$1" = "-l" ]; then
     enable_log=1
 fi
 
-reject_and_die()
+log_cmd()
 {
     if [ -n "$enable_log" ]; then
-        /usr/bin/logger -p auth.err -t ssh_filter_btrbk.sh "$LOGNAME $SSH_CLIENT REJECT: $SSH_ORIGINAL_COMMAND"
+        logger -p $1 -t ssh_filter_btrbk.sh "$2 (Name: ${LOGNAME:-<unknown>}; Remote: ${SSH_CLIENT:-<unknown>}): $SSH_ORIGINAL_COMMAND"
     fi
-    /bin/echo "ERROR: ssh command rejected" 1>&2;
-    exit 1;
+}
+
+reject_and_die()
+{
+    log_cmd "auth.err" "btrbk REJECT"
+    /bin/echo "ERROR: ssh command rejected" 1>&2
+    exit 1
 }
 
 run_cmd()
 {
-    if [ -n "$enable_log" ]; then
-        /usr/bin/logger -p auth.info -t ssh_filter_btrbk.sh "$LOGNAME $SSH_CLIENT ALLOW: $SSH_ORIGINAL_COMMAND"
-    fi
+    log_cmd "auth.info" "btrbk ACCEPT"
     $SSH_ORIGINAL_COMMAND
 }
 
