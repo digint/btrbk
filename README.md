@@ -357,6 +357,13 @@ If everything went fine, nuke the broken subvolume:
     btrfs subvolume delete /mnt/btr_pool/data.BROKEN
 
 
+FAQ
+===
+
+Make sure to also read the [btrbk FAQ page](doc/FAQ.md).
+Help improve it by asking!
+
+
 Development
 ===========
 
