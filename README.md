@@ -54,18 +54,18 @@ Download and unpack the newest stable [btrbk source tarball] and type:
 
     sudo make install
 
-### Debian Based Distros
-
-Download the newest stable [btrbk debian package], and
-
-    sudo dpkg --install btrbk_<version>_all.deb
-
 ### Gentoo Linux
 
 Grab the digint portage overlay from:
 `git://dev.tty0.ch/portage/digint-overlay.git`
 
     emerge app-backup/btrbk
+
+### Debian Based Distros
+
+btrbk is in `stretch (testing) (utils)`: https://packages.debian.org/stretch/btrbk
+
+Packages are also available via NeuroDebian: http://neuro.debian.net/pkgs/btrbk.html
 
 ### Arch Linux
 
