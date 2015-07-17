@@ -30,7 +30,7 @@ using btrbk:
     /dev/sda1  /mnt/data  btrfs  subvolid=0 [...]
 
 btrbk is designed to operate on the subvolumes *within* `/mnt/data`.
-The recommended way is to split your data into subvolumes, e.g:
+The recommended way is to split your data into subvolumes, e.g.:
 
      # btrfs subvolume create /mnt/data/www
      # btrfs subvolume create /mnt/data/mysql
@@ -80,7 +80,7 @@ a good entry point.
 <!-- TODO: add links to recommendations for ubuntu and other distros -->
 
 
-## btrfs root
+### btrfs root
 
 If your linux root filesystem is btrfs, I recommend booting linux from
 a btrfs subvolume, and use the btrfs root only as a container for
@@ -109,7 +109,7 @@ How do I convert '/' (subvolid=0) into a subvolume?
 There's several ways to achieve this, the solution described below is
 that it guarantees not to create new files (extents) on disk.
 
-## Step 1: make a snapshot of your root filesystem
+### Step 1: make a snapshot of your root filesystem
 
 Assuming that '/' is mounted with `subvolid=0`:
 
@@ -119,7 +119,7 @@ Note that this command does NOT make any physical copy of the files of
 your subvolumes within "/", it will only add some metadata.
 
 
-## Step 2: make sure that "/rootfs/etc/fstab" is ok.
+### Step 2: make sure that "/rootfs/etc/fstab" is ok.
 
 Add mount point for subvolid=0 to fstab, something like this:
 
@@ -128,7 +128,7 @@ Add mount point for subvolid=0 to fstab, something like this:
     /dev/sda1  /mnt/btr_pool  btrfs  subvolid=0,noatime  0 0
 
 
-## Step 3: boot from the new subvolume "rootfs".
+### Step 3: boot from the new subvolume "rootfs".
 
 Either add `rootflags=subvol=rootfs` to grub.cfg, or set subvolume
 "rootfs" as default:
@@ -136,7 +136,7 @@ Either add `rootflags=subvol=rootfs` to grub.cfg, or set subvolume
     # btrfs subvolume set-default <subvolid> /
 
 
-## Step 4: after reboot, check if everything went fine:
+### Step 4: after reboot, check if everything went fine:
 
 First check your **system log** for btrfs errors, then:
 
@@ -153,8 +153,7 @@ Great, this tells us that we just booted into our new snapshot!
 This means that the root volume (subvolid=0) is correctly mounted.
 
 
-
-## Step 5: delete old (duplicate) files
+### Step 5: delete old (duplicate) files
 
 Carefully delete all old files from `/mnt/btr_pool`, except "rootfs"
 and all other subvolumes within "/". You can list all these by typing:
@@ -168,5 +167,3 @@ something like:
 
     # cd /mnt/btr_pool
     # rm -rf bin sbin usr lib var ...
-
-
