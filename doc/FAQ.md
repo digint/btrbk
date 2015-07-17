@@ -1,3 +1,6 @@
+btrbk FAQ
+=========
+
 Why is it not possible to backup '/' (btrfs root) ?
 ---------------------------------------------------
 
@@ -9,11 +12,61 @@ or in other words: why does this config not work:
       subvolume /
         snapshot_name rootfs
 
-The answer for this is that btrbk is designed to never alter your
-source subvolume. In the config above, the snapshots would be created
-*inside* the source subvolume at: `/rootfs.20150101`.
+*ERROR: Only relative files allowed for option "subvolume"*.
 
 
+### Answer
+
+btrbk is designed to never alter your source subvolume. In the config
+above, the btrbk snapshots would be created *inside* the source
+subvolume, altering it.
+
+The same applies to **any "btrfs root" mount point** (subvolid=0). In
+the example below, you will **not be able to backup** `/mnt/data`
+using btrbk:
+
+/etc/fstab:
+
+    /dev/sda1  /mnt/data  btrfs  subvolid=0 [...]
+
+btrbk is designed to operate on the subvolumes *within* `/mnt/data`.
+The recommended way is to split your data into subvolumes, e.g:
+
+     # btrfs subvolume create /mnt/data/www
+     # btrfs subvolume create /mnt/data/mysql
+     # btrfs subvolume create /mnt/data/projectx
+
+This way you make full advantage of the btrfs filesystem, as all your
+data now has a name, which helps organizing things a lot. This gets
+even more important as soon as you start snapshotting and
+send/receiving.
+
+The btrbk configuration for this would be:
+
+    volume /mnt/data
+      subvolume www
+        [...]
+      subvolume mysql
+        [...]
+      subvolume projectx
+        [...]
+
+
+### Tech Answer
+
+While *btrfs root* (subvolid=0) is a regular subvolume, it is still
+special: being the root node, it does not have a "name" inside the
+subvolume tree.
+
+Here, `/mnt/btr_pool` is mounted with `subvolid=0`:
+
+    # btrfs sub show /mnt/btr_pool/
+    /mnt/btr_pool is btrfs root
+
+    # btrfs sub show /mnt/btr_pool/rootfs
+    /mnt/btr_pool/rootfs
+            Name:    rootfs
+            uuid:    [...]
 
 
 How should I organize my btrfs filesystem?
