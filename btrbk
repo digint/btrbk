@@ -2193,7 +2193,7 @@ MAIN:
             $config_subvol->{SUBVOL_DELETED} = $delete;
           }
           else {
-            $config_subvol->{ABORTED} = "Failed to delete delete subvolume";
+            $config_subvol->{ABORTED} = "Failed to delete subvolume";
           }
         }
       }
