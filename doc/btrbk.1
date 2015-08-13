@@ -31,6 +31,11 @@ Read the configuration from <file>.
 Preserve all backups. Skips deletion of old backups, even if specified
 in the configuration file.
 .TP
+\-r
+Resume only. Skips snapshot creation, only resumes missing
+backups. This only makes sense if the \fIresume_missing\fR option is
+set to \[lq]yes\[rq] in the configuration file.
+.TP
 \-v
 Verbose output. Identical to: \-l info.
 .TP
