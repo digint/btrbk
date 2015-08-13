@@ -116,6 +116,10 @@ Remote username for ssh. Defaults to \[lq]root\[rq]. Note that you will
 have to make sure that the remote user is able to run /sbin/btrfs
 (which needs root privileges).
 .TP
+\fBssh_port\fR  <port>
+Port to connect to on the remote host. Defaults to \[lq]default\[rq]
+(the port specified in \fIssh_config\fR, which defaults to 22).
+.TP
 \fBbtrfs_commit_delete\fR  after|each|no
 If set, make sure the deletion of snapshot and backup subvolumes are
 committed to disk when btrbk terminates. Defaults to \[lq]no\[rq].

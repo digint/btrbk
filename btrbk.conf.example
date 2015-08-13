@@ -51,6 +51,7 @@ snapshot_dir               _btrbk_snap
 # Specify SSH private key for "ssh://" volumes / targets:
 #ssh_identity               /etc/btrbk/ssh/id_ed25519
 #ssh_user                   root
+#ssh_port                   default
 
 # Don't wait for transaction commit on deletion. Set this to "after"
 # or "each" to make sure the deletion of subvolumes is committed to

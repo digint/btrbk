@@ -75,6 +75,7 @@ my %config_options = (
   btrfs_commit_delete       => { default => undef,    accept => [ "after", "each", "no" ] },
   ssh_identity              => { default => undef,    accept_file => { absolute => 1 } },
   ssh_user                  => { default => "root",   accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
+  ssh_port                  => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   btrfs_progs_compat        => { default => undef,    accept => [ "yes", "no" ] },
 
   # deprecated options
@@ -226,13 +227,14 @@ sub vinfo($$)
 
   if($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/) {
     my ($host, $path) = ($1, $2);
+    my $ssh_port      = config_key($config, "ssh_port");
     my $ssh_user      = config_key($config, "ssh_user");
     my $ssh_identity  = config_key($config, "ssh_identity");
     my @ssh_options;
+    push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
     if($ssh_identity) {
-      @ssh_options = ('-i', $ssh_identity);
-    }
-    else {
+      push(@ssh_options, '-i', $ssh_identity);
+    } else {
       WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
     }
     %info = (
@@ -243,6 +245,7 @@ sub vinfo($$)
       RSH_TYPE     => "ssh",
       SSH_USER     => $ssh_user,
       SSH_IDENTITY => $ssh_identity,
+      SSH_PORT     => $ssh_port,
       RSH          => ['/usr/bin/ssh', @ssh_options, $ssh_user . '@' . $host ],
      );
   }
@@ -283,6 +286,7 @@ sub vinfo_child($$)
                RSH_TYPE
                SSH_USER
                SSH_IDENTITY
+               SSH_PORT
                RSH
                BTRFS_PROGS_COMPAT ) )
   {
