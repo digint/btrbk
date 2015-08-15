@@ -21,29 +21,29 @@ be incremented on each backup, starting at 1.
 \-\-version
 Prints the btrbk version.
 .TP
-\-\-help
+\-h, \-\-help
 Prints the synopsis and a list of the commands.
 .TP
-\-c <file>
+\-c, \-\-config <file>
 Read the configuration from <file>.
 .TP
-\-p
+\-p, \-\-preserve
 Preserve all backups. Skips deletion of old backups, even if specified
 in the configuration file.
 .TP
-\-r
+\-r, \-\-resume-only
 Resume only. Skips snapshot creation, only resumes missing
 backups. This only makes sense if the \fIresume_missing\fR option is
 set to \[lq]yes\[rq] in the configuration file.
 .TP
-\-v
+\-v, \-\-verbose
 Verbose output. Identical to: \-l info.
 .TP
-\-q
+\-q, \-\-quiet
 Quiet operation. If set, btrbk does not print the summary after
 executing the "run" command.
 .TP
-\-l <level>
+\-l, \-\-loglevel <level>
 Set the level of verbosity. Accepted levels are warn, info, debug,
 and trace.
 .SH COMMANDS

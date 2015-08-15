@@ -44,7 +44,7 @@ use warnings FATAL => qw( all );
 
 use Carp qw(confess);
 use Date::Calc qw(Today Delta_Days Day_of_Week);
-use Getopt::Std;
+use Getopt::Long qw(GetOptions);
 use Data::Dumper;
 
 our $VERSION       = "0.20.0-dev";
@@ -130,14 +130,16 @@ sub HELP_MESSAGE
   print STDERR "usage: btrbk [options] <command>\n";
   print STDERR "\n";
   print STDERR "options:\n";
-  print STDERR "   --help      display this help message\n";
-  print STDERR "   --version   display version information\n";
-  print STDERR "   -c FILE     specify configuration file\n";
-  print STDERR "   -p          preserve all backups (do not delete any old targets)\n";
-  print STDERR "   -r          resume only (no new snapshots, resume all missing backups)\n";
-  print STDERR "   -v          be verbose (set loglevel=info)\n";
-  print STDERR "   -q          be quiet (do not print summary at end of \"run\" command)\n";
-  print STDERR "   -l LEVEL    set loglevel (warn, info, debug, trace)\n";
+  #            "--------------------------------------------------------------------------------"; # 80
+  print STDERR "   -h, --help            display this help message\n";
+  print STDERR "   -v, --version         display version information\n";
+  print STDERR "   -c, --config=FILE     specify configuration file\n";
+  print STDERR "   -p, --preserve        preserve all backups (do not delete any old targets)\n";
+  print STDERR "   -r, --resume-only     resume only (do not create new snapshots, only resume\n";
+  print STDERR "                         missing backups)\n";
+  print STDERR "   -v, --verbose         be verbose (set loglevel=info)\n";
+  print STDERR "   -q, --quiet           be quiet (do not print summary for the \"run\" command)\n";
+  print STDERR "   -l, --loglevel=LEVEL  set logging level (warn, info, debug, trace)\n";
   print STDERR "\n";
   print STDERR "commands:\n";
   print STDERR "   run    [subvol...]  perform backup operations as defined in the config file\n";
@@ -1438,41 +1440,45 @@ MAIN:
   # install the "btrfs" executable to different locations.
   $ENV{PATH} = '/sbin:/bin:/usr/sbin:/usr/bin';
 
-  $Getopt::Std::STANDARD_HELP_VERSION = 1;
+  Getopt::Long::Configure qw(gnu_getopt);
   $Data::Dumper::Sortkeys = 1;
   my $start_time = time;
   my @today = Today();
 
-  my %opts;
-  unless(getopts('hc:prvql:', \%opts)) {
+
+  my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only);
+  unless(GetOptions(
+    'help|h'        => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
+    'version'       => sub { VERSION_MESSAGE(); exit 0; },,
+    'config|c=s'    => \$config_cmdline,
+    'preserve|p'    => \$preserve_backups,
+    'resume-only|r' => \$resume_only,
+    'quiet|q'       => \$quiet,
+    'verbose|v'     => sub { $loglevel = 2; },
+    'loglevel|l=s'  => \$loglevel,
+   ))
+  {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 1;
   }
   my $command = shift @ARGV;
-
-  # assign command line options
-  $loglevel = $opts{l} || "";
-  if   (lc($loglevel) eq "warn")  { $loglevel = 1; }
-  elsif(lc($loglevel) eq "info")  { $loglevel = 2; }
-  elsif(lc($loglevel) eq "debug") { $loglevel = 3; }
-  elsif(lc($loglevel) eq "trace") { $loglevel = 4; }
-  elsif($loglevel =~ /^[0-9]+$/) { ; }
-  else {
-    $loglevel = $opts{v} ? 2 : 1;
-  }
-  @config_src = ( $opts{c} ) if($opts{c});
-  my $quiet = $opts{q};
-  my $preserve_backups = $opts{p};
-  my $resume_only = $opts{r};
-
-  # check command line options
-  if($opts{h} || (not $command)) {
+  unless($command) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 0;
   }
 
+  # assign command line options
+  if   (lc($loglevel) eq "warn")  { $loglevel = 1; }
+  elsif(lc($loglevel) eq "info")  { $loglevel = 2; }
+  elsif(lc($loglevel) eq "debug") { $loglevel = 3; }
+  elsif(lc($loglevel) eq "trace") { $loglevel = 4; }
+  elsif($loglevel =~ /^[0-9]+$/)  { ; }
+  else                            { $loglevel = 1; }
+  @config_src = ( $config_cmdline ) if($config_cmdline);
+
+  # check command line options
   my ($action_run, $action_info, $action_tree, $action_diff, $action_origin);
   my @subvol_args;
   my ($args_expected_min, $args_expected_max) = (0, 0);
