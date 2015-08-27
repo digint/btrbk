@@ -133,7 +133,7 @@ sub HELP_MESSAGE
   print STDERR "options:\n";
   #            "--------------------------------------------------------------------------------"; # 80
   print STDERR "   -h, --help            display this help message\n";
-  print STDERR "   -v, --version         display version information\n";
+  print STDERR "       --version         display version information\n";
   print STDERR "   -c, --config=FILE     specify configuration file\n";
   print STDERR "   -p, --preserve        preserve all backups (do not delete any old targets)\n";
   print STDERR "   -r, --resume-only     resume only (do not create new snapshots, only resume\n";
