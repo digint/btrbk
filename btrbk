@@ -76,6 +76,7 @@ my %config_options = (
   ssh_identity              => { default => undef,    accept_file => { absolute => 1 } },
   ssh_user                  => { default => "root",   accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
   ssh_port                  => { default => "default", accept => [ "default" ], accept_numeric => 1 },
+  ssh_compression           => { default => "yes",    accept => [ "yes", "no" ] },
   btrfs_progs_compat        => { default => undef,    accept => [ "yes", "no" ] },
 
   # deprecated options
@@ -230,12 +231,14 @@ sub vinfo($$)
    );
 
   if($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/) {
-    my ($host, $path) = ($1, $2);
-    my $ssh_port      = config_key($config, "ssh_port");
-    my $ssh_user      = config_key($config, "ssh_user");
-    my $ssh_identity  = config_key($config, "ssh_identity");
+    my ($host, $path)   = ($1, $2);
+    my $ssh_port        = config_key($config, "ssh_port");
+    my $ssh_user        = config_key($config, "ssh_user");
+    my $ssh_identity    = config_key($config, "ssh_identity");
+    my $ssh_compression = config_key($config, "ssh_compression");
     my @ssh_options;
     push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
+    push(@ssh_options, '-C') if($ssh_compression eq "yes");
     if($ssh_identity) {
       push(@ssh_options, '-i', $ssh_identity);
     } else {
