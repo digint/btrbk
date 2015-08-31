@@ -52,6 +52,7 @@ snapshot_dir               _btrbk_snap
 #ssh_identity               /etc/btrbk/ssh/id_ed25519
 #ssh_user                   root
 #ssh_port                   default
+#ssh_compression            no
 
 # Don't wait for transaction commit on deletion. Set this to "after"
 # or "each" to make sure the deletion of subvolumes is committed to
