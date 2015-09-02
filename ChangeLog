@@ -1,9 +1,11 @@
-btrbk-current
+btrbk-0.20.0
 
   * Added configuration option "ssh_port" (close: #39).
   * Added configuration option "ssh_compression" (close: #44).
   * Added command line option "--progress" (close: #42).
   * Bugfix: correct handling of empty "snapshot_dir" (close: #43).
+  * Accept long options on command line.
+  * Documentation: added FAQ.
 
 btrbk-0.19.3
 
