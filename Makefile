@@ -25,7 +25,7 @@ install-systemd:
 
 install-share:
 	@echo 'installing auxiliary scripts...'
-	install -Dm644 ssh_filter_btrbk.sh "$(DESTDIR)$(SCRIPTDIR)/ssh_filter_btrbk.sh"
+	install -Dm755 ssh_filter_btrbk.sh "$(DESTDIR)$(SCRIPTDIR)/ssh_filter_btrbk.sh"
 
 install-man:
 	@echo 'installing manpages...'
