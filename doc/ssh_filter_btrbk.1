@@ -1,0 +1,97 @@
+.TH "ssh_filter_btrbk" "1" "2015-09-03" "btrbk v0.20.0" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH NAME
+ssh_filter_btrbk.sh \- ssh command filter script for btrbk
+.SH SYNOPSIS
+.nf
+\fBssh_filter_btrbk.sh\fR [\-s|\-\-source] [\-t|\-\-target] [\-d|\-\-delete] [\-i|\-\-info]
+    [\-p|\-\-restrict\-path <path>] [\-l|\-\-log] [\-\-sudo]
+.fi
+.SH DESCRIPTION
+\fBssh_filter_btrbk.sh\fR restricts SSH commands to \fIbtrfs\fR
+commands used by \fIbtrbk\fR. It examines the SSH_ORIGINAL_COMMAND
+environment variable (set by sshd) and executes it only if it matches
+commands used by \fIbtrbk\fR. The accepted commands are specified by
+the "\-\-source", "\-\-target", "\-\-delete" and "\-\-info" options.
+.PP
+Note that the following btrfs commands are always allowed: "btrfs
+subvolume show", "btrfs subvolume list".
+.PP
+Example line in /root/.ssh/authorized_keys on a backup target host:
+.PP
+.RS 4
+.nf
+command="ssh_filter_btrbk.sh \-\-target \-\-delete \-\-restrict\-path /mnt/btr_backup" ssh\-rsa AAAAB3NzaC1...hwumXFRQBL btrbk@mydomain.com
+.fi
+.RE
+.SH OPTIONS
+.PP
+\-s, \-\-source
+.RS 4
+Allow commands for backup source: "btrfs subvolume snapshot", "btrfs
+send". Equivalent to "\-\-snapshot \-\-send".
+.RE
+.PP
+\-t, \-\-target
+.RS 4
+Allow commands for backup target: "btrfs receive". Equivalent to
+"\-\-receive".
+.RE
+.PP
+\-d, \-\-delete
+.RS 4
+Allow commands for subvolume deletion: "btrfs subvolume delete". This
+is used for backup source if \fIsnapshot_preserve_daily\fR is not set
+to \[lq]all\[rq], and for backup targets if
+\fItarget_preserve_daily\fR is not set to \[lq]all\[rq].
+.RE
+.PP
+\-i, \-\-info
+.RS 4
+Allow informative commands: "btrfs subvolume find-new", "btrfs
+filesystem usage". This is used by btrbk \fIinfo\fR and \fIdiff\fR
+commands.
+.RE
+.PP
+\-\-snapshot
+.RS 4
+Allow btrfs snapshot command: "btrfs subvolume snapshot".
+.RE
+.PP
+\-\-send
+.RS 4
+Allow btrfs send command: "btrfs send".
+.RE
+.PP
+\-\-receive
+.RS 4
+Allow btrfs receive command: "btrfs receive".
+.RE
+.PP
+\-p, \-\-restrict\-path <path>
+.RS 4
+Restrict btrfs commands to <path>.
+.RE
+.PP
+\-l, \-\-log
+.RS 4
+Log ACCEPT and REJECT messages to the system log.
+.RE
+.PP
+\-\-sudo
+.RS 4
+Call SSH_ORIGINAL_COMMAND using sudo.
+.RE
+.SH AVAILABILITY
+Please refer to the btrbk project page
+\fBhttp://www.digint.ch/btrbk/\fR for further
+details.
+.SH SEE ALSO
+.BR btrbk (1),
+.BR btrbk.conf (5),
+.BR btrfs (1)
+.SH AUTHOR
+Axel Burri <axel@tty0.ch>
