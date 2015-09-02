@@ -1815,9 +1815,10 @@ MAIN:
       $config_subvol->{snapshot_name} //= $svol->{NAME};
 
       # check for duplicate snapshot locations
-      my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+      my $snapdir = config_key($config_subvol, "snapshot_dir") // "";
+      $snapdir .= '/' if($snapdir ne "");  # add trailing slash for correct handling of empty string below
       my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
-      my $snapshot_target = "$sroot->{REAL_URL}/$snapdir/$snapshot_basename";
+      my $snapshot_target = "$sroot->{REAL_URL}/$snapdir$snapshot_basename";
       if(my $prev = $snapshot_check{$snapshot_target}) {
         ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snapshot_target";
         ERROR "Please fix \"snapshot_name\" configuration options!";
@@ -1973,7 +1974,8 @@ MAIN:
         {
           next if($config_subvol->{ABORTED});
           my $svol = $config_subvol->{svol} || die;
-          my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+          my $snapdir = config_key($config_subvol, "snapshot_dir") // "";
+          $snapdir .= '/' if($snapdir ne "");  # add trailing slash for correct handling of empty string below
           my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
 
           # check if we need to create a snapshot
@@ -2017,7 +2019,7 @@ MAIN:
           # find unique snapshot name
           my @unconfirmed_target_name;
           my @lookup = keys %{vinfo_subvol_list($sroot)};
-          @lookup = grep s/^\Q$snapdir\E\/// , @lookup;
+          @lookup = grep s/^\Q$snapdir\E// , @lookup;
           foreach my $config_target (@{$config_subvol->{TARGET}}) {
             if($config_target->{ABORTED}) {
               push(@unconfirmed_target_name, vinfo($config_target->{url}, $config_target));
@@ -2040,11 +2042,11 @@ MAIN:
 
           # finally create the snapshot
           INFO "Creating subvolume snapshot for: $svol->{PRINT}";
-          if(btrfs_subvolume_snapshot($svol, "$sroot->{PATH}/$snapdir/$snapshot_name")) {
-            $config_subvol->{SNAPSHOT} = vinfo_child($sroot, "$snapdir/$snapshot_name");
+          if(btrfs_subvolume_snapshot($svol, "$sroot->{PATH}/$snapdir$snapshot_name")) {
+            $config_subvol->{SNAPSHOT} = vinfo_child($sroot, "$snapdir$snapshot_name");
           }
           else {
-            $config_subvol->{ABORTED} = "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir/$snapshot_name";
+            $config_subvol->{ABORTED} = "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name";
             WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
           }
         }
@@ -2062,7 +2064,8 @@ MAIN:
       {
         next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
-        my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+        my $snapdir = config_key($config_subvol, "snapshot_dir") // "";
+        $snapdir .= '/' if($snapdir ne "");  # add trailing slash for correct handling of empty string below
         my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
         my $preserve_latest = $config_subvol->{SNAPSHOT} ? 0 : 1;
 
@@ -2098,7 +2101,7 @@ MAIN:
 
                   # check if the target would be preserved
                   my ($date, $date_ext) = get_date_tag($child->{SUBVOL_PATH});
-                  next unless($date && ($child->{SUBVOL_PATH} =~ /^\Q$snapdir\/$snapshot_basename\E$snapshot_postfix_match$/));
+                  next unless($date && ($child->{SUBVOL_PATH} =~ /^\Q$snapdir$snapshot_basename\E$snapshot_postfix_match$/));
                   push(@schedule, { value => $child, date => $date, date_ext => $date_ext }),
                 }
               }
@@ -2196,7 +2199,8 @@ MAIN:
         {
           next if($config_subvol->{ABORTED});
           my $svol = $config_subvol->{svol} || die;
-          my $snapdir = config_key($config_subvol, "snapshot_dir") || "";
+          my $snapdir = config_key($config_subvol, "snapshot_dir") // "";
+          $snapdir .= '/' if($snapdir ne "");  # add trailing slash for correct handling of empty string below
           my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
           my $preserve_latest = $config_subvol->{SNAPSHOT} ? 0 : 1;
           my $target_aborted = 0;
@@ -2253,10 +2257,10 @@ MAIN:
             WARN "Skipping cleanup of snapshots for subvolume \"$svol->{PRINT}\", as at least one target aborted earlier";
             next;
           }
-          INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir/$snapshot_basename.*";
+          INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir$snapshot_basename.*";
           my @schedule;
           foreach my $vol (values %{vinfo_subvol_list($sroot)}) {
-            next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapdir\/$snapshot_basename\E$snapshot_postfix_match$/);
+            next unless($vol->{SUBVOL_PATH} =~ /^\Q$snapdir$snapshot_basename\E$snapshot_postfix_match$/);
             my ($date, $date_ext) = get_date_tag($vol->{NAME});
             next unless($date);
             push(@schedule, { value => $vol, name => $vol->{PRINT}, date => $date, date_ext => $date_ext });
@@ -2273,7 +2277,7 @@ MAIN:
            );
           my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_subvol, "btrfs_commit_delete"));
           if(defined($ret)) {
-            INFO "Deleted $ret subvolumes in: $sroot->{PRINT}/$snapdir/$snapshot_basename.*";
+            INFO "Deleted $ret subvolumes in: $sroot->{PRINT}/$snapdir$snapshot_basename.*";
             $config_subvol->{SUBVOL_DELETED} = $delete;
           }
           else {
