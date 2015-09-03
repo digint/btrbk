@@ -1,8 +1,14 @@
 .TH "btrbk" "1" "2015-09-02" "btrbk v0.20.0" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
 .SH NAME
 btrbk \- backup tool for btrfs volumes
 .SH SYNOPSIS
+.nf
 \fBbtrbk\fR [\-\-version] [\-\-help] [\-c <file>] [\-p] [\-v] [\-q] [\-l <level>] <command> [<args>]
+.fi
 .SH DESCRIPTION
 \fBbtrbk\fR is a backup tool for btrfs subvolumes, taking advantage of
 btrfs specific capabilities to create atomic snapshots and transfer
@@ -10,45 +16,65 @@ them incrementally to target volumes. It is able to perform backups
 from one source to multiple destinations.
 .PP
 Snapshots as well as backup subvolume names are created in form:
-.IP
+.PP
+.RS 4
 <source_name>.YYYYMMDD[_N]
+.RE
 .PP
 Where YYYY is the year, MM is the month, and DD is the day of
 creation, and, if multiple backups are created on the same day, N will
 be incremented on each backup, starting at 1.
 .SH OPTIONS
-.TP
+.PP
 \-\-version
+.RS 4
 Prints the btrbk version.
-.TP
+.RE
+.PP
 \-h, \-\-help
+.RS 4
 Prints the synopsis and a list of the commands.
-.TP
+.RE
+.PP
 \-c, \-\-config <file>
+.RS 4
 Read the configuration from <file>.
-.TP
+.RE
+.PP
 \-p, \-\-preserve
+.RS 4
 Preserve all backups. Skips deletion of old backups, even if specified
 in the configuration file.
-.TP
+.RE
+.PP
 \-r, \-\-resume-only
+.RS 4
 Resume only. Skips snapshot creation, only resumes missing
 backups. This only makes sense if the \fIresume_missing\fR option is
 set to \[lq]yes\[rq] in the configuration file.
-.TP
+.RE
+.PP
 \-v, \-\-verbose
+.RS 4
 Verbose output. Identical to: \-l info.
-.TP
+.RE
+.PP
 \-q, \-\-quiet
+.RS 4
 Quiet operation. If set, btrbk does not print the summary after
 executing the "run" command.
-.TP
+.RE
+.PP
 \-l, \-\-loglevel <level>
+.RS 4
 Set the level of verbosity. Accepted levels are warn, info, debug,
 and trace.
-.TP
+.RE
+.PP
 \-\-progress
+.RS 4
 Show progress bar on send-receive operation.
+.RE
 .SH COMMANDS
 .PP
 .B run
@@ -119,14 +145,15 @@ parent-child relationship as well as the received-from information.
 Print new files since subvolume <from> for subvolume <to>.
 .RE
 .SH FILES
-.TP
+.PP
 /etc/btrbk.conf
-.PD 0
-.TP
+.br
 /etc/btrbk/btrbk.conf
+.RS 4
 Default configuration file. The file format and configuration options
 are described in
 .BR btrbk.conf (5).
+.RE
 .PD
 .SH EXIT STATUS
 .sp
