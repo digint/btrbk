@@ -7,7 +7,10 @@
 btrbk \- backup tool for btrfs volumes
 .SH SYNOPSIS
 .nf
-\fBbtrbk\fR [\-\-version] [\-\-help] [\-c <file>] [\-p] [\-v] [\-q] [\-l <level>] <command> [<args>]
+\fBbtrbk\fR [\-h|\-\-help] [\-\-version] [\-c|\-\-config <file>]
+      [\-p|\-\-preserve] [\-r|\-\-resume\-only]
+      [\-v|\-\-verbose] [\-q|\-\-quiet] [\-l|\-\-loglevel <level>] [\-\-progress]
+      <command> [<args>]
 .fi
 .SH DESCRIPTION
 \fBbtrbk\fR is a backup tool for btrfs subvolumes, taking advantage of
@@ -26,14 +29,14 @@ creation, and, if multiple backups are created on the same day, N will
 be incremented on each backup, starting at 1.
 .SH OPTIONS
 .PP
-\-\-version
-.RS 4
-Prints the btrbk version.
-.RE
-.PP
 \-h, \-\-help
 .RS 4
 Prints the synopsis and a list of the commands.
+.RE
+.PP
+\-\-version
+.RS 4
+Prints the btrbk version.
 .RE
 .PP
 \-c, \-\-config <file>
