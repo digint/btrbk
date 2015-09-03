@@ -270,30 +270,57 @@ advisable* to take all the security precautions you can. Usually
 backups are generated periodically without user interaction, so it is
 not possible to protect your ssh key with a password. The steps below
 will give you hints on how to secure your ssh server for a backup
-scenario.
+scenario. Note that the btrbk executable is not needed on the remote
+side, but you will need "/sbin/btrfs" from the btrfs-progs package.
 
-btrbk provides a little shell script called "ssh_filter_btrbk.sh",
-which only allows sane calls to the /sbin/btrfs command needed for
-snapshot creation and send/receive operations. This is how it is used
-with ssh:
+btrbk comes with a shell script "ssh_filter_btrbk.sh", which restricts
+ssh access to sane calls to the /sbin/btrfs command needed for
+snapshot creation and send/receive operations (see
+[ssh_filter_btrbk(1)]). Here is an example on how it can be used with
+ssh:
 
-**Step 1** (client): Create a ssh key dedicated to btrbk, without password protection:
+**Step 1** (client): Create a ssh key dedicated to btrbk, without
+  password protection:
 
     ssh-keygen -t rsa -b 2048 -f /etc/btrbk/ssh/id_rsa -C btrbk@mydomain.com -N ""
 
-**Step 2** (server): Copy the "ssh_filter_btrbk.sh" from the btrbk project to "/root/".
+**Step 2** (server): Copy the "ssh_filter_btrbk.sh" from the btrbk
+  project to "/backup/scripts/".
 
 **Step 3** (server): Add contents of the public key
-  (/etc/btrbk/ssh/id_rsa.pub) to "/root/.ssh/authorized_keys",
-  restricting access from a single host:
+  (/etc/btrbk/ssh/id_rsa.pub) to "/root/.ssh/authorized_keys", and
+  configure "ssh_filter_btrbk.sh" to be executed whenever this key is
+  used for authentication. Example lines:
 
-    from="192.168.0.42",command="/root/ssh_filter_btrbk.sh" ssh-rsa AAAAB3NzaC1...hwumXFRQBL btrbk@mydomain.com
+    # example backup source (also allowing deletion of old snapshots)
+    command="/backup/scripts/ssh_filter_btrbk.sh -l --source --delete" <pubkey>...
 
-Now your ssh server allows connections only from 192.168.0.42, and
-will only execute commands needed by btrbk. Note that the btrbk
-executable is not needed on the remote side, but you will need
-"/sbin/btrfs" from the btrfs-progs package.
+    # example backup target (also allowing deletion of old snapshots)
+    command="/backup/scripts/ssh_filter_btrbk.sh -l --target --delete" <pubkey>...
 
+    # example fetch-only backup source (snapshot_preserve_daily=all, snapshot_create=no),
+    # restricted to subvolumes within /home or /data
+    command="/backup/scripts/ssh_filter_btrbk.sh -l --send -p /home -p /data" <pubkey>...
+
+You might also want to restrict ssh access to a static IP address
+within your network:
+
+    from="192.168.0.42",command="/backup/scripts/ssh_filter_btrbk.sh [...]" <pubkey>...
+
+Please refer to [ssh_filter_btrbk(1)] for a description of the
+"ssh_filter_btrbk.sh" options, as well as [sshd(8)] for a description
+of the "authorized_keys" file format.
+
+Also consider setting up ssh access for a user dedicated to btrbk and
+either set suid root on ssh_filter_btrbk.sh or use the "--sudo" option
+and configure /etc/sudoers accordingly. For even more security, you
+can setup a chroot environment in /etc/ssh/sshd_config (see
+[sshd_config(5)]).
+
+
+  [ssh_filter_btrbk(1)]: http://www.digint.ch/btrbk/doc/ssh_filter_btrbk.html
+  [sshd(8)]: http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man8/sshd.8
+  [sshd_config(5)]: http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man5/sshd_config.5
 
 Restoring Backups
 =================
