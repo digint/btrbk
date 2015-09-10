@@ -353,10 +353,11 @@ sub vinfo_set_detail($$)
 }
 
 
-sub config_key($$)
+sub config_key($$;@)
 {
   my $node = shift || die;
   my $key = shift || die;
+  my %opts = @_;
   TRACE "config_key: context=$node->{CONTEXT}, key=$key";
   while(not exists($node->{$key})) {
     # note: while all config keys exist in root context (at least with default values),
@@ -365,7 +366,10 @@ sub config_key($$)
     $node = $node->{PARENT};
   }
   TRACE "config_key: found value=" . ($node->{$key} // "<undef>");
-  return $node->{$key};
+  my $retval = $node->{$key};
+  $retval = $opts{prefix} . $retval if(defined($opts{prefix}) && defined($retval));
+  $retval .= $opts{postfix} if(defined($opts{postfix}) && defined($retval));
+  return $retval;
 }
 
 
@@ -1815,8 +1819,7 @@ MAIN:
       $config_subvol->{snapshot_name} //= $svol->{NAME};
 
       # check for duplicate snapshot locations
-      my $snapdir = config_key($config_subvol, "snapshot_dir") // "";
-      $snapdir .= '/' if($snapdir ne "");  # add trailing slash for correct handling of empty string below
+      my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
       my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
       my $snapshot_target = "$sroot->{REAL_URL}/$snapdir$snapshot_basename";
       if(my $prev = $snapshot_check{$snapshot_target}) {
@@ -1974,8 +1977,7 @@ MAIN:
         {
           next if($config_subvol->{ABORTED});
           my $svol = $config_subvol->{svol} || die;
-          my $snapdir = config_key($config_subvol, "snapshot_dir") // "";
-          $snapdir .= '/' if($snapdir ne "");  # add trailing slash for correct handling of empty string below
+          my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
           my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
 
           # check if we need to create a snapshot
@@ -2064,8 +2066,7 @@ MAIN:
       {
         next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
-        my $snapdir = config_key($config_subvol, "snapshot_dir") // "";
-        $snapdir .= '/' if($snapdir ne "");  # add trailing slash for correct handling of empty string below
+        my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
         my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
         my $preserve_latest = $config_subvol->{SNAPSHOT} ? 0 : 1;
 
@@ -2199,8 +2200,7 @@ MAIN:
         {
           next if($config_subvol->{ABORTED});
           my $svol = $config_subvol->{svol} || die;
-          my $snapdir = config_key($config_subvol, "snapshot_dir") // "";
-          $snapdir .= '/' if($snapdir ne "");  # add trailing slash for correct handling of empty string below
+          my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
           my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
           my $preserve_latest = $config_subvol->{SNAPSHOT} ? 0 : 1;
           my $target_aborted = 0;
