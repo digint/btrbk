@@ -146,7 +146,7 @@ Retention policy:
 
 /etc/cron.daily/btrbk:
 
-    #!/bin/bash
+    #!/bin/sh
     /usr/sbin/btrbk -q -c /etc/btrbk/btrbk-mylaptop.conf run
 
 
@@ -226,7 +226,7 @@ regular basis:
 
 /etc/cron.daily/btrbk:
 
-    #!/bin/bash
+    #!/bin/sh
     /usr/sbin/btrbk -q run
 
 Note that you can run btrbk more than once a day, e.g. by creating the
