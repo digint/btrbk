@@ -173,6 +173,14 @@ Enables or disables the compression of ssh connections. Defaults to
 \[lq]no\[rq].
 .RE
 .PP
+\fBssh_cipher_spec\fR  <cipher_spec>
+.RS 4
+Selects the cipher specification for encrypting the session
+(comma-separated list of ciphers in order of preference). See the "-c
+cipher_spec" option in ssh(1) for more information. Defaults to
+\[lq]default\[rq] (the ciphers specified in \fIssh_config\fR).
+.RE
+.PP
 \fBbtrfs_commit_delete\fR  after|each|no
 .RS 4
 If set, make sure the deletion of snapshot and backup subvolumes are

@@ -61,6 +61,7 @@ my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the sub
 my $ssh_prefix_match = qr/ssh:\/\/($ip_addr_match|$host_name_match)/;
 my $snapshot_postfix_match = qr/\.[0-9]{8}(_[0-9]+)?/;
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
+my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
 
 my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6, sunday => 7 );
 
@@ -84,6 +85,7 @@ my %config_options = (
   ssh_user                  => { default => "root",   accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
   ssh_port                  => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   ssh_compression           => { default => undef,    accept => [ "yes", "no" ] },
+  ssh_cipher_spec           => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
   btrfs_progs_compat        => { default => undef,    accept => [ "yes", "no" ] },
   group                     => { default => undef,    accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
 
@@ -238,9 +240,11 @@ sub vinfo($$)
     my $ssh_user        = config_key($config, "ssh_user");
     my $ssh_identity    = config_key($config, "ssh_identity");
     my $ssh_compression = config_key($config, "ssh_compression");
+    my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
     my @ssh_options;
     push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
     push(@ssh_options, '-C') if($ssh_compression);
+    push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
     if($ssh_identity) {
       push(@ssh_options, '-i', $ssh_identity);
     } else {
