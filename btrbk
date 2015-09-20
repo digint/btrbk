@@ -85,7 +85,7 @@ my %config_options = (
   ssh_port                  => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   ssh_compression           => { default => undef,    accept => [ "yes", "no" ] },
   btrfs_progs_compat        => { default => undef,    accept => [ "yes", "no" ] },
-  group                     => { default => undef,    accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/, context => [ "volume", "subvolume" ] },
+  group                     => { default => undef,    accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
 
   # deprecated options
   snapshot_create_always    => { default => undef, accept => [ "yes", "no" ],
@@ -1424,7 +1424,8 @@ sub schedule(@)
 }
 
 
-sub print_header(@) {
+sub print_header(@)
+{
   my %args = @_;
   my $config = $args{config};
 
@@ -1435,9 +1436,17 @@ sub print_header(@) {
   }
   if($config) {
     print "    Config: $config->{SRC_FILE}\n";
-    if($config->{CMDLINE_FILTER_LIST}) {
+
+    if($config->{CMDLINE_FILTER_LIST})
+    {
+      my @list = sort @{$config->{CMDLINE_FILTER_LIST}};
+      my @sorted = ( grep(/^group/,     @list),
+                     grep(/^volume/,    @list),
+                     grep(/^subvolume/, @list),
+                     grep(/^target/,    @list) );
+      die unless(scalar(@list) == scalar(@sorted));
       print "    Filter: ";
-      print join("\n            ", map { $_->{PRINT} } @{$config->{CMDLINE_FILTER_LIST}});
+      print join("\n            ", @sorted);
       print "\n";
     }
   }
@@ -1694,57 +1703,72 @@ MAIN:
   #
   if(($action_run || $action_tree || $action_info) && scalar(@filter_args))
   {
-    my $filter_count = undef;
-    my @filter;
     my %match;
     foreach my $config_vol (@{$config->{VOLUME}}) {
       my $vol_url = $config_vol->{url} // die;
-      my $found = 0;
+      my $found_vol = 0;
       foreach my $filter (@filter_args) {
         if(($vol_url eq $filter) || (map { ($filter eq $_) || () } @{$config_vol->{group}})) {
-          push(@filter, vinfo($vol_url, $config_vol));
-          $match{$filter} = 1;
           TRACE "filter argument \"$filter\" matches volume: $vol_url\n";
-          $found = 1;
+          $match{$filter} = ($vol_url eq $filter) ? "volume=" . vinfo($vol_url, $config_vol)->{PRINT} : "group=$filter";
+          $found_vol = 1;
           # last; # need to cycle through all filter_args for correct %match
         }
       }
-      next if($found);
+      next if($found_vol);
 
       my @filter_subvol;
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
         my $subvol_url = $config_subvol->{url} // die;
-
-        $found = 0;
+        my $found_subvol = 0;
         foreach my $filter (@filter_args) {
           if(($subvol_url eq $filter) || (map { ($filter eq $_) || () } @{$config_subvol->{group}})) {
-            push(@filter_subvol, vinfo($subvol_url, $config_subvol));
-            $match{$filter} = 1;
             TRACE "filter argument \"$filter\" matches subvolume: $subvol_url\n";
-            $found = 1;
+            $match{$filter} = ($subvol_url eq $filter) ? "subvolume=" . vinfo($subvol_url, $config_subvol)->{PRINT} : "group=$filter";
+            $found_subvol = 1;
+            $found_vol = 1;
             # last; # need to cycle through all filter_args for correct %match
           }
         }
-        unless($found) {
-          DEBUG "No match on subvolume/group command line argument, skipping subvolume: $subvol_url";
+        next if($found_subvol);
+
+        foreach my $config_target (@{$config_subvol->{TARGET}}) {
+          my $target_url = $config_target->{url} // die;
+          my $found_target = 0;
+          foreach my $filter (@filter_args) {
+            if(($target_url eq $filter) || (map { ($filter eq $_) || () } @{$config_target->{group}})) {
+              TRACE "filter argument \"$filter\" matches target: $target_url\n";
+              $match{$filter} = ($target_url eq $filter) ? "target=" . vinfo($target_url, $config_target)->{PRINT} : "group=$filter";
+              $found_target = 1;
+              $found_subvol = 1;
+              $found_vol = 1;
+              # last; # need to cycle through all filter_args for correct %match
+            }
+          }
+          unless($found_target) {
+            DEBUG "No match on filter command line argument, skipping target: $target_url";
+            $config_target->{ABORTED} = "USER_SKIP";
+          }
+        }
+        unless($found_subvol) {
+          DEBUG "No match on filter command line argument, skipping subvolume: $subvol_url";
           $config_subvol->{ABORTED} = "USER_SKIP";
         }
       }
-      unless(@filter_subvol) {
-        DEBUG "No match on subvolume/group command line argument, skipping volume: $vol_url";
+      unless($found_vol) {
+        DEBUG "No match on filter command line argument, skipping volume: $vol_url";
         $config_vol->{ABORTED} = "USER_SKIP";
       }
-      push(@filter, @filter_subvol);
     }
     # make sure all args have a match
     my @nomatch = map { $match{$_} ? () : $_ } @filter_args;
     if(@nomatch) {
       foreach(@nomatch) {
-        ERROR "Command line argument does not match any volume/subvolume declaration: $_";
+        ERROR "Command line argument does not match any volume, subvolume, target or group declaration: $_";
       }
       exit 1;
     }
-    $config->{CMDLINE_FILTER_LIST} = \@filter;
+    $config->{CMDLINE_FILTER_LIST} = [ values %match ];
   }
 
 
@@ -1863,6 +1887,7 @@ MAIN:
 
       foreach my $config_target (@{$config_subvol->{TARGET}})
       {
+        next if($config_target->{ABORTED});
         my $droot = vinfo($config_target->{url}, $config_target);
         unless(vinfo_root($droot)) {
           $config_target->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
@@ -2071,7 +2096,7 @@ MAIN:
           my $snapshot_name = $snapshot_basename . '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
 
           if(@unconfirmed_target_name) {
-            INFO "Failed to check all targets, assuming non-present subvolume \"$snapshot_name\" in: " . join(", ", map { "\"$_->{PRINT}\"" } @unconfirmed_target_name);
+            INFO "Assuming non-present subvolume \"$snapshot_name\" in skipped targets: " . join(", ", map { "\"$_->{PRINT}\"" } @unconfirmed_target_name);
           }
 
           # finally create the snapshot
@@ -2240,7 +2265,11 @@ MAIN:
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             if($config_target->{ABORTED}) {
-              $target_aborted = 1;
+              if($config_target->{ABORTED} eq "USER_SKIP") {
+                $target_aborted ||= -1;
+              } else {
+                $target_aborted = 1;
+              }
               next;
             }
             my $droot = $config_target->{droot} || die;
@@ -2278,7 +2307,7 @@ MAIN:
             }
             else {
               $config_target->{ABORTED} = "Failed to delete subvolume";
-              $target_aborted = 1;
+              $target_aborted = -1;
             }
           }
 
@@ -2286,7 +2315,11 @@ MAIN:
           # delete snapshots
           #
           if($target_aborted) {
-            WARN "Skipping cleanup of snapshots for subvolume \"$svol->{PRINT}\", as at least one target aborted earlier";
+            if($target_aborted == -1) {
+              INFO "Skipping cleanup of snapshots for subvolume \"$svol->{PRINT}\", as at least one target is skipped by command line argument";
+            } else {
+              WARN "Skipping cleanup of snapshots for subvolume \"$svol->{PRINT}\", as at least one target aborted earlier";
+            }
             next;
           }
           INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir$snapshot_basename.*";
