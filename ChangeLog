@@ -1,3 +1,10 @@
+btrbk-current
+
+  * Added configuration option "group".
+  * Allow filtering subcommands by group as well as targets.
+  * Hardened ssh_filter_btrbk.sh script: fine-grained access control,
+    restrict-path option, sudo option (close: #45)
+
 btrbk-0.20.0
 
   * Added configuration option "ssh_port" (close: #39).
