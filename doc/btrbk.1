@@ -81,13 +81,12 @@ Show progress bar on send-receive operation.
 .SH COMMANDS
 .PP
 .B run
-[subvolume...]
+[filter...]
 .RS 4
 Perform backup operations as specified in the configuration file. If
-the optional [subvolume...] arguments are present, backups are only
-performed for the specified subvolumes (which must match a
-volume/subvolume declaration in the configuration file), and the -p
-(preserve backups) option is implied.
+the optional [filter...] arguments are present, backups are only
+performed for the subvolumes/targets matching a \fIFILTER STATEMENT\fR
+(see below).
 .PP
 First, btrbk reads information from the source and target btrfs
 filesystems in order to perform sanity checks and identify
@@ -113,7 +112,7 @@ of the retention policy.
 .RE
 .PP
 .B dryrun
-[subvolume...]
+[filter...]
 .RS 4
 Don't run btrfs commands, just show the snapshots and backup
 subvolumes that would be created/deleted by the \fBrun\fR command. Use
@@ -122,17 +121,19 @@ would be executed.
 .RE
 .PP
 .B info
-[subvolume...]
+[filter...]
 .RS 4
 Print filesystem usage information for all source/target
-volumes. Optionally filtered by [subvolume...] arguments.
+volumes. Optionally filtered by [filter...] arguments (see \fIFILTER
+STATEMENTS\fR below).
 .RE
 .PP
 .B tree
-[subvolume...]
+[filter...]
 .RS 4
 Print the snapshots and their corresponding backup subvolumes as a
-tree. Optionally filtered by [subvolume...] arguments.
+tree. Optionally filtered by [filter...] arguments (see \fIFILTER
+STATEMENTS\fR below).
 .RE
 .PP
 .B origin
@@ -147,6 +148,33 @@ parent-child relationship as well as the received-from information.
 .RS 4
 Print new files since subvolume <from> for subvolume <to>.
 .RE
+.SH FILTER STATEMENTS
+Filter arguments are accepted in form:
+.PP
+[hostname:]<volume-directory>
+.RS 4
+Matches all subvolumes and targets of a \fIvolume\fR configuration section.
+.RE
+.PP
+[hostname:]<volume-directory>/<subvolume-name>
+.RS 4
+Matches the specified subvolume and all targets of a \fIsubvolume\fR
+configuration section.
+.RE
+.PP
+[hostname:]<target-directory>
+.RS 4
+Matches a single target of a \fItarget\fR configuration section.
+.RE
+.PP
+<group-name>
+.RS 4
+Matches the \fIgroup\fR configuration option of a \fIvolume\fR,
+\fIsubvolume\fR or \fItarget\fR section.
+.RE
+.PP
+For convenience, [hostname:] can be specified as either "hostname:",
+"{hostname}" or "ssh://hostname/".
 .SH FILES
 .PP
 /etc/btrbk.conf

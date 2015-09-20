@@ -147,12 +147,12 @@ sub HELP_MESSAGE
   print STDERR "       --progress        show progress bar on send-receive operation\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   run    [subvol|group...]  perform backup operations as defined in the config file\n";
-  print STDERR "   dryrun [subvol|group...]  don't run btrfs commands; show what would be executed\n";
-  print STDERR "   tree   [subvol|group...]  shows backup tree\n";
-  print STDERR "   info   [subvol|group...]  print useful filesystem information\n";
-  print STDERR "   origin <subvol>           print origin information for subvolume\n";
-  print STDERR "   diff   <from> <to>        shows new files since subvolume <from> for subvolume <to>\n";
+  print STDERR "   run    [filter...]  perform backup operations as defined in the config file\n";
+  print STDERR "   dryrun [filter...]  don't run btrfs commands; show what would be executed\n";
+  print STDERR "   tree   [filter...]  shows backup tree\n";
+  print STDERR "   info   [filter...]  print useful filesystem information\n";
+  print STDERR "   origin <subvol>     print origin information for subvolume\n";
+  print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
