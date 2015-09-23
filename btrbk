@@ -116,6 +116,7 @@ my %uuid_fs_map;        # map UUID to URL
 my $dryrun;
 my $loglevel = 1;
 my $show_progress = 0;
+my $raw_output = 0;
 my $err = "";
 
 
@@ -1490,6 +1491,7 @@ MAIN:
     'verbose|v'     => sub { $loglevel = 2; },
     'loglevel|l=s'  => \$loglevel,
     'progress'      => \$show_progress,
+    'raw-output'    => \$raw_output,
    ))
   {
     VERSION_MESSAGE();
@@ -1969,6 +1971,7 @@ MAIN:
     #
     # TODO: reverse tree: print all backups from $droot and their corresponding source snapshots
     my @out;
+    my @raw_out;
     foreach my $config_vol (@{$config->{VOLUME}})
     {
       next if($config_vol->{ABORTED});
@@ -1994,6 +1997,7 @@ MAIN:
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
               push @out, "|   |   >>> $_->{PRINT}";
+              push @raw_out, "$svol->{URL} $snapshot->{URL} $_->{URL}"
             }
           }
         }
@@ -2005,16 +2009,22 @@ MAIN:
       push @out, "";
     }
 
-    print_header(title => "Backup Tree",
-                 config => $config,
-                 time => $start_time,
-                 legend => [
-                   "^--  snapshot",
-                   "^==  snapshot (up-to-date)",
-                   ">>>  received subvolume (backup)",
-                  ]
-                );
-    print join("\n", @out);
+    if($raw_output) {
+      print join("\n", @raw_out);
+      print "\n";
+    }
+    else {
+      print_header(title => "Backup Tree",
+                   config => $config,
+                   time => $start_time,
+                   legend => [
+                     "^--  snapshot",
+                     "^==  snapshot (up-to-date)",
+                     ">>>  received subvolume (backup)",
+                    ]
+                  );
+      print join("\n", @out);
+    }
     exit 0;
   }
 
@@ -2364,8 +2374,12 @@ MAIN:
     #
     unless($quiet)
     {
-      my @out;
       my @unrecoverable;
+      my @out;
+      my @raw_snapshot_out;
+      my @raw_delete_out;
+      my @raw_receive_out;
+      my @raw_err_out;
       my $err_count = 0;
       foreach my $config_vol (@{$config->{VOLUME}})
       {
@@ -2374,10 +2388,17 @@ MAIN:
         {
           my @subvol_out;
           my $svol = $config_subvol->{svol} || vinfo_child($sroot, $config_subvol->{rel_path});
-          push @subvol_out, "=== $config_subvol->{SNAPSHOT_UP_TO_DATE}->{PRINT}" if($config_subvol->{SNAPSHOT_UP_TO_DATE});
-          push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}" if($config_subvol->{SNAPSHOT});
+
+          if($config_subvol->{SNAPSHOT_UP_TO_DATE}) {
+            push @subvol_out, "=== $config_subvol->{SNAPSHOT_UP_TO_DATE}->{PRINT}";
+          }
+          if($config_subvol->{SNAPSHOT}) {
+            push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}";
+            push @raw_snapshot_out, "snapshot $config_subvol->{SNAPSHOT}->{URL} $svol->{URL}";
+          }
           if($config_subvol->{SUBVOL_DELETED}) {
             push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
+            push @raw_delete_out, "delete $_->{URL}" foreach(@{$config_subvol->{SUBVOL_DELETED}});
           }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
@@ -2388,25 +2409,33 @@ MAIN:
               # substr($create_mode, 0, 1, '%') if($_->{resume});
               $create_mode = "!!!" if($_->{ERROR});
               push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
+              if($_->{ERROR}) {
+                push @raw_err_out, "error receive $_->{received_subvolume}->{URL} $_->{snapshot}->{URL}" . ($_->{parent} ? " $_->{parent}->{URL}" : "");
+              } else {
+                push @raw_receive_out, "receive $_->{received_subvolume}->{URL} $_->{snapshot}->{URL}" . ($_->{parent} ? " $_->{parent}->{URL}" : "");
+              }
             }
 
             if($config_target->{SUBVOL_DELETED}) {
               push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_target->{SUBVOL_DELETED}});
+              push @raw_delete_out, "delete $_->{URL}" foreach(@{$config_target->{SUBVOL_DELETED}});
             }
 
             if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) {
               push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
+              push @raw_err_out, "aborted target $droot->{URL} -- $config_target->{ABORTED}";
               $err_count++;
             }
 
             push(@unrecoverable, $config_target->{UNRECOVERABLE}) if($config_target->{UNRECOVERABLE});
           }
           if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
+            # repeat volume errors in subvolume context ($err_count is increased in volume context below)
             push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: $config_vol->{ABORTED}";
-            $err_count++;
           }
           if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) {
             push @subvol_out, "!!! Aborted: $config_subvol->{ABORTED}";
+            push @raw_err_out, "aborted subvolume $svol->{URL} -- $config_subvol->{ABORTED}";
             $err_count++;
           }
 
@@ -2420,35 +2449,50 @@ MAIN:
             push @out, "$svol->{PRINT}", "<no_action>", "";
           }
         }
+        if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
+          push @raw_err_out, "aborted volume $sroot->{URL} -- $config_vol->{ABORTED}";
+          $err_count++;
+        }
       }
 
-      print_header(title => "Backup Summary",
-                   config => $config,
-                   time => $start_time,
-                   legend => [
-                     "===  up-to-date subvolume (source snapshot)",
-                     "+++  created subvolume (source snapshot)",
-                     "---  deleted subvolume",
-                     "***  received subvolume (non-incremental)",
-                     ">>>  received subvolume (incremental)",
-                     # "%>>  received subvolume (incremental, resume_missing)",
-                    ],
-                  );
-      print join("\n", @out);
+      if($raw_output)
+      {
+        if($dryrun) {
+          $_ = "DRYRUN $_" foreach(@raw_snapshot_out, @raw_receive_out, @raw_delete_out);
+        }
+        print join("\n", @raw_snapshot_out, @raw_receive_out, @raw_delete_out, @raw_err_out);
+        print "\n";
+      }
+      else {
+        print_header(title => "Backup Summary",
+                     config => $config,
+                     time => $start_time,
+                     legend => [
+                       "===  up-to-date subvolume (source snapshot)",
+                       "+++  created subvolume (source snapshot)",
+                       "---  deleted subvolume",
+                       "***  received subvolume (non-incremental)",
+                       ">>>  received subvolume (incremental)",
+                       # "%>>  received subvolume (incremental, resume_missing)",
+                      ],
+                    );
 
-      if($resume_only) {
-        print "\nNOTE: No snapshots created (option -r present)\n";
-      }
-      if($preserve_backups || $resume_only) {
-        print "\nNOTE: Preserved all backups (option -p or -r present)\n";
-      }
-      if($err_count) {
-        print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
-        print "Please check warning and error messages above.\n";
-        print join("\n", @unrecoverable) . "\n" if(@unrecoverable);
-      }
-      if($dryrun) {
-        print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
+        print join("\n", @out);
+
+        if($resume_only) {
+          print "\nNOTE: No snapshots created (option -r present)\n";
+        }
+        if($preserve_backups || $resume_only) {
+          print "\nNOTE: Preserved all backups (option -p or -r present)\n";
+        }
+        if($err_count) {
+          print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
+          print "Please check warning and error messages above.\n";
+          print join("\n", @unrecoverable) . "\n" if(@unrecoverable);
+        }
+        if($dryrun) {
+          print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
+        }
       }
     }
   }
