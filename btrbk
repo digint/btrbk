@@ -147,6 +147,7 @@ sub HELP_MESSAGE
   print STDERR "   -v, --verbose         be verbose (set loglevel=info)\n";
   print STDERR "   -q, --quiet           be quiet (do not print summary for the \"run\" command)\n";
   print STDERR "   -l, --loglevel=LEVEL  set logging level (warn, info, debug, trace)\n";
+  print STDERR "       --raw-output      print raw (machine-readable) output\n";
   print STDERR "       --progress        show progress bar on send-receive operation\n";
   print STDERR "\n";
   print STDERR "commands:\n";
