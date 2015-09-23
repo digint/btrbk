@@ -1980,7 +1980,7 @@ MAIN:
         next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
         push @out, "|-- $svol->{PRINT}";
-        foreach my $snapshot (sort { $a->{PATH} cmp $b->{PATH} } get_snapshot_children($sroot, $svol))
+        foreach my $snapshot (sort { $a->{cgen} cmp $b->{cgen} } get_snapshot_children($sroot, $svol))
         {
           if($snapshot->{cgen} == $svol->{gen}) {
             push @out, "|   ^== $snapshot->{PATH}";
