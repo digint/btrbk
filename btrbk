@@ -1523,7 +1523,7 @@ MAIN:
     WARN 'found option "--progress", but "pv" is not present: (please install "pv")';
     $show_progress = 0;
   }
-  my ($action_run, $action_info, $action_tree, $action_diff, $action_origin);
+  my ($action_run, $action_info, $action_tree, $action_diff, $action_origin, $action_config);
   my @filter_args;
   my $args_allow_group = 0;
   my ($args_expected_min, $args_expected_max) = (0, 0);
@@ -1557,6 +1557,22 @@ MAIN:
   elsif ($command eq "origin") {
     $action_origin = 1;
     $args_expected_min = $args_expected_max = 1;
+    @filter_args = @ARGV;
+  }
+  elsif ($command eq "config") {
+    $action_config = shift @ARGV // "";
+    $action_config .= ' ' . (shift @ARGV // "");
+    unless(($action_config eq "dump source") ||
+           ($action_config eq "dump target") ||
+           ($action_config eq "dump volume"))
+    {
+      ERROR "unknown subcommand for \"config\" command: $action_config";
+      HELP_MESSAGE(0);
+      exit 1;
+    }
+    $args_expected_min = 0;
+    $args_expected_max = 9999;
+    $args_allow_group = 1;
     @filter_args = @ARGV;
   }
   else {
@@ -1711,7 +1727,7 @@ MAIN:
   #
   # filter subvolumes matching command line arguments
   #
-  if(($action_run || $action_tree || $action_info) && scalar(@filter_args))
+  if(($action_run || $action_tree || $action_info || $action_config) && scalar(@filter_args))
   {
     my %match;
     foreach my $config_vol (@{$config->{VOLUME}}) {
@@ -1829,6 +1845,60 @@ MAIN:
             print (btrfs_filesystem_usage($droot) // "");
             print "\n";
             $processed{$droot->{URL}} = 1;
+          }
+        }
+      }
+    }
+    exit 0;
+  }
+
+
+  if($action_config)
+  {
+    #
+    # print configuration lines, machine readable
+    #
+    foreach my $config_vol (@{$config->{VOLUME}}) {
+      next if($config_vol->{ABORTED});
+      my $sroot = vinfo($config_vol->{url}, $config_vol);
+
+      my @vol_info;
+      push @vol_info, "volume_url=\"$sroot->{URL}\"";
+      push @vol_info, "volume_path=\"$sroot->{PATH}\"";
+      push @vol_info, "volume_rsh=\"" . ($sroot->{RSH} ? join(" ", @{$sroot->{RSH}}) : "") . "\"";
+
+      if($action_config eq "dump volume") {
+        print join(' ', @vol_info) . "\n";
+        next;
+      }
+
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+        next if($config_subvol->{ABORTED});
+        my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+
+        my @sline;
+        push @sline, "source_url=\"$svol->{URL}\"";
+        push @sline, "source_path=\"$svol->{PATH}\"";
+        push @sline, "snapshot_path=\"$sroot->{PATH}" . (config_key($config_subvol, "snapshot_dir", prefix => '/') // "") . "\"";
+        push @sline, "snapshot_basename=\"" . config_key($config_subvol, "snapshot_name") . "\"";
+        push @sline, "source_host=\"" . ($svol->{HOST} // "") . "\"";
+        push @sline, "source_rsh=\"" . ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : "") . "\"";
+
+        if($action_config eq "dump source") {
+          print join(' ', @sline) . "\n";
+        }
+        elsif($action_config eq "dump target")
+        {
+          foreach my $config_target (@{$config_subvol->{TARGET}})
+          {
+            next if($config_target->{ABORTED});
+            my $droot = vinfo($config_target->{url}, $config_target);
+            my @dline = @sline;
+            push @dline, "target_url=\"$droot->{URL}\"";
+            push @dline, "target_path=\"$droot->{PATH}\"";
+            push @dline, "target_host=\"" . ($droot->{HOST} // "") . "\"";
+            push @dline, "target_rsh=\"" . ($droot->{RSH} ? join(" ", @{$droot->{RSH}}) : "") . "\"";
+            print join(' ', @dline) . "\n";
           }
         }
       }

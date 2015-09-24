@@ -29,6 +29,27 @@ This will produce daily snapshots `/mnt/btr_backup/myhost.20150101`,
 with retention as defined with the snapshot_preserve_* options.
 
 
+How can I auto-mount btrfs filesystems used by btrbk?
+-----------------------------------------------------
+
+Given that the "volume" lines in the btrbk configuration file are
+valid mount-points, you can loop through the configuration and mount
+the volumes like this:
+
+    #!/bin/sh
+    btrbk config dump volume | while read line; do
+        eval $line
+        $volume_rsh mount $volume_path
+    done
+
+Note that the `btrbk config dump volume` command accepts filters (see
+[btrbk(1)], FILTER STATEMENTS), which means you can e.g. add "group
+automount" tags in your configuration and dump only the volumes of
+this group: `btrbk config dump volume automount`.
+
+  [btrbk(1)]: http://www.digint.ch/btrbk/doc/btrbk.html
+
+
 Why is it not possible to backup '/' (btrfs root) ?
 ---------------------------------------------------
 

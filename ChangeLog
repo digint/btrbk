@@ -4,6 +4,7 @@ btrbk-current
   * Allow filtering subcommands by group as well as targets.
   * Added "--raw-output" command line option, producing raw
     (machine-readable) output for "(dry)run" and "tree" commands.
+  * Added "config dump" command (experimental).
   * Added configuration option "ssh_cipher_spec" (close: #47).
   * Hardened ssh_filter_btrbk.sh script: fine-grained access control,
     restrict-path option, sudo option (close: #45)
