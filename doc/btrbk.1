@@ -198,7 +198,13 @@ configuration section.
 .PP
 [hostname:]<target-directory>
 .RS 4
-Matches a single target of a \fItarget\fR configuration section.
+Matches all targets of a \fItarget\fR configuration section.
+.RE
+.PP
+[hostname:]<target-directory>/<snapshot-name>
+.RS 4
+Matches a single target of a \fItarget\fR section within a
+\fIsubvolume\fR section with given <snapshot-name>.
 .RE
 .PP
 <group-name>

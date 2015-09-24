@@ -69,7 +69,7 @@ my %config_options = (
   # NOTE: the parser always maps "no" to undef
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   snapshot_dir              => { default => undef,    accept_file => { relative => 1 } },
-  snapshot_name             => { default => undef,    accept_file => { name_only => 1 }, context => [ "subvolume" ] },
+  snapshot_name             => { default => undef,    accept_file => { name_only => 1 }, context => [ "subvolume" ] },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create           => { default => "always", accept => [ "no", "always", "ondemand", "onchange" ] },
   incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
   resume_missing            => { default => "yes",    accept => [ "yes", "no" ] },
@@ -496,10 +496,13 @@ sub parse_config(@)
         $value =~ s/^\/+//;    # remove leading slash
 
         TRACE "config: adding subvolume \"$value\" to volume context: $cur->{url}";
+        my $snapshot_name = $value;
+        $snapshot_name =~ s/^.*\///; # snapshot_name defaults to subvolume name
         my $subvolume = { CONTEXT => "subvolume",
                           PARENT => $cur,
                           rel_path => $value,
                           url => $cur->{url} . '/' . $value,
+                          snapshot_name => $snapshot_name,
                          };
         $cur->{SUBVOLUME} //= [];
         push(@{$cur->{SUBVOLUME}}, $subvolume);
@@ -1739,11 +1742,14 @@ MAIN:
         }
         next if($found_subvol);
 
+        my $snapshot_name = $config_subvol->{snapshot_name} // die;
         foreach my $config_target (@{$config_subvol->{TARGET}}) {
           my $target_url = $config_target->{url} // die;
           my $found_target = 0;
           foreach my $filter (@filter_args) {
-            if(($target_url eq $filter) || (map { ($filter eq $_) || () } @{$config_target->{group}})) {
+            if(($filter eq $target_url) ||
+               ($filter eq "$target_url/$snapshot_name") ||
+               (map { ($filter eq $_) || () } @{$config_target->{group}})) {
               TRACE "filter argument \"$filter\" matches target: $target_url\n";
               $match{$filter} = ($target_url eq $filter) ? "target=" . vinfo($target_url, $config_target)->{PRINT} : "group=$filter";
               $found_target = 1;
@@ -1877,9 +1883,6 @@ MAIN:
         }
       }
       $config_subvol->{svol} = $svol;
-
-      # set default for snapshot_name
-      $config_subvol->{snapshot_name} //= $svol->{NAME};
 
       # check for duplicate snapshot locations
       my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
