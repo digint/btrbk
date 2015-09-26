@@ -1253,6 +1253,7 @@ sub macro_send_receive($@)
   }
   else {
     INFO "Option \"incremental\" is not set, creating full backup";
+    $parent = undef;
     delete $info{parent};
   }
 
