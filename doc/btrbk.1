@@ -1,4 +1,4 @@
-.TH "btrbk" "1" "2015-09-02" "btrbk v0.20.0" ""
+.TH "btrbk" "1" "2015-09-29" "btrbk v0.21.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -21,12 +21,17 @@ from one source to multiple destinations.
 Snapshots as well as backup subvolume names are created in form:
 .PP
 .RS 4
-<source_name>.YYYYMMDD[_N]
+<snapshot_name>.<timestamp>[_N]
 .RE
 .PP
-Where YYYY is the year, MM is the month, and DD is the day of
-creation, and, if multiple backups are created on the same day, N will
-be incremented on each backup, starting at 1.
+Where <snapshot_name> is identical to the source subvolume name,
+unless the configuration option \fIsnapshot_name\fR is set. The
+<timestamp> is either "YYYYMMDD" or "YYYYMMDDThhmm" (dependent of the
+\fItimestamp_format\fR configuration option), where "YYYY" is the
+year, "MM" is the month, "DD" is the day, "hh" is the hour and "mm" is
+the minute of the creation time (local time of the host running
+btrbk). If multiple snapshots/backups are created on the same
+date/time, N will be incremented on each backup, starting at 1.
 .SH OPTIONS
 .PP
 \-h, \-\-help

@@ -78,10 +78,10 @@ btrbk is in AUR: https://aur.archlinux.org/packages/btrbk/
 Synopsis
 ========
 
-Please consult the [btrbk(1) man-page] provided with this package for a
+Please consult the [btrbk(1)] man-page provided with this package for a
 full description of the command line options.
 
-  [btrbk(1) man-page]: http://www.digint.ch/btrbk/doc/btrbk.html
+  [btrbk(1)]: http://www.digint.ch/btrbk/doc/btrbk.html
 
 
 Configuration File
@@ -90,7 +90,7 @@ Configuration File
 Before running `btrbk`, you will need to create a configuration
 file. You might want to take a look at `btrbk.conf.example` provided
 with this package. For a detailed description, please consult the
-[btrbk.conf(5) man-page].
+[btrbk.conf(5)] man-page.
 
 When playing around with config-files, it is highly recommended to
 check the output using the `dryrun` command before executing the
@@ -102,7 +102,7 @@ This will read all btrfs information on the source/target filesystems
 and show what actions would be performed (without writing anything to
 the disks).
 
-  [btrbk.conf(5) man-page]: http://www.digint.ch/btrbk/doc/btrbk.conf.html
+  [btrbk.conf(5)]: http://www.digint.ch/btrbk/doc/btrbk.conf.html
 
 
 Example: laptop with usb-disk for backups
@@ -260,6 +260,35 @@ If the server runs btrbk with this config, the latest snapshot (which
 is *always* transferred), 10 weeklies and all monthlies are received
 from 192.168.0.42. The source filesystem is never altered because of
 `snapshot_preserve_daily all`.
+
+
+Example: encrypted backup to non-btrfs target
+---------------------------------------------
+
+If your backup server does not support btrfs, you can send your
+subvolumes to a raw file.
+
+Note: this is an _experimental_ feature!
+
+/etc/btrbk/btrbk.conf:
+
+    raw_target_compress  xz
+    raw_target_encrypt   gpg
+    gpg_keyring          /etc/btrbk/gpg/pubring.gpg
+    gpg_recipient        btrbk@mydomain.com
+
+    volume /mnt/btr_pool
+      subvolume home
+        target raw ssh://myserver.mydomain.com/backup
+          ssh_user     btrbk
+          incremental  no
+
+This will create a GnuPG encrypted, compressed file
+`/backup/home.YYYYMMDD.btrfs_<received_uuid>.xz.gpg` on the target
+host.
+
+While incremental backups are also supported for raw targets, this is
+not recommended (see [btrbk.conf(5)] for details).
 
 
 Setting up SSH
