@@ -1,4 +1,4 @@
-.TH "btrbk.conf" "5" "2015-09-02" "btrbk v0.20.0" ""
+.TH "btrbk.conf" "5" "2015-09-29" "btrbk v0.21.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -19,8 +19,7 @@ defined either globally or within a section.
 The options specified always apply to the last section encountered,
 superseding the values set in upper-level sections. This means that
 global options must be set before any sections are defined.
-.PP
-The sections are:
+.SH SECTIONS
 .PP
 \fBvolume\fR  <volume-directory>|<url>
 .RS 4
@@ -33,17 +32,19 @@ filesystem mounted with the \fIsubvolid=0\fR option.
 \fBsubvolume\fR  <subvolume-name>
 .RS 4
 Subvolume to be backed up, relative to the \fI<volume-directory>\fR
-specified in the \fIvolume\fR section.
+specified in the \fIvolume\fR section. Multiple \fIsubvolume\fR
+sections are allowed within \fIvolume\fR sections.
 .RE
 .PP
-\fBtarget\fR  <type> <volume-directory>|<url>
+\fBtarget\fR  <type> <target-directory>|<url>
 .RS 4
 Target type and directory where the backup subvolumes are to be
-created. \fI<volume-directory>\fR must be an absolute path and point
-to a btrfs volume (or subvolume). Currently the the only valid
-\fI<type>\fR is \[lq]send\-receive\[rq].
+created. See the TARGET TYPES section for supported
+\fI<type>\fR. Multiple \fItarget\fR sections are allowed within
+\fIsubvolume\fR sections.
+.RE
 .PP
-For the \fIvolume\fR and \fItarget\fR sections, you can also specify a
+For the \fIvolume\fR and \fItarget\fR sections, you can specify a
 ssh-url instead of a local directory. The syntax for \fI<url>\fR is:
 .PP
 .RS 4
@@ -56,8 +57,67 @@ Note that btrfs is very picky on file names (mainly for security
 reasons), only the characters [0-9] [a-z] [A-Z] and "._+-@" are
 allowed.
 .RE
+.SH TARGET TYPES
 .PP
-The configuration options are:
+\fBsend-receive\fR
+.RS 4
+Backup to a btrfs filesystem, using "btrfs send/receive". The
+\fI<target-directory>\fR must be an absolute path and point to a btrfs
+volume (or subvolume). See btrfs-send(8), btrfs-receive(8).
+.RE
+.PP
+\fBraw\fR  \fI*experimental*\fR
+.RS 4
+Backup to a raw (filesystem independent) file from the output of
+btrfs-send(8), with optional compression and encryption.
+.PP
+Additional options for raw target:
+.PP
+.RS 4
+raw_target_compress  gzip|bzip2|xz|no
+.PD 0
+.PP
+raw_target_encrypt  gpg|no
+.PP
+gpg_keyring  <file>
+.PP
+gpg_recipient  <name>
+.RE
+.PD
+.PP
+The target file name is:
+.PP
+.RS 4
+<snapshot-name>--<received_uuid>[@<parent_uuid>].btrfs[.gz|.bz2|.xz][.gpg]
+.RE
+.PP
+It is recommended to set "incremental no" for raw backups, for the
+following reasons:
+.IP \[bu] 2
+The target preserve mechanism is disabled for raw \fIincremental\fR
+backups, since deleting of any intermediate backup would destroy the
+consistency of all subsequent backups (btrbk will never delete any
+backup in a raw incremental chain).
+.IP \[bu]
+No rotation of incremental backups: if \fIincremental\fR is set, a
+full backup must be triggered manually from time to time in order to
+be able to delete old backups.
+.RE
+.SH OPTIONS
+.PP
+\fBtimestamp_format\fR  short|long
+.RS 4
+Timestamp format used as postfix for new snapshot subvolume names.
+defaults to \[lq]short\[rq].
+.IP \[bu] 2
+\fIshort\fR: YYYYMMDD[_N] (e.g. "20150825", "20150825_1")
+.IP \[bu]
+\fIlong\fR:  YYYYMMDD<T>hhmm[_N] (e.g. "20150825T1531")
+.PP
+Note that a postfix "_N" is only appended to the timestamp if a
+snapshot/backup already exists with the timestamp of current
+date/time.
+.RE
 .PP
 \fBsnapshot_dir\fR  <directory>
 .RS 4
