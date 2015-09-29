@@ -1034,8 +1034,10 @@ sub btrfs_send_to_file($$$$;@)
     cmd => [ qw(btrfs send), @send_options, $snapshot_path ],
     rsh => $snapshot->{RSH},
     name => "btrfs send",
-    filter_stderr => \&stderr_filter_send_receive,
   };
+  push @cmd_pipe, {
+    cmd => [ '/usr/bin/pv' ],
+  } if($show_progress);
   if($opts{compress}) {
     die unless($compress{$opts{compress}});
     $target_filename .= $compress{$opts{compress}}->{postfix};
@@ -1062,17 +1064,26 @@ sub btrfs_send_to_file($$$$;@)
   $$ret_vol_received = $vol_received if(ref $ret_vol_received);
 
   INFO ">>> $vol_received->{PRINT}";
+  print STDOUT "Receiving subvol (raw): $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
+
   DEBUG "[btrfs] send-to-file" . ($parent ? " (incremental)" : " (complete)") . ":";
   DEBUG "[btrfs]   source: $snapshot->{PRINT}";
   DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
   DEBUG "[btrfs]   target: $target->{PRINT}";
 
   my $ret = run_cmd(@cmd_pipe);
+  if(defined($ret)) {
+    # Test target file for "exists and size > 0" after writing,
+    # as we can not rely on the exit status of 'dd'
+    DEBUG "Testing target file (non-zero size): $target->{PRINT}";
+    $ret = run_cmd({
+      cmd => ['test', '-s', "$target_path/$target_filename"],
+      rsh => $target->{RSH},
+      name => "test",
+    });
+  }
   unless(defined($ret)) {
     ERROR "Failed to send btrfs subvolume to raw file: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}";
-
-    # TODO: delete file
-    ERROR "Please delete incomplete raw file: $vol_received->{PRINT}";
     return undef;
   }
   return 1;
