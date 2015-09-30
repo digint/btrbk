@@ -238,9 +238,17 @@ are described in
 .RE
 .PD
 .SH EXIT STATUS
-.sp
-\fBbtrbk\fR returns a zero exit status if it succeeds. Non-zero is
-returned in case of failure.
+\fBbtrbk\fR returns the following error codes:
+.IP "0" 4
+No problems occurred.
+.IP "1" 4
+Generic error code.
+.IP "2" 4
+Parse error: when parsing command-line options or configuration file.
+.IP "10" 4
+Backup abort: At least one backup task aborted.
+.IP "255" 4
+Script error.
 .SH AVAILABILITY
 Please refer to the btrbk project page
 \fBhttp://www.digint.ch/btrbk/\fR for further

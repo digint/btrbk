@@ -10,6 +10,8 @@ btrbk-current
     (experimental).
   * Added configuration option "timestamp_format short|long".
   * Bugfix: correctly handle "incremental no" option.
+  * Bugfix: return exit status 10 instead of 0 if one or more backup
+    tasks aborted.
   * Hardened ssh_filter_btrbk.sh script: fine-grained access control,
     restrict-path option, sudo option (close: #45).
 

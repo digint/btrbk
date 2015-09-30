@@ -1642,7 +1642,7 @@ MAIN:
   my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only);
   unless(GetOptions(
     'help|h'        => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
-    'version'       => sub { VERSION_MESSAGE(); exit 0; },,
+    'version'       => sub { VERSION_MESSAGE(); exit 0; },
     'config|c=s'    => \$config_cmdline,
     'preserve|p'    => \$preserve_backups,
     'resume-only|r' => \$resume_only,
@@ -1655,13 +1655,13 @@ MAIN:
   {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
-    exit 1;
+    exit 2;
   }
   my $command = shift @ARGV;
   unless($command) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
-    exit 0;
+    exit 2;
   }
 
   # assign command line options
@@ -1723,7 +1723,7 @@ MAIN:
     {
       ERROR "unknown subcommand for \"config\" command: $action_config";
       HELP_MESSAGE(0);
-      exit 1;
+      exit 2;
     }
     $args_expected_min = 0;
     $args_expected_max = 9999;
@@ -1733,12 +1733,12 @@ MAIN:
   else {
     ERROR "Unrecognized command: $command";
     HELP_MESSAGE(0);
-    exit 1;
+    exit 2;
   }
   if(($args_expected_min > scalar(@ARGV)) || ($args_expected_max < scalar(@ARGV))) {
     ERROR "Incorrect number of arguments";
     HELP_MESSAGE(0);
-    exit 1;
+    exit 2;
   }
 
   # input validation
@@ -1759,7 +1759,7 @@ MAIN:
     else {
       ERROR "Bad argument: not a subvolume" . ($args_allow_group ? "/group" : "") . " declaration: $_";
       HELP_MESSAGE(0);
-      exit 1;
+      exit 2;
     }
   }
 
@@ -1871,11 +1871,11 @@ MAIN:
   my $config = parse_config(@config_src);
   unless($config) {
     ERROR "Failed to parse configuration file";
-    exit 1;
+    exit 2;
   }
   unless(ref($config->{VOLUME}) eq "ARRAY") {
     ERROR "No volumes defined in configuration file";
-    exit 1;
+    exit 2;
   }
 
 
@@ -1950,7 +1950,7 @@ MAIN:
       foreach(@nomatch) {
         ERROR "Command line argument does not match any volume, subvolume, target or group declaration: $_";
       }
-      exit 1;
+      exit 2;
     }
     $config->{CMDLINE_FILTER_LIST} = [ values %match ];
   }
@@ -2822,6 +2822,16 @@ MAIN:
         }
         if($dryrun) {
           print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
+        }
+      }
+    }
+
+    foreach my $config_vol (@{$config->{VOLUME}}) {
+      exit 10 if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP"));
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+        exit 10 if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP"));
+        foreach my $config_target (@{$config_subvol->{TARGET}}) {
+          exit 10 if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP"));
         }
       }
     }
