@@ -1,0 +1,47 @@
+#!/bin/sh
+set -uf
+
+## Wrapper script running "btrbk" and sending email with results
+
+# Email recipients, separated by whitespace:
+mailto=$MAILTO
+
+# btrbk configuration file:
+config="/etc/btrbk/btrbk.conf"
+
+# Uncomment this if you only want to receive error messages:
+#btrbk_opts="-q"
+#skip_empty_mail=yes
+
+# Email subject:
+mail_subject_prefix="btrbk <${HOSTNAME:-localhost}>"
+
+
+# run btrbk
+ret=$(/usr/sbin/btrbk -c "$config" ${btrbk_opts:-} run 2>&1)
+exitcode=$?
+case $exitcode in
+    0)  status="All backups successful"
+	;;
+    10) status="ERROR: At least one backup task aborted!"
+	;;
+    *)  status="ERROR: $btrbk failed with error code $exitcode"
+	;;
+esac
+
+# filter "At subvol ..." messages from "btrfs send" and "btrfs receive" (see issue #33).
+ret=$(echo "$ret" | grep -v '^At subvol ')
+
+
+# skip email sending if skip_empty_mail=yes
+if [ "${skip_empty_mail:-no}" = "yes" ] && [ -z "$ret" ] && [ $exitcode -eq 0 ]; then
+    exit 0
+fi
+
+# send email
+echo "$ret" | /bin/mail -s "$mail_subject_prefix - $status" $mailto
+if [ $? != 0 ]; then
+    echo "$0: ERROR: Failed to send btrbk mail to \"$mailto\"" 1>&2
+    echo "$ret" 1>&2
+    exit 1
+fi
