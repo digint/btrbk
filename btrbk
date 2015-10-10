@@ -1599,19 +1599,20 @@ sub print_header(@)
   }
   if($config) {
     print "    Config: $config->{SRC_FILE}\n";
-
-    if($config->{CMDLINE_FILTER_LIST})
-    {
-      my @list = sort @{$config->{CMDLINE_FILTER_LIST}};
-      my @sorted = ( grep(/^group/,     @list),
-                     grep(/^volume/,    @list),
-                     grep(/^subvolume/, @list),
-                     grep(/^target/,    @list) );
-      die unless(scalar(@list) == scalar(@sorted));
-      print "    Filter: ";
-      print join("\n            ", @sorted);
-      print "\n";
-    }
+  }
+  if($dryrun) {
+    print "    Dryrun: YES\n";
+  }
+  if($config && $config->{CMDLINE_FILTER_LIST}) {
+    my @list = sort @{$config->{CMDLINE_FILTER_LIST}};
+    my @sorted = ( grep(/^group/,     @list),
+                   grep(/^volume/,    @list),
+                   grep(/^subvolume/, @list),
+                   grep(/^target/,    @list) );
+    die unless(scalar(@list) == scalar(@sorted));
+    print "    Filter: ";
+    print join("\n            ", @sorted);
+    print "\n";
   }
   if($args{info}) {
     print "\n" . join("\n", grep(defined, @{$args{info}})) . "\n";
