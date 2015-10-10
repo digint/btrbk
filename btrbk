@@ -1664,6 +1664,49 @@ sub print_header(@)
 }
 
 
+sub print_formatted($$$)
+{
+  my $topic = shift || die;
+  my $view = shift || die;
+  my $format = shift;
+  my $data = $format->{$topic}->{data} || die;
+  my $keys = $format->{$topic}->{views}->{$view} || die;
+
+  if($view eq "table")
+  {
+    # calculate maxlen for each column
+    my %maxlen;
+    foreach my $row (@$data) {
+      foreach (@$keys) {
+        my $val = $row->{$_} // "-";
+        $maxlen{$_} //= length($_); # initialize with size of key
+        $maxlen{$_} = length($val) if($maxlen{$_} < length($val));
+      }
+    }
+
+    # print keys
+    print join("  ", map { $_ . (' ' x ($maxlen{$_} - length($_))) } @$keys) . "\n";
+    print join("  ", map { '-' x ($maxlen{$_}) } @$keys) . "\n";
+
+    # print values
+    foreach my $row (@$data) {
+      foreach (@$keys) {
+        my $val = $row->{$_} // "-";
+        print $val . (' ' x (2 + $maxlen{$_} - length($val)));
+      }
+      print "\n";
+    }
+  }
+  else
+  {
+    # output: key0="value0" key1="value1" ...
+    foreach my $row (@$data) {
+      print join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
+    }
+  }
+}
+
+
 MAIN:
 {
   # set PATH instead of using absolute "/sbin/btrfs" (for now), as
@@ -1766,6 +1809,7 @@ MAIN:
       $action_config_dump = shift @ARGV // "";
       if(($action_config_dump eq "source") ||
          ($action_config_dump eq "target") ||
+         ($action_config_dump eq "target_uniq") ||
          ($action_config_dump eq "volume"))
       {
         $args_expected_min = 0;
@@ -2103,56 +2147,82 @@ MAIN:
     exit 0;
   }
 
+
   if($action_config_dump)
   {
+    my @vol;
+    my @subvol;
+    my @target;
+    my %target_uniq;
+
     #
     # print configuration lines, machine readable
     #
     foreach my $config_vol (@{$config->{VOLUME}}) {
       next if($config_vol->{ABORTED});
       my $sroot = vinfo($config_vol->{url}, $config_vol);
-
-      my @vol_info;
-      push @vol_info, "volume_url=\"$sroot->{URL}\"";
-      push @vol_info, "volume_path=\"$sroot->{PATH}\"";
-      push @vol_info, "volume_rsh=\"" . ($sroot->{RSH} ? join(" ", @{$sroot->{RSH}}) : "") . "\"";
-
-      if($action_config_dump eq "volume") {
-        print join(' ', @vol_info) . "\n";
-        next;
-      }
+      my $volh = { volume_url  => $sroot->{URL},
+                   volume_path => $sroot->{PATH},
+                   volume_host => $sroot->{HOST},
+                   volume_rsh  => ($sroot->{RSH} ? join(" ", @{$sroot->{RSH}}) : undef),
+                 };
+      push @vol, $volh;
 
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
         next if($config_subvol->{ABORTED});
         my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+        my $subvolh = { %$volh,
+                        source_url        => $svol->{URL},
+                        source_path       => $svol->{PATH},
+                        snapshot_path     => $sroot->{PATH} . (config_key($config_subvol, "snapshot_dir", prefix => '/') // ""),
+                        snapshot_basename => config_key($config_subvol, "snapshot_name"),
+                        source_host       => $svol->{HOST},
+                        source_rsh        => ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : undef),
+                      };
+        push @subvol, $subvolh;
 
-        my @sline;
-        push @sline, "source_url=\"$svol->{URL}\"";
-        push @sline, "source_path=\"$svol->{PATH}\"";
-        push @sline, "snapshot_path=\"$sroot->{PATH}" . (config_key($config_subvol, "snapshot_dir", prefix => '/') // "") . "\"";
-        push @sline, "snapshot_basename=\"" . config_key($config_subvol, "snapshot_name") . "\"";
-        push @sline, "source_host=\"" . ($svol->{HOST} // "") . "\"";
-        push @sline, "source_rsh=\"" . ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : "") . "\"";
-
-        if($action_config_dump eq "source") {
-          print join(' ', @sline) . "\n";
-        }
-        elsif($action_config_dump eq "target")
+        foreach my $config_target (@{$config_subvol->{TARGET}})
         {
-          foreach my $config_target (@{$config_subvol->{TARGET}})
-          {
-            next if($config_target->{ABORTED});
-            my $droot = vinfo($config_target->{url}, $config_target);
-            my @dline = @sline;
-            push @dline, "target_url=\"$droot->{URL}\"";
-            push @dline, "target_path=\"$droot->{PATH}\"";
-            push @dline, "target_host=\"" . ($droot->{HOST} // "") . "\"";
-            push @dline, "target_rsh=\"" . ($droot->{RSH} ? join(" ", @{$droot->{RSH}}) : "") . "\"";
-            print join(' ', @dline) . "\n";
+          next if($config_target->{ABORTED});
+          my $droot = vinfo($config_target->{url}, $config_target);
+          my $targeth = { %$subvolh,
+                          target_url  => $droot->{URL},
+                          target_path => $droot->{PATH},
+                          target_host => $droot->{HOST},
+                          target_rsh  => ($droot->{RSH} ? join(" ", @{$droot->{RSH}}) : undef),
+                        };
+          if($action_config_dump eq "target_uniq") {
+            next if($target_uniq{$droot->{URL}});
+            $target_uniq{$droot->{URL}} = 1;
           }
+          push @target, $targeth;
         }
       }
     }
+
+    my @all_vol_keys    = qw( volume_url volume_path volume_host volume_rsh );
+    my @all_subvol_keys = qw( source_url source_path snapshot_path snapshot_basename source_host source_rsh );
+    my @all_target_keys = qw( target_url target_path target_host target_rsh );
+    print_formatted(
+      $action_config_dump,
+      "table",
+      { volume => { data  => \@vol,
+                    views  => { raw   => \@all_vol_keys,
+                                table => [ qw( volume_host volume_path ) ] },
+                  },
+        source => { data  => \@subvol,
+                    views  => { raw  => \@all_subvol_keys,
+                                table => [ qw( source_host source_path snapshot_path snapshot_basename ) ] },
+                  },
+        target => { data  => \@target,
+                    views => { raw   => [ @all_subvol_keys, @all_target_keys ],
+                               table => [ qw( source_host source_path snapshot_path snapshot_basename target_host target_path ) ] },
+                  },
+        target_uniq => { data    => [ @target ],
+                         views => { raw => \@all_target_keys,
+                                    table   => [ qw( target_host target_path ) ] },
+                       },
+      });
     exit 0;
   }
 
