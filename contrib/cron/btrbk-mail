@@ -1,10 +1,21 @@
-#!/bin/sh
-set -uf
+#!/bin/bash
 
 ## Wrapper script running "btrbk" and sending email with results
 
+set -uf
+declare -A rsync_src rsync_dst rsync_log rsync_key rsync_opt
+now=$(/bin/date +%Y%m%d)
+
+
+#####  start config section  #####
+
 # Email recipients, separated by whitespace:
 mailto=$MAILTO
+
+# List of mountpoints to be mounted/unmounted (whitespace-separated)
+# mount_targets="/mnt/btr_pool /mnt/backup"
+mount_targets=
+umount_targets=$mount_targets
 
 # btrbk configuration file:
 config="/etc/btrbk/btrbk.conf"
@@ -16,8 +27,76 @@ config="/etc/btrbk/btrbk.conf"
 # Email subject:
 mail_subject_prefix="btrbk <${HOSTNAME:-localhost}>"
 
+# rsync declarations (repeat complete block for more declarations):
+rsync_src[example_data]=user@example.com:/data/
+rsync_dst[example_data]=/mnt/backup/example.com/data/
+rsync_log[example_data]=/mnt/backup/example.com/data-${now}.log
+rsync_key[example_data]=/mnt/backup/ssh_keys/id_rsa
+rsync_opt[example_data]="-az --delete"
 
+# Enabled rsync declarations (space separated list)
+#rsync_enable="example_data"
+rsync_enable=
+
+# Log level (1=error, 2=warn, 3=info)
+loglevel=2
+
+
+#####  end config section  #####
+
+
+die()
+{
+    /bin/echo "$0 FATAL: $1"      1>&2
+    /bin/echo "$0 FATAL: exiting" 1>&2
+    exit 1
+}
+log_error()   { [ $loglevel -ge 1 ] && /bin/echo "$0 ERROR: $1"   1>&2 ; }
+log_warning() { [ $loglevel -ge 2 ] && /bin/echo "$0 WARNING: $1" 1>&2 ; }
+log_info()    { [ $loglevel -ge 3 ] && /bin/echo "$0 INFO: $1"    1>&2 ; }
+
+
+#
+# mount all mountpoints listed in $mount_targets
+#
+for mountpoint in $mount_targets; do
+    $(/bin/findmnt -r -n -t btrfs $mountpoint 1>&2)
+    if [ $? = 0 ]; then
+	log_warning "btrfs filesystem already mounted: $mountpoint"
+    else
+	log_info "mount $mountpoint"
+	$(/bin/mount --target $mountpoint 1>&2)
+	[ $? = 0 ] || log_error "mount failed: $mountpoint"
+    fi
+done
+
+
+#
+# run rsync for all $rsync_enable
+#
+for key in $rsync_enable; do
+    log_info "starting rsync: $key"
+
+    [ -n "${rsync_src[$key]}" ] || die "rsync_src is not set for \"$key\""
+    [ -n "${rsync_dst[$key]}" ] || die "rsync_dst is not set for \"$key\""
+    [ -n "${rsync_log[$key]}" ] || die "rsync_log is not set for \"$key\""
+    [ -n "${rsync_key[$key]}" ] || die "rsync_key is not set for \"$key\""
+    [ -n "${rsync_opt[$key]}" ] || die "rsync_opt is not set for \"$key\""
+
+    if [ -d ${rsync_dst[$key]} ]; then
+	/bin/echo "### rsync ${rsync_opt[$key]} ${rsync_src[$key]} ${rsync_dst[$key]}" >> ${rsync_log[$key]}
+	/usr/bin/rsync ${rsync_opt[$key]} --log-file=${rsync_log[$key]} -e "/usr/bin/ssh -i ${rsync_key[$key]}" ${rsync_src[$key]} ${rsync_dst[$key]}
+	[ $? = 0 ] || log_error "rsync failed: $key"
+    else
+	log_error "rsync destination directory not found for \"$key\", skipping: ${rsync_dst[$key]}"
+    fi
+done
+
+
+#
 # run btrbk
+#
+log_info "running btrbk"
 ret=$(/usr/sbin/btrbk -c "$config" ${btrbk_opts:-} run 2>&1)
 exitcode=$?
 case $exitcode in
@@ -30,18 +109,34 @@ case $exitcode in
 esac
 
 # filter "At subvol ..." messages from "btrfs send" and "btrfs receive" (see issue #33).
-ret=$(echo "$ret" | grep -v '^At subvol ')
+ret=$(/bin/echo "$ret" | grep -v '^At subvol ')
 
-
-# skip email sending if skip_empty_mail=yes
 if [ "${skip_empty_mail:-no}" = "yes" ] && [ -z "$ret" ] && [ $exitcode -eq 0 ]; then
-    exit 0
+    : # skip email sending if skip_empty_mail=yes
+else
+    # send email
+    /bin/echo "$ret" | /bin/mail -s "$mail_subject_prefix - $status" $mailto
+    [ $? = 0 ] || die "failed to send btrbk mail to \"$mailto\""
 fi
 
-# send email
-echo "$ret" | /bin/mail -s "$mail_subject_prefix - $status" $mailto
-if [ $? != 0 ]; then
-    echo "$0: ERROR: Failed to send btrbk mail to \"$mailto\"" 1>&2
-    echo "$ret" 1>&2
-    exit 1
-fi
+
+#
+# sync all mountpoints listed in $umount_targets
+#
+# exit on failure!
+#for mountpoint in $umount_targets; do
+#    log_info "btrfs filesystem sync $mountpoint"
+#    $(/sbin/btrfs filesystem sync $mountpoint 1>&2)
+#    [ $? = 0 ] || die "btrfs filesystem sync failed: $mountpoint"
+#    sleep 1
+#done
+
+
+#
+# unmount all mountpoints listed in $umount_targets
+#
+for mountpoint in $umount_targets; do
+    log_info "umount $mountpoint"
+    $(/bin/umount $mountpoint 1>&2)
+    [ $? = 0 ] || log_error "umount failed: $mountpoint"
+done
