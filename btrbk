@@ -390,6 +390,44 @@ sub config_key($$;@)
 }
 
 
+sub config_dump_keys($;@)
+{
+  my $config = shift || die;
+  my %opts = @_;
+  my @ret;
+  my $maxlen = 0;
+
+  foreach my $key (sort keys %config_options)
+  {
+    my $val;
+    if($opts{resolve}) {
+      $val = config_key($config, $key);
+    } else {
+      next unless exists($config->{$key});
+      $val = $config->{$key};
+    }
+    if($opts{skip_defaults}) {
+      if(defined($config_options{$key}->{default}) && defined($val)) {
+        next if($val eq $config_options{$key}->{default});
+      }
+      if((not defined($config_options{$key}->{default})) && (not (defined($val)))) {
+        next; # both undef, skip
+      }
+    }
+    if(ref($val) eq "ARRAY") {
+      my $val2 = join(',', @$val);
+      $val = $val2;
+    }
+    $val //= "<unset>";
+    my $len = length($key);
+    $maxlen = $len if($len > $maxlen);
+    push @ret, { key => $key, val => $val, len => $len };
+  }
+  # print as table
+  return map { ($opts{prefix} // "") . $_->{key} . (' ' x (1 + $maxlen - $_->{len})) . ' ' . $_->{val} } @ret;
+}
+
+
 sub check_file($$;$$)
 {
   my $file = shift // die;
@@ -1679,7 +1717,7 @@ MAIN:
     WARN 'found option "--progress", but "pv" is not present: (please install "pv")';
     $show_progress = 0;
   }
-  my ($action_run, $action_info, $action_tree, $action_diff, $action_origin, $action_config);
+  my ($action_run, $action_info, $action_tree, $action_diff, $action_origin, $action_config_print, $action_config_dump);
   my @filter_args;
   my $args_allow_group = 0;
   my ($args_expected_min, $args_expected_max) = (0, 0);
@@ -1716,20 +1754,36 @@ MAIN:
     @filter_args = @ARGV;
   }
   elsif ($command eq "config") {
-    $action_config = shift @ARGV // "";
-    $action_config .= ' ' . (shift @ARGV // "");
-    unless(($action_config eq "dump source") ||
-           ($action_config eq "dump target") ||
-           ($action_config eq "dump volume"))
-    {
-      ERROR "unknown subcommand for \"config\" command: $action_config";
+    my $subcommand = shift @ARGV // "";
+    if(($subcommand eq "print") || ($subcommand eq "print-all")) {
+      $action_config_print = $subcommand;
+      $args_expected_min = 0;
+      $args_expected_max = 9999;
+      $args_allow_group = 1;
+      @filter_args = @ARGV;
+    }
+    elsif($subcommand eq "dump") {
+      $action_config_dump = shift @ARGV // "";
+      if(($action_config_dump eq "source") ||
+         ($action_config_dump eq "target") ||
+         ($action_config_dump eq "volume"))
+      {
+        $args_expected_min = 0;
+        $args_expected_max = 9999;
+        $args_allow_group = 1;
+        @filter_args = @ARGV;
+      }
+      else {
+        ERROR "Unknown subcommand for \"config dump\" command: $action_config_dump";
+        HELP_MESSAGE(0);
+        exit 2;
+      }
+    }
+    else {
+      ERROR "Unknown subcommand for \"config\" command: $subcommand";
       HELP_MESSAGE(0);
       exit 2;
     }
-    $args_expected_min = 0;
-    $args_expected_max = 9999;
-    $args_allow_group = 1;
-    @filter_args = @ARGV;
   }
   else {
     ERROR "Unrecognized command: $command";
@@ -1883,7 +1937,7 @@ MAIN:
   #
   # filter subvolumes matching command line arguments
   #
-  if(($action_run || $action_tree || $action_info || $action_config) && scalar(@filter_args))
+  if(($action_run || $action_tree || $action_info || $action_config_dump || $action_config_print) && scalar(@filter_args))
   {
     my %match;
     foreach my $config_vol (@{$config->{VOLUME}}) {
@@ -2009,7 +2063,47 @@ MAIN:
   }
 
 
-  if($action_config)
+  if($action_config_print)
+  {
+    my $resolve = ($action_config_print eq "print-all");
+    #
+    # print configuration lines, machine readable
+    #
+    my @out;
+    push @out, config_dump_keys($config, skip_defaults => 1);
+    foreach my $config_vol (@{$config->{VOLUME}}) {
+      next if($config_vol->{ABORTED});
+      my $sroot = vinfo($config_vol->{url}, $config_vol);
+      push @out, "\nvolume $sroot->{URL}";
+      push @out, config_dump_keys($config_vol, prefix => "\t", resolve => $resolve);
+
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+        next if($config_subvol->{ABORTED});
+        my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+        # push @out, "\n  subvolume $svol->{URL}";
+        push @out, "\n\tsubvolume $svol->{SUBVOL_PATH}";
+        push @out, config_dump_keys($config_subvol, prefix => "\t\t", resolve => $resolve);
+
+        foreach my $config_target (@{$config_subvol->{TARGET}})
+        {
+          next if($config_target->{ABORTED});
+          my $droot = vinfo($config_target->{url}, $config_target);
+          push @out, "\n\t\ttarget $config_target->{target_type} $droot->{URL}";
+          push @out, config_dump_keys($config_target, prefix => "\t\t\t", resolve => $resolve);
+        }
+      }
+    }
+
+    print_header(title => "Configuration Dump",
+                 config => $config,
+                 time => $start_time,
+                );
+
+    print join("\n", @out) . "\n";
+    exit 0;
+  }
+
+  if($action_config_dump)
   {
     #
     # print configuration lines, machine readable
@@ -2023,7 +2117,7 @@ MAIN:
       push @vol_info, "volume_path=\"$sroot->{PATH}\"";
       push @vol_info, "volume_rsh=\"" . ($sroot->{RSH} ? join(" ", @{$sroot->{RSH}}) : "") . "\"";
 
-      if($action_config eq "dump volume") {
+      if($action_config_dump eq "volume") {
         print join(' ', @vol_info) . "\n";
         next;
       }
@@ -2040,10 +2134,10 @@ MAIN:
         push @sline, "source_host=\"" . ($svol->{HOST} // "") . "\"";
         push @sline, "source_rsh=\"" . ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : "") . "\"";
 
-        if($action_config eq "dump source") {
+        if($action_config_dump eq "source") {
           print join(' ', @sline) . "\n";
         }
-        elsif($action_config eq "dump target")
+        elsif($action_config_dump eq "target")
         {
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
