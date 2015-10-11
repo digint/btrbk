@@ -155,13 +155,14 @@ sub HELP_MESSAGE
   print STDERR "   -v, --verbose         be verbose (set loglevel=info)\n";
   print STDERR "   -q, --quiet           be quiet (do not print summary for the \"run\" command)\n";
   print STDERR "   -l, --loglevel=LEVEL  set logging level (warn, info, debug, trace)\n";
-  print STDERR "       --raw-output      print raw (machine-readable) output\n";
+  print STDERR "       --format=FORMAT   change output format, FORMAT=table|long|raw\n";
   print STDERR "       --progress        show progress bar on send-receive operation\n";
   print STDERR "\n";
   print STDERR "commands:\n";
   print STDERR "   run    [filter...]  perform backup operations as defined in the config file\n";
   print STDERR "   dryrun [filter...]  don't run btrfs commands; show what would be executed\n";
   print STDERR "   tree   [filter...]  shows backup tree\n";
+  print STDERR "   list   [filter...]  print source/snapshot/target relations\n";
   print STDERR "   info   [filter...]  print useful filesystem information\n";
   print STDERR "   origin <subvol>     print origin information for subvolume\n";
   print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
