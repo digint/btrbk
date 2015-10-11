@@ -1624,6 +1624,28 @@ sub schedule(@)
 }
 
 
+sub format_preserve_matrix($$;$)
+{
+  my $config = shift || die;
+  my $prefix = shift || die;
+  my $format = shift || "long";
+  my @out = "";
+  my $dow = config_key($config, "preserve_day_of_week");
+  my $d = config_key($config, "${prefix}_preserve_daily");
+  my $w = config_key($config, "${prefix}_preserve_weekly");
+  my $m = config_key($config, "${prefix}_preserve_monthly");
+  $d =~ s/^all$/-1/;
+  $w =~ s/^all$/-1/;
+  $m =~ s/^all$/-1/;
+  if($format eq "short") {
+    # short format
+    return sprintf("%2sd %2sw %2sm", $d, $w, $m);
+  }
+  # long format
+  return sprintf("%2sd %2sw %2sm ($dow)", $d, $w, $m);
+}
+
+
 sub print_header(@)
 {
   my %args = @_;
@@ -1663,22 +1685,28 @@ sub print_header(@)
 }
 
 
-sub print_formatted($$$$)
+sub print_formatted(@)
 {
-  my $topic = shift || die;
-  my $format = shift || die;
-  my $default = shift || die;
-  my $spec = shift;
-  my $data = $spec->{$topic}->{data} || die;
-  my $keys = $spec->{$topic}->{formats}->{$format};
+  my %args = @_;
+  my $format = $args{output_format} || die;
+  my $default = $args{default_format} || die;
+  my $data = $args{data} || die;
+  my $keys = $args{formats}->{$format};
 
   unless($keys) {
     WARN "Unsupported output format \"$format\", defaulting to \"$default\" format.";
-    $keys = $spec->{$topic}->{formats}->{$default} || die;
+    $keys = $args{formats}->{$default} || die;
     $format = $default;
   }
 
-  if($format eq "table")
+  if($format eq "raw")
+  {
+    # output: key0="value0" key1="value1" ...
+    foreach my $row (@$data) {
+      print join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
+    }
+  }
+  else
   {
     # sanitize and calculate maxlen for each column
     # NOTE: this is destructive on data!
@@ -1711,13 +1739,6 @@ sub print_formatted($$$$)
         print $val . (' ' x (2 + $maxlen{$_} - length($val)));
       }
       print "\n";
-    }
-  }
-  else
-  {
-    # output: key0="value0" key1="value1" ...
-    foreach my $row (@$data) {
-      print join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
     }
   }
 }
@@ -2155,9 +2176,10 @@ MAIN:
 
   if($action_list)
   {
-    my @vol;
-    my @subvol;
-    my @target;
+    my @vol_data;
+    my @subvol_data;
+    my @target_data;
+    my @mixed_data;
     my %target_uniq;
 
     #
@@ -2171,7 +2193,7 @@ MAIN:
                    volume_host => $sroot->{HOST},
                    volume_rsh  => ($sroot->{RSH} ? join(" ", @{$sroot->{RSH}}) : undef),
                  };
-      push @vol, $volh;
+      push @vol_data, $volh;
 
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
         next if($config_subvol->{ABORTED});
@@ -2179,13 +2201,15 @@ MAIN:
         my $subvolh = { %$volh,
                         source_url        => $svol->{URL},
                         source_path       => $svol->{PATH},
-                        snapshot_path     => $sroot->{PATH} . (config_key($config_subvol, "snapshot_dir", prefix => '/') // ""),
-                        snapshot_basename => config_key($config_subvol, "snapshot_name"),
                         source_host       => $svol->{HOST},
                         source_rsh        => ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : undef),
+                        snapshot_path     => $sroot->{PATH} . (config_key($config_subvol, "snapshot_dir", prefix => '/') // ""),
+                        snapshot_basename => config_key($config_subvol, "snapshot_name"),
+                        snapshot_preserve => format_preserve_matrix($config_subvol, "snapshot"),
                       };
-        push @subvol, $subvolh;
+        push @subvol_data, $subvolh;
 
+        my $found = 0;
         foreach my $config_target (@{$config_subvol->{TARGET}})
         {
           next if($config_target->{ABORTED});
@@ -2195,41 +2219,47 @@ MAIN:
                           target_path => $droot->{PATH},
                           target_host => $droot->{HOST},
                           target_rsh  => ($droot->{RSH} ? join(" ", @{$droot->{RSH}}) : undef),
+                          target_preserve => format_preserve_matrix($config_target, "target"),
                         };
           if($action_list eq "target_uniq") {
             next if($target_uniq{$droot->{URL}});
             $target_uniq{$droot->{URL}} = 1;
           }
-          push @target, $targeth;
+          push @target_data, $targeth;
+          push @mixed_data, $targeth;
+          $found = 1;
         }
+        # make sure the subvol is always printed (even if no targets around)
+        push @mixed_data, $subvolh unless($found);
       }
     }
 
-    my @all_vol_keys    = qw( volume_url volume_path volume_host volume_rsh );
-    my @all_subvol_keys = qw( source_url source_path snapshot_path snapshot_basename source_host source_rsh );
-    my @all_target_keys = qw( target_url target_path target_host target_rsh );
+    my @raw_vol_keys    = qw( volume_url volume_path volume_host volume_rsh );
+    my @raw_subvol_keys = qw( source_url source_host source_path source_rsh snapshot_path snapshot_basename );
+    my @raw_target_keys = qw( target_url target_host target_path target_rsh );
+    $output_format ||= "table";
+    # TODO: honor $action_list and/or $action_config_dump to add filters
     print_formatted(
-      $action_list,   # topic
-      $output_format, # output format
-      "table",        # default output format
-      { #volume => { data  => \@vol,
-        #            formats  => { raw   => \@all_vol_keys,
-        #                        table => [ qw( volume_host volume_path ) ] },
-        #          },
-        #source => { data  => \@subvol,
-        #            formats  => { raw  => \@all_subvol_keys,
-        #                        table => [ qw( source_host source_path snapshot_path snapshot_basename ) ] },
-        #          },
-        target => { data  => \@target,
-                    formats => { raw   => [ @all_subvol_keys, @all_target_keys ],
-                                 table => [ qw( source_host source_path snapshot_path snapshot_basename target_host target_path ) ],
-                               },
-                  },
-        #target_uniq => { data    => [ @target ],
-        #                 formats => { raw => \@all_target_keys,
-        #                            table   => [ qw( target_host target_path ) ] },
-        #               },
-      });
+      output_format  => $output_format,
+      default_format => "table",
+      data  => \@mixed_data,
+      formats => { raw   => [ @raw_subvol_keys, @raw_target_keys ],
+                   table => [ qw( source_host source_path snapshot_path snapshot_basename target_host target_path ) ],
+                   long  => [ qw( source_host source_path snapshot_path snapshot_basename snapshot_preserve target_host target_path target_preserve ) ],
+                 },
+      # data  => \@vol_data, # volume only
+      # formats  => { raw   => \@raw_vol_keys,
+      #               table => [ qw( volume_host volume_path ) ],
+      #             },
+      # data  => \@subvol_data, # source only
+      # formats  => { raw  => \@raw_subvol_keys,
+      #               table => [ qw( source_host source_path snapshot_path snapshot_basename ) ],
+      #             },
+      # data    => \@target_data,
+      # formats => { raw => \@raw_target_keys,
+      #              table   => [ qw( target_host target_path ) ],
+      #            },
+     );
     exit 0;
   }
 
@@ -2507,7 +2537,7 @@ MAIN:
       push @tree_out, "";
     }
 
-    $output_format //= "tree";
+    $output_format ||= "tree";
     if($output_format eq "tree") {
       print_header(title => "Backup Tree",
                    config => $config,
@@ -2522,15 +2552,13 @@ MAIN:
     }
     else {
       print_formatted(
-        "default",
-        $output_format,
-        "table",
-        { default => { data  => \@raw_out,
-                       formats => { raw   => [ qw( source_host source_path snapshot_path snapshot_basename btrbk_flags received_host received_path ) ],
-                                    table => [ qw( source_url snapshot_url btrbk_flags received_url ) ],
-                                  },
-                     },
-        });
+        output_format  => $output_format,
+        default_format => "table",
+        data  => \@raw_out,
+        formats => { raw   => [ qw( source_host source_path snapshot_path snapshot_basename btrbk_flags received_host received_path ) ],
+                     table => [ qw( source_url snapshot_url btrbk_flags received_url ) ],
+                   },
+       );
     }
     exit 0;
   }
@@ -3013,7 +3041,7 @@ MAIN:
         }
       }
 
-      $output_format //= "custom";
+      $output_format ||= "custom";
       if($output_format eq "custom")
       {
         print_header(title => "Backup Summary",
@@ -3049,15 +3077,13 @@ MAIN:
       else
       {
         print_formatted(
-          "default",
-          $output_format,
-          "table",
-          { default => { data  => [ sort { $a->{SORT} <=> $b->{SORT} } @raw_data ],
-                         formats => { raw   => [ qw( type status target_url source_url parent_url ) ],
-                                      table => [ qw( type status target_url source_url parent_url ) ],
-                                    },
-                       },
-          });
+          output_format  => $output_format,
+          default_format => "table",
+          data  => [ sort { $a->{SORT} <=> $b->{SORT} } @raw_data ],
+          formats => { raw   => [ qw( type status target_url source_url parent_url ) ],
+                       table => [ qw( type status target_url source_url parent_url ) ],
+                     },
+         );
       }
     }
 
