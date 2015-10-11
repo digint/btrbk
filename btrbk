@@ -125,7 +125,6 @@ my %uuid_fs_map;        # map UUID to URL
 my $dryrun;
 my $loglevel = 1;
 my $show_progress = 0;
-my $raw_output = 0;
 my $err = "";
 
 
@@ -1664,34 +1663,51 @@ sub print_header(@)
 }
 
 
-sub print_formatted($$$)
+sub print_formatted($$$$)
 {
   my $topic = shift || die;
-  my $view = shift || die;
+  my $format = shift || die;
+  my $default = shift || die;
   my $spec = shift;
   my $data = $spec->{$topic}->{data} || die;
-  my $keys = $spec->{$topic}->{views}->{$view} || die;
+  my $keys = $spec->{$topic}->{formats}->{$format};
 
-  if($view eq "table")
+  unless($keys) {
+    WARN "Unsupported output format \"$format\", defaulting to \"$default\" format.";
+    $keys = $spec->{$topic}->{formats}->{$default} || die;
+    $format = $default;
+  }
+
+  if($format eq "table")
   {
-    # calculate maxlen for each column
+    # sanitize and calculate maxlen for each column
+    # NOTE: this is destructive on data!
     my %maxlen;
+    my @sane_data;
+    foreach my $key (@$keys) {
+      $maxlen{$key} = length($key); # initialize with size of key
+    }
     foreach my $row (@$data) {
-      foreach (@$keys) {
-        my $val = $row->{$_} // "-";
-        $maxlen{$_} //= length($_); # initialize with size of key
-        $maxlen{$_} = length($val) if($maxlen{$_} < length($val));
+      foreach my $key (@$keys) {
+        my $val = $row->{$key};
+        if(ref $val eq "ARRAY") {
+          $val = join(',', @{$val});
+        }
+        $val //= "-";
+        $val = "-" if($val eq "");
+        $row->{$key} = $val;  # write back the sanitized value
+        $maxlen{$key} = length($val) if($maxlen{$key} < length($val));
       }
     }
 
-    # print keys
+    # print keys (headings)
     print join("  ", map { $_ . (' ' x ($maxlen{$_} - length($_))) } @$keys) . "\n";
     print join("  ", map { '-' x ($maxlen{$_}) } @$keys) . "\n";
 
     # print values
     foreach my $row (@$data) {
       foreach (@$keys) {
-        my $val = $row->{$_} // "-";
+        my $val = $row->{$_};
         print $val . (' ' x (2 + $maxlen{$_} - length($val)));
       }
       print "\n";
@@ -1732,7 +1748,6 @@ MAIN:
     'verbose|v'     => sub { $loglevel = 2; },
     'loglevel|l=s'  => \$loglevel,
     'progress'      => \$show_progress,
-    'raw-output'    => \$raw_output,
     'format=s'      => \$output_format,
    ))
   {
@@ -2194,22 +2209,24 @@ MAIN:
     my @all_subvol_keys = qw( source_url source_path snapshot_path snapshot_basename source_host source_rsh );
     my @all_target_keys = qw( target_url target_path target_host target_rsh );
     print_formatted(
-      $action_list,
-      $output_format // "table",
+      $action_list,   # topic
+      $output_format, # output format
+      "table",        # default output format
       { #volume => { data  => \@vol,
-        #            views  => { raw   => \@all_vol_keys,
+        #            formats  => { raw   => \@all_vol_keys,
         #                        table => [ qw( volume_host volume_path ) ] },
         #          },
         #source => { data  => \@subvol,
-        #            views  => { raw  => \@all_subvol_keys,
+        #            formats  => { raw  => \@all_subvol_keys,
         #                        table => [ qw( source_host source_path snapshot_path snapshot_basename ) ] },
         #          },
         target => { data  => \@target,
-                    views => { raw   => [ @all_subvol_keys, @all_target_keys ],
-                               table => [ qw( source_host source_path snapshot_path snapshot_basename target_host target_path ) ] },
+                    formats => { raw   => [ @all_subvol_keys, @all_target_keys ],
+                                 table => [ qw( source_host source_path snapshot_path snapshot_basename target_host target_path ) ],
+                               },
                   },
         #target_uniq => { data    => [ @target ],
-        #                 views => { raw => \@all_target_keys,
+        #                 formats => { raw => \@all_target_keys,
         #                            table   => [ qw( target_host target_path ) ] },
         #               },
       });
@@ -2435,70 +2452,63 @@ MAIN:
     # print snapshot tree
     #
     # TODO: reverse tree: print all backups from $droot and their corresponding source snapshots
-    my @out;
+    my @tree_out;
     my @raw_out;
     foreach my $config_vol (@{$config->{VOLUME}})
     {
       next if($config_vol->{ABORTED});
       my %droot_compat;
       my $sroot = $config_vol->{sroot} || die;
-      push @out, "$sroot->{PRINT}";
+      push @tree_out, "$sroot->{PRINT}";
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
         next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
-        push @out, "|-- $svol->{PRINT}";
+        push @tree_out, "|-- $svol->{PRINT}";
         foreach my $snapshot (sort { $a->{cgen} cmp $b->{cgen} } get_snapshot_children($sroot, $svol))
         {
+          my $raw_data = { type          => "snapshot",
+                           btrbk_flags   => [ ],
+                           source_url    => $svol->{URL},
+                           source_host   => $svol->{HOST},
+                           source_path   => $svol->{PATH},
+                           snapshot_url  => $snapshot->{URL},
+                           snapshot_path => $snapshot->{PATH},
+                           snapshot_basename => config_key($config_subvol, "snapshot_name"),
+                         };
           if($snapshot->{cgen} == $svol->{gen}) {
-            push @out, "|   ^== $snapshot->{PATH}";
+            push @tree_out, "|   ^== $snapshot->{PATH}";
+            push @{$raw_data->{btrbk_flags}}, "up-to-date";
           } else {
-            push @out, "|   ^-- $snapshot->{PATH}";
+            push @tree_out, "|   ^-- $snapshot->{PATH}";
           }
+          push @raw_out, $raw_data;
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
-              push @out, "|   |   >>> $_->{PRINT}";
-
-              push @raw_out, { source_url        => $svol->{URL},
-                               source_path       => $svol->{PATH},
-                               snapshot_url      => $snapshot->{URL},
-                               snapshot_path     => $snapshot->{PATH},
-#                               snapshot_basename => config_key($config_subvol, "snapshot_name"),
-                               source_host       => $svol->{HOST},
-                               source_rsh        => ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : undef),
-                               target_url        => $_->{URL},
-                               target_path        => $_->{PATH},
-                               target_host       => $_->{HOST},
-                               target_rsh        => ($_->{RSH} ? join(" ", @{$_->{RSH}}) : undef),
+              push @tree_out, "|   |   >>> $_->{PRINT}";
+              push @raw_out, { %$raw_data,
+                               type        => "received",
+                               received_url  => $_->{URL},
+                               received_path => $_->{PATH},
+                               received_host => $_->{HOST},
                              };
-#              push @raw_out, { sour"$svol->{URL} $snapshot->{URL} $_->{URL}"
             }
           }
         }
       }
       if(keys %droot_compat) {
-        push @out, "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:";
-        push @out, "      - " . join("\n      - ", (sort keys %droot_compat));
+        push @tree_out, "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:";
+        push @tree_out, "      - " . join("\n      - ", (sort keys %droot_compat));
       }
-      push @out, "";
+      push @tree_out, "";
     }
 
-    if($raw_output) {
-      print_formatted(
-        "default",
-        $output_format // "table",
-        { default => { data  => \@raw_out,
-                       views => { raw   => [ qw( source_host source_path snapshot_path snapshot_basename target_host target_path ) ],
-                                  table => [ qw( source_url snapshot_url target_url ) ],
-                                  long => [ qw( source_host source_path snapshot_path target_host target_path ) ] },
-                  },
-      });
-    }
-    else {
+    $output_format //= "tree";
+    if($output_format eq "tree") {
       print_header(title => "Backup Tree",
                    config => $config,
                    time => $start_time,
@@ -2508,7 +2518,19 @@ MAIN:
                      ">>>  received subvolume (backup)",
                     ]
                   );
-      print join("\n", @out);
+      print join("\n", @tree_out);
+    }
+    else {
+      print_formatted(
+        "default",
+        $output_format,
+        "table",
+        { default => { data  => \@raw_out,
+                       formats => { raw   => [ qw( source_host source_path snapshot_path snapshot_basename btrbk_flags received_host received_path ) ],
+                                    table => [ qw( source_url snapshot_url btrbk_flags received_url ) ],
+                                  },
+                     },
+        });
     }
     exit 0;
   }
@@ -2881,10 +2903,7 @@ MAIN:
     {
       my @unrecoverable;
       my @out;
-      my @raw_snapshot_out;
-      my @raw_delete_out;
-      my @raw_receive_out;
-      my @raw_err_out;
+      my @raw_data;
       my $err_count = 0;
       foreach my $config_vol (@{$config->{VOLUME}})
       {
@@ -2899,11 +2918,22 @@ MAIN:
           }
           if($config_subvol->{SNAPSHOT}) {
             push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}";
-            push @raw_snapshot_out, "snapshot $config_subvol->{SNAPSHOT}->{URL} $svol->{URL}";
+            push @raw_data, { type => "snapshot",
+                              status => $dryrun ? "DRYRUN" : "success",
+                              target_url => $config_subvol->{SNAPSHOT}->{URL},
+                              source_url => $svol->{URL},
+                              SORT => 10,
+                            };
           }
           if($config_subvol->{SUBVOL_DELETED}) {
-            push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
-            push @raw_delete_out, "delete $_->{URL}" foreach(@{$config_subvol->{SUBVOL_DELETED}});
+            foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_subvol->{SUBVOL_DELETED}}) {
+              push @subvol_out, "--- $_->{PRINT}";
+              push @raw_data, { type => "snapshot_delete",
+                                status => $dryrun ? "DRYRUN" : "success",
+                                target_url => $_->{URL},
+                                SORT => 30,
+                            };
+            }
           }
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
@@ -2914,21 +2944,34 @@ MAIN:
               # substr($create_mode, 0, 1, '%') if($_->{resume});
               $create_mode = "!!!" if($_->{ERROR});
               push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
-              if($_->{ERROR}) {
-                push @raw_err_out, "error receive $_->{received_subvolume}->{URL} $_->{snapshot}->{URL}" . ($_->{parent} ? " $_->{parent}->{URL}" : "");
-              } else {
-                push @raw_receive_out, "receive $_->{received_subvolume}->{URL} $_->{snapshot}->{URL}" . ($_->{parent} ? " $_->{parent}->{URL}" : "");
-              }
+              push @raw_data, { type => "send-receive",
+                                status => $_->{ERROR} ? "ERROR" : ($dryrun ? "DRYRUN" : "success"),
+                                target_url => $_->{received_subvolume}->{URL},
+                                source_url => $_->{snapshot}->{URL},
+                                parent_url => $_->{parent}->{URL},
+                                SORT => 20,
+                              };
             }
 
             if($config_target->{SUBVOL_DELETED}) {
-              push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_target->{SUBVOL_DELETED}});
-              push @raw_delete_out, "delete $_->{URL}" foreach(@{$config_target->{SUBVOL_DELETED}});
+              foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_target->{SUBVOL_DELETED}}) {
+                push @subvol_out, "--- $_->{PRINT}";
+                push @raw_data, { type => "target_delete",
+                                  status => $dryrun ? "DRYRUN" : "success",
+                                  target_url => $_->{URL},
+                                  SORT => 40,
+                                };
+              }
             }
 
             if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) {
               push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
-              push @raw_err_out, "aborted target $droot->{URL} -- $config_target->{ABORTED}";
+              push @raw_data, { type => "btrbk_target",
+                                status => "ABORT",
+                                target_url => $droot->{URL},
+                                error_message => $config_target->{ABORTED},
+                                SORT => 3,
+                               };
               $err_count++;
             }
 
@@ -2940,7 +2983,12 @@ MAIN:
           }
           if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) {
             push @subvol_out, "!!! Aborted: $config_subvol->{ABORTED}";
-            push @raw_err_out, "aborted subvolume $svol->{URL} -- $config_subvol->{ABORTED}";
+            push @raw_data, { type => "btrbk_subvolume",
+                              status => "ABORT",
+                              target_url => $svol->{URL},
+                              error_message => $config_subvol->{ABORTED},
+                              SORT => 2,
+                             };
             $err_count++;
           }
 
@@ -2955,20 +3003,19 @@ MAIN:
           }
         }
         if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
-          push @raw_err_out, "aborted volume $sroot->{URL} -- $config_vol->{ABORTED}";
+          push @raw_data, { type => "btrbk_volume",
+                            status => "ABORT",
+                            target_url => $sroot->{URL},
+                            error_message => $config_vol->{ABORTED},
+                            SORT => 1,
+                          };
           $err_count++;
         }
       }
 
-      if($raw_output)
+      $output_format //= "custom";
+      if($output_format eq "custom")
       {
-        if($dryrun) {
-          $_ = "DRYRUN $_" foreach(@raw_snapshot_out, @raw_receive_out, @raw_delete_out);
-        }
-        print join("\n", @raw_snapshot_out, @raw_receive_out, @raw_delete_out, @raw_err_out);
-        print "\n";
-      }
-      else {
         print_header(title => "Backup Summary",
                      config => $config,
                      time => $start_time,
@@ -2998,6 +3045,19 @@ MAIN:
         if($dryrun) {
           print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
         }
+      }
+      else
+      {
+        print_formatted(
+          "default",
+          $output_format,
+          "table",
+          { default => { data  => [ sort { $a->{SORT} <=> $b->{SORT} } @raw_data ],
+                         formats => { raw   => [ qw( type status target_url source_url parent_url ) ],
+                                      table => [ qw( type status target_url source_url parent_url ) ],
+                                    },
+                       },
+          });
       }
     }
 

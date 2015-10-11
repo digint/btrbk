@@ -2,10 +2,11 @@ btrbk-current
 
   * Added configuration option "group".
   * Allow filtering subcommands by group as well as targets.
-  * Added "--raw-output" command line option, producing raw
-    (machine-readable) output for "(dry)run" and "tree" commands.
-  * Added "config dump" command (experimental).
-  * Added "config list" command (experimental).
+  * Added "config print" command.
+  * Added "list" command (experimental).
+  * Added "--format=table|raw" command line option, producing tabular
+    and raw (machine-readable) output for "(dry)run", "tree" and
+    "list" commands.
   * Added configuration option "ssh_cipher_spec" (close: #47).
   * Added "target raw", with GnuPG and compression support
     (experimental).
