@@ -1668,9 +1668,9 @@ sub print_formatted($$$)
 {
   my $topic = shift || die;
   my $view = shift || die;
-  my $format = shift;
-  my $data = $format->{$topic}->{data} || die;
-  my $keys = $format->{$topic}->{views}->{$view} || die;
+  my $spec = shift;
+  my $data = $spec->{$topic}->{data} || die;
+  my $keys = $spec->{$topic}->{views}->{$view} || die;
 
   if($view eq "table")
   {
@@ -1721,7 +1721,7 @@ MAIN:
   my @today = @today_and_now[0..2];
 
 
-  my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only);
+  my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only, $output_format);
   unless(GetOptions(
     'help|h'        => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
     'version'       => sub { VERSION_MESSAGE(); exit 0; },
@@ -1733,6 +1733,7 @@ MAIN:
     'loglevel|l=s'  => \$loglevel,
     'progress'      => \$show_progress,
     'raw-output'    => \$raw_output,
+    'format=s'      => \$output_format,
    ))
   {
     VERSION_MESSAGE();
@@ -1760,7 +1761,7 @@ MAIN:
     WARN 'found option "--progress", but "pv" is not present: (please install "pv")';
     $show_progress = 0;
   }
-  my ($action_run, $action_info, $action_tree, $action_diff, $action_origin, $action_config_print, $action_config_dump);
+  my ($action_run, $action_info, $action_tree, $action_diff, $action_origin, $action_config_print, $action_list);
   my @filter_args;
   my $args_allow_group = 0;
   my ($args_expected_min, $args_expected_max) = (0, 0);
@@ -1796,6 +1797,13 @@ MAIN:
     $args_expected_min = $args_expected_max = 1;
     @filter_args = @ARGV;
   }
+  elsif($command eq "list") {
+    $action_list = "target";
+    $args_expected_min = 0;
+    $args_expected_max = 9999;
+    $args_allow_group = 1;
+    @filter_args = @ARGV;
+  }
   elsif ($command eq "config") {
     my $subcommand = shift @ARGV // "";
     if(($subcommand eq "print") || ($subcommand eq "print-all")) {
@@ -1804,24 +1812,6 @@ MAIN:
       $args_expected_max = 9999;
       $args_allow_group = 1;
       @filter_args = @ARGV;
-    }
-    elsif($subcommand eq "dump") {
-      $action_config_dump = shift @ARGV // "";
-      if(($action_config_dump eq "source") ||
-         ($action_config_dump eq "target") ||
-         ($action_config_dump eq "target_uniq") ||
-         ($action_config_dump eq "volume"))
-      {
-        $args_expected_min = 0;
-        $args_expected_max = 9999;
-        $args_allow_group = 1;
-        @filter_args = @ARGV;
-      }
-      else {
-        ERROR "Unknown subcommand for \"config dump\" command: $action_config_dump";
-        HELP_MESSAGE(0);
-        exit 2;
-      }
     }
     else {
       ERROR "Unknown subcommand for \"config\" command: $subcommand";
@@ -1981,7 +1971,7 @@ MAIN:
   #
   # filter subvolumes matching command line arguments
   #
-  if(($action_run || $action_tree || $action_info || $action_config_dump || $action_config_print) && scalar(@filter_args))
+  if(($action_run || $action_tree || $action_info || $action_list || $action_config_print) && scalar(@filter_args))
   {
     my %match;
     foreach my $config_vol (@{$config->{VOLUME}}) {
@@ -2148,7 +2138,7 @@ MAIN:
   }
 
 
-  if($action_config_dump)
+  if($action_list)
   {
     my @vol;
     my @subvol;
@@ -2191,7 +2181,7 @@ MAIN:
                           target_host => $droot->{HOST},
                           target_rsh  => ($droot->{RSH} ? join(" ", @{$droot->{RSH}}) : undef),
                         };
-          if($action_config_dump eq "target_uniq") {
+          if($action_list eq "target_uniq") {
             next if($target_uniq{$droot->{URL}});
             $target_uniq{$droot->{URL}} = 1;
           }
@@ -2204,24 +2194,24 @@ MAIN:
     my @all_subvol_keys = qw( source_url source_path snapshot_path snapshot_basename source_host source_rsh );
     my @all_target_keys = qw( target_url target_path target_host target_rsh );
     print_formatted(
-      $action_config_dump,
-      "table",
-      { volume => { data  => \@vol,
-                    views  => { raw   => \@all_vol_keys,
-                                table => [ qw( volume_host volume_path ) ] },
-                  },
-        source => { data  => \@subvol,
-                    views  => { raw  => \@all_subvol_keys,
-                                table => [ qw( source_host source_path snapshot_path snapshot_basename ) ] },
-                  },
+      $action_list,
+      $output_format // "table",
+      { #volume => { data  => \@vol,
+        #            views  => { raw   => \@all_vol_keys,
+        #                        table => [ qw( volume_host volume_path ) ] },
+        #          },
+        #source => { data  => \@subvol,
+        #            views  => { raw  => \@all_subvol_keys,
+        #                        table => [ qw( source_host source_path snapshot_path snapshot_basename ) ] },
+        #          },
         target => { data  => \@target,
                     views => { raw   => [ @all_subvol_keys, @all_target_keys ],
                                table => [ qw( source_host source_path snapshot_path snapshot_basename target_host target_path ) ] },
                   },
-        target_uniq => { data    => [ @target ],
-                         views => { raw => \@all_target_keys,
-                                    table   => [ qw( target_host target_path ) ] },
-                       },
+        #target_uniq => { data    => [ @target ],
+        #                 views => { raw => \@all_target_keys,
+        #                            table   => [ qw( target_host target_path ) ] },
+        #               },
       });
     exit 0;
   }
