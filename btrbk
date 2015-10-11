@@ -2462,7 +2462,20 @@ MAIN:
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
               push @out, "|   |   >>> $_->{PRINT}";
-              push @raw_out, "$svol->{URL} $snapshot->{URL} $_->{URL}"
+
+              push @raw_out, { source_url        => $svol->{URL},
+                               source_path       => $svol->{PATH},
+                               snapshot_url      => $snapshot->{URL},
+                               snapshot_path     => $snapshot->{PATH},
+#                               snapshot_basename => config_key($config_subvol, "snapshot_name"),
+                               source_host       => $svol->{HOST},
+                               source_rsh        => ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : undef),
+                               target_url        => $_->{URL},
+                               target_path        => $_->{PATH},
+                               target_host       => $_->{HOST},
+                               target_rsh        => ($_->{RSH} ? join(" ", @{$_->{RSH}}) : undef),
+                             };
+#              push @raw_out, { sour"$svol->{URL} $snapshot->{URL} $_->{URL}"
             }
           }
         }
@@ -2475,8 +2488,15 @@ MAIN:
     }
 
     if($raw_output) {
-      print join("\n", @raw_out);
-      print "\n";
+      print_formatted(
+        "default",
+        $output_format // "table",
+        { default => { data  => \@raw_out,
+                       views => { raw   => [ qw( source_host source_path snapshot_path snapshot_basename target_host target_path ) ],
+                                  table => [ qw( source_url snapshot_url target_url ) ],
+                                  long => [ qw( source_host source_path snapshot_path target_host target_path ) ] },
+                  },
+      });
     }
     else {
       print_header(title => "Backup Tree",
