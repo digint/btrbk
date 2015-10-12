@@ -2986,7 +2986,7 @@ MAIN:
                               status => $dryrun ? "DRYRUN" : "success",
                               target_url => $config_subvol->{SNAPSHOT}->{URL},
                               source_url => $svol->{URL},
-                              SORT => 10,
+                              SORT => 10,  # sort order: snapshot, send-receive, target_delete, snapshot_delete
                             };
           }
           if($config_subvol->{SUBVOL_DELETED}) {
@@ -2995,7 +2995,7 @@ MAIN:
               push @raw_data, { type => "snapshot_delete",
                                 status => $dryrun ? "DRYRUN" : "success",
                                 target_url => $_->{URL},
-                                SORT => 30,
+                                SORT => 40,  # sort order: snapshot, send-receive, target_delete, snapshot_delete
                             };
             }
           }
@@ -3013,7 +3013,7 @@ MAIN:
                                 target_url => $_->{received_subvolume}->{URL},
                                 source_url => $_->{snapshot}->{URL},
                                 parent_url => $_->{parent}->{URL},
-                                SORT => 20,
+                                SORT => 20,  # sort order: snapshot, send-receive, target_delete, snapshot_delete
                               };
             }
 
@@ -3023,7 +3023,7 @@ MAIN:
                 push @raw_data, { type => "target_delete",
                                   status => $dryrun ? "DRYRUN" : "success",
                                   target_url => $_->{URL},
-                                  SORT => 40,
+                                  SORT => 30,  # sort order: snapshot, send-receive, target_delete, snapshot_delete
                                 };
               }
             }
