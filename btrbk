@@ -1841,14 +1841,21 @@ sub print_formatted(@)
     }
 
     # print keys (headings)
-    print join("  ", map { $_ . (' ' x ($maxlen{$_} - length($_))) } @$keys) . "\n";
+    my $fill = '';
+    foreach (@$keys) {
+      print $fill . $_;
+      $fill = ' ' x (2 + $maxlen{$_} - length($_));
+    }
+    print "\n";
     print join("  ", map { '-' x ($maxlen{$_}) } @$keys) . "\n";
 
     # print values
     foreach my $row (@$data) {
+      my $fill = '';
       foreach (@$keys) {
         my $val = $row->{$_};
-        print $val . (' ' x (2 + $maxlen{$_} - length($val)));
+        print $fill . $val;
+        $fill = ' ' x (2 + $maxlen{$_} - length($val));
       }
       print "\n";
     }
