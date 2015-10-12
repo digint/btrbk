@@ -155,6 +155,7 @@ sub HELP_MESSAGE
   print STDERR "   -v, --verbose         be verbose (set loglevel=info)\n";
   print STDERR "   -q, --quiet           be quiet (do not print summary for the \"run\" command)\n";
   print STDERR "   -l, --loglevel=LEVEL  set logging level (warn, info, debug, trace)\n";
+  print STDERR "   -t, --table           change output to table format\n";
   print STDERR "       --format=FORMAT   change output format, FORMAT=table|long|raw\n";
   print STDERR "       --progress        show progress bar on send-receive operation\n";
   print STDERR "\n";
@@ -1770,6 +1771,7 @@ MAIN:
     'verbose|v'     => sub { $loglevel = 2; },
     'loglevel|l=s'  => \$loglevel,
     'progress'      => \$show_progress,
+    'table|t'       => sub { $output_format = "table" },
     'format=s'      => \$output_format,
    ))
   {
