@@ -117,6 +117,40 @@ my %config_options = (
 
 my @config_target_types = qw(send-receive raw);
 
+my %table_formats = (
+  list_volume => { table => [ qw( volume ) ],
+                   long  => [ qw( volume_host volume_path ) ],
+                   raw   => [ qw( volume_url volume_host volume_path volume_rsh ) ],
+                 },
+  list_source => { table => [ qw( source_host source_path snapshot_path snapshot_name ) ],
+                   long  => [ qw( source_host source_path snapshot_path snapshot_name ) ],
+                   raw   => [ qw( source_url source_host source_path snapshot_path snapshot_name source_rsh ) ],
+                 },
+  list_target => { table => [ qw( target ) ],
+                   long  => [ qw( target_host target_path ) ],
+                   raw   => [ qw( target_url target_host target_path target_rsh ) ],
+                 },
+  list        => { table => [ qw( source snapshot_path snapshot_name target ) ],
+                   long  => [ qw( source_host source_path snapshot_path snapshot_name snapshot_preserve target_host target_path target_preserve ) ],
+                   raw   => [ qw( source_url source_host source_path snapshot_path snapshot_name snapshot_preserve target_url target_host target_path target_preserve source_rsh target_rsh ) ],
+                 },
+
+  tree        => { table => [ qw( source snapshot btrbk_flags received ) ],
+                   long  => [ qw( source_host source_path snapshot_path snapshot_name btrbk_flags received_host received_path ) ],
+                   raw   => [ qw( source_host source_path snapshot_path snapshot_name btrbk_flags received_host received_path source_rsh ) ],
+                 },
+
+  schedule    => { table => [ qw( action target scheme reason ) ],
+                   long  => [ qw( action host root_path name scheme reason ) ],
+                   raw   => [ qw( topic action url host path dow d m w) ],
+                 },
+
+  action_log  => { table => [ qw( type status target source parent ) ],
+                   long  => [ qw( localtime type status target_host target_path source_host source_path parent_path error_message ) ],
+                   raw   => [ qw( time localtime type status target_url source_url parent_url error_message ) ],
+                 },
+);
+
 my %root_tree_cache;    # map URL to SUBTREE (needed since "btrfs subvolume list" does not provide us with the uuid of the btrfs root node)
 my %vinfo_cache;        # map URL to vinfo
 my %uuid_info;          # map UUID to btr_tree node
@@ -128,6 +162,7 @@ my $dryrun;
 my $loglevel = 1;
 my $show_progress = 0;
 my $err = "";
+my $output_format = undef;
 
 
 $SIG{__DIE__} = sub {
@@ -401,7 +436,7 @@ sub vinfo_prefixed_keys($$)
   my $prefix = shift || die;
   my $vinfo = shift || die;
   my %ret;
-  foreach qw( URL PATH HOST NAME SUBVOL_PATH ) {
+  foreach (qw( URL PATH HOST NAME SUBVOL_PATH )) {
     $ret{$prefix . '_' . lc($_)} = $vinfo->{$_};
   }
   $ret{$prefix} = $vinfo->{PRINT};
@@ -984,8 +1019,8 @@ sub btrfs_subvolume_snapshot($$)
                    );
   action("snapshot",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         target_vinfo => $target_vol,
-         source_vinfo => $svol,
+         vinfo_prefixed_keys("target", $target_vol),
+         vinfo_prefixed_keys("source", $svol),
         );
   ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
   return defined($ret) ? $target_path : undef;
@@ -1017,7 +1052,7 @@ sub btrfs_subvolume_delete($@)
                    );
   action($opts{type} // "delete",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         target_vinfo => $_,
+         vinfo_prefixed_keys("target", $_),
         ) foreach (@$targets);
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
   return defined($ret) ? scalar(@$targets) : undef;
@@ -1405,9 +1440,9 @@ sub macro_send_receive($@)
 
   action("send-receive",
          status => ($dryrun ? "DRYRUN" : ($ret ? "success" : "ERROR")),
-         target_vinfo => $vol_received,
-         source_vinfo => $snapshot,
-         parent_vinfo => $parent,
+         vinfo_prefixed_keys("target", $vol_received),
+         vinfo_prefixed_keys("source", $snapshot),
+         vinfo_prefixed_keys("parent", $parent),
         );
   unless($ret) {
     $info{ERROR} = 1;
@@ -1760,17 +1795,18 @@ sub print_header(@)
 
 sub print_formatted(@)
 {
+  my $format_key = shift || die;
+  my $data = shift || die;
+  my $default_format = "table";
   my %args = @_;
   my $title = $args{title};
-  my $format = $args{output_format} || "table";
-  my $default = $args{default_format} || die;
-  my $data = $args{data} || die;
-  my $keys = $args{formats}->{$format};
+  my $format = $args{output_format} || $output_format || $default_format;
+  my $keys = $table_formats{$format_key}->{$format};
 
   unless($keys) {
-    WARN "Unsupported output format \"$format\", defaulting to \"$default\" format.";
-    $keys = $args{formats}->{$default} || die;
-    $format = $default;
+    WARN "Unsupported output format \"$format\", defaulting to \"$default_format\" format.";
+    $keys = $table_formats{$format_key}->{$default_format} || die;
+    $format = $default_format;
   }
 
   print "$title\n" if($title);
@@ -1778,6 +1814,7 @@ sub print_formatted(@)
   {
     # output: key0="value0" key1="value1" ...
     foreach my $row (@$data) {
+      print "list_type=\"$format_key\" ";
       print join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
     }
   }
@@ -1833,7 +1870,7 @@ MAIN:
   my @today = @today_and_now[0..2];
 
 
-  my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only, $output_format);
+  my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only);
   unless(GetOptions(
     'help|h'        => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
     'version'       => sub { VERSION_MESSAGE(); exit 0; },
@@ -2299,7 +2336,7 @@ MAIN:
                           vinfo_prefixed_keys("target", $droot),
                           target_preserve => format_preserve_matrix(config => $config_target, prefix => "target"),
                         };
-          if($action_list eq "target_uniq") {
+          if($action_list eq "target") {
             next if($target_uniq{$droot->{URL}});
             $target_uniq{$droot->{URL}} = 1;
           }
@@ -2311,55 +2348,18 @@ MAIN:
         push @mixed_data, $subvolh unless($found);
       }
     }
-
-    my @raw_vol_keys    = qw( volume_url volume_host volume_path volume_rsh );
-    my @raw_subvol_keys = qw( source_url source_host source_path source_rsh snapshot_path snapshot_name );
-    my @raw_target_keys = qw( target_url target_host target_path target_rsh );
-    $output_format ||= "table";
     if($action_list eq "volume") {
-      print_formatted(
-        output_format  => $output_format,
-        default_format => "table",
-        data  => \@vol_data,
-        formats  => { raw   => \@raw_vol_keys,
-                      table => [ qw( volume_host volume_path ) ],
-                      long  => \@raw_vol_keys,
-                    },
-       );
+      print_formatted("list_volume", \@vol_data);
     }
     elsif($action_list eq "source") {
-      print_formatted(
-        output_format  => $output_format,
-        default_format => "table",
-        data  => \@subvol_data,
-        formats  => { raw   => \@raw_subvol_keys,
-                      table => [ qw( source_host source_path snapshot_path snapshot_name ) ],
-                      long  => \@raw_subvol_keys,
-                    },
-       );
+      print_formatted("list_source", \@subvol_data);
     }
     elsif($action_list eq "target") {
-      print_formatted(
-        output_format  => $output_format,
-        default_format => "table",
-        data    => \@target_data,
-        formats => { raw   => \@raw_target_keys,
-                     table => [ qw( target_host target_path ) ],
-                     long  => \@raw_target_keys,
-                   },
-       );
+      print_formatted("list_target", \@target_data);
     }
     else {
       # default format
-      print_formatted(
-        output_format  => $output_format,
-        default_format => "table",
-        data  => \@mixed_data,
-        formats => { raw   => [ @raw_subvol_keys, @raw_target_keys ],
-                     table => [ qw( source snapshot_path snapshot_name target ) ],
-                     long  => [ qw( source_host source_path snapshot_path snapshot_name snapshot_preserve target_host target_path target_preserve ) ],
-                   },
-       );
+      print_formatted("list", \@mixed_data);
     }
     exit 0;
   }
@@ -2602,7 +2602,7 @@ MAIN:
                            btrbk_flags => [ ],
                            vinfo_prefixed_keys("source", $svol),
                            vinfo_prefixed_keys("snapshot", $snapshot),
-                           snapshot_basename => config_key($config_subvol, "snapshot_name"),
+                           snapshot_name => config_key($config_subvol, "snapshot_name"),
                          };
           if($snapshot->{cgen} == $svol->{gen}) {
             push @tree_out, "|   ^== $snapshot->{PATH}";
@@ -2647,14 +2647,7 @@ MAIN:
       print join("\n", @tree_out);
     }
     else {
-      print_formatted(
-        output_format  => $output_format,
-        default_format => "table",
-        data  => \@raw_out,
-        formats => { raw   => [ qw( source_host source_path snapshot_path snapshot_basename btrbk_flags received_host received_path ) ],
-                     table => [ qw( source_url snapshot_url btrbk_flags received_url ) ],
-                   },
-       );
+      print_formatted("tree", \@raw_out);
     }
     exit 0;
   }
@@ -3041,23 +3034,9 @@ MAIN:
         my @data_backup = map { $_->{topic} eq "backup" ? $_ : () } @data;
         my @data_snapshot = map { $_->{topic} eq "snapshot" ? $_ : () } @data;
 
-        my %format_args = (
-          output_format  => $output_format,
-          default_format => "table",
-          formats  => { raw   => [ qw( topic action url host path dow d m w) ],
-                        table => [ qw( action target scheme reason ) ],
-                        long  => [ qw( action host root_path name scheme reason ) ],
-                      },
-         );
-        print_formatted( title => "SNAPSHOT SCHEDULE",
-                         data  => \@data_snapshot,
-                         %format_args,
-                        );
+        print_formatted("schedule", \@data_snapshot, title => "SNAPSHOT SCHEDULE");
         print "\n";
-        print_formatted( title => "BACKUP SCHEDULE",
-                         data  => \@data_backup,
-                         %format_args,
-                        );
+        print_formatted("schedule", \@data_backup, title => "BACKUP SCHEDULE");
         print "\n";
       }
 
@@ -3178,16 +3157,8 @@ MAIN:
       else
       {
         # print action log
-        @action_log = map { $_->{timestamp} = localtime($_->{time}); $_; } @action_log;
-        print_formatted(
-          title => "BACKUP SUMMARY",
-          output_format  => $output_format,
-          default_format => "table",
-          data  => \@action_log,
-          formats => { raw   => [ qw( time type status target_url source_url parent_url ) ],
-                       table => [ qw( type status target source parent ) ],
-                     },
-         );
+        @action_log = map { $_->{localtime} = localtime($_->{time}); $_; } @action_log;
+        print_formatted("action_log", \@action_log, title => "BACKUP SUMMARY");
       }
     }
 
