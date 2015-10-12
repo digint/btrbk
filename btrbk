@@ -196,7 +196,7 @@ sub ABORTED($$)
   unless($t eq "USER_SKIP") {
     action("abort_" . ($config->{CONTEXT} || "undef"),
            status => "ABORT",
-           target_url => $config->{url},
+           vinfo_prefixed_keys("target", vinfo($config->{url}, $config)),
            error_message => $t,
           );
   }
@@ -392,6 +392,21 @@ sub vinfo_set_detail($$)
   TRACE "vinfo updated for: $vol->{PRINT}";
   TRACE(Data::Dumper->Dump([$vol], ["vinfo{$vol->{PRINT}}"]));
   return $vol;
+}
+
+
+# returns hash: ( $prefix_{url,path,host,name,subvol_path,rsh} => value, ... )
+sub vinfo_prefixed_keys($$)
+{
+  my $prefix = shift || die;
+  my $vinfo = shift || die;
+  my %ret;
+  foreach qw( URL PATH HOST NAME SUBVOL_PATH ) {
+    $ret{$prefix . '_' . lc($_)} = $vinfo->{$_};
+  }
+  $ret{$prefix} = $vinfo->{PRINT};
+  $ret{$prefix . "_rsh"} = ($vinfo->{RSH} ? join(" ", @{$vinfo->{RSH}}) : undef),
+  return %ret;
 }
 
 
@@ -969,8 +984,8 @@ sub btrfs_subvolume_snapshot($$)
                    );
   action("snapshot",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         target_url => $target_vol->{URL},
-         source_url => $svol->{URL},
+         target_vinfo => $target_vol,
+         source_vinfo => $svol,
         );
   ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
   return defined($ret) ? $target_path : undef;
@@ -1002,8 +1017,7 @@ sub btrfs_subvolume_delete($@)
                    );
   action($opts{type} // "delete",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         target_url => $_->{URL},
-         # target_vinfo => $_, # TODO !!! resolve this
+         target_vinfo => $_,
         ) foreach (@$targets);
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
   return defined($ret) ? scalar(@$targets) : undef;
@@ -1391,9 +1405,9 @@ sub macro_send_receive($@)
 
   action("send-receive",
          status => ($dryrun ? "DRYRUN" : ($ret ? "success" : "ERROR")),
-         target_url => $vol_received->{URL},
-         source_url => $snapshot->{URL},
-         parent_url => $parent->{URL},
+         target_vinfo => $vol_received,
+         source_vinfo => $snapshot,
+         parent_vinfo => $parent,
         );
   unless($ret) {
     $info{ERROR} = 1;
@@ -2262,21 +2276,14 @@ MAIN:
     foreach my $config_vol (@{$config->{VOLUME}}) {
       next if($config_vol->{ABORTED});
       my $sroot = vinfo($config_vol->{url}, $config_vol);
-      my $volh = { volume_url  => $sroot->{URL},
-                   volume_path => $sroot->{PATH},
-                   volume_host => $sroot->{HOST},
-                   volume_rsh  => ($sroot->{RSH} ? join(" ", @{$sroot->{RSH}}) : undef),
-                 };
+      my $volh = { vinfo_prefixed_keys("volume", $sroot) };
       push @vol_data, $volh;
 
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
         next if($config_subvol->{ABORTED});
         my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
         my $subvolh = { %$volh,
-                        source_url        => $svol->{URL},
-                        source_path       => $svol->{PATH},
-                        source_host       => $svol->{HOST},
-                        source_rsh        => ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : undef),
+                        vinfo_prefixed_keys("source", $svol),
                         snapshot_path     => $sroot->{PATH} . (config_key($config_subvol, "snapshot_dir", prefix => '/') // ""),
                         snapshot_name     => config_key($config_subvol, "snapshot_name"),
                         snapshot_preserve => format_preserve_matrix(config => $config_subvol, prefix => "snapshot"),
@@ -2289,10 +2296,7 @@ MAIN:
           next if($config_target->{ABORTED});
           my $droot = vinfo($config_target->{url}, $config_target);
           my $targeth = { %$subvolh,
-                          target_url  => $droot->{URL},
-                          target_path => $droot->{PATH},
-                          target_host => $droot->{HOST},
-                          target_rsh  => ($droot->{RSH} ? join(" ", @{$droot->{RSH}}) : undef),
+                          vinfo_prefixed_keys("target", $droot),
                           target_preserve => format_preserve_matrix(config => $config_target, prefix => "target"),
                         };
           if($action_list eq "target_uniq") {
@@ -2352,7 +2356,7 @@ MAIN:
         default_format => "table",
         data  => \@mixed_data,
         formats => { raw   => [ @raw_subvol_keys, @raw_target_keys ],
-                     table => [ qw( source_host source_path snapshot_path snapshot_name target_host target_path ) ],
+                     table => [ qw( source snapshot_path snapshot_name target ) ],
                      long  => [ qw( source_host source_path snapshot_path snapshot_name snapshot_preserve target_host target_path target_preserve ) ],
                    },
        );
@@ -2594,13 +2598,10 @@ MAIN:
         push @tree_out, "|-- $svol->{PRINT}";
         foreach my $snapshot (sort { $a->{cgen} cmp $b->{cgen} } get_snapshot_children($sroot, $svol))
         {
-          my $raw_data = { type          => "snapshot",
-                           btrbk_flags   => [ ],
-                           source_url    => $svol->{URL},
-                           source_host   => $svol->{HOST},
-                           source_path   => $svol->{PATH},
-                           snapshot_url  => $snapshot->{URL},
-                           snapshot_path => $snapshot->{PATH},
+          my $raw_data = { type => "snapshot",
+                           btrbk_flags => [ ],
+                           vinfo_prefixed_keys("source", $svol),
+                           vinfo_prefixed_keys("snapshot", $snapshot),
                            snapshot_basename => config_key($config_subvol, "snapshot_name"),
                          };
           if($snapshot->{cgen} == $svol->{gen}) {
@@ -2618,10 +2619,8 @@ MAIN:
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
               push @tree_out, "|   |   >>> $_->{PRINT}";
               push @raw_out, { %$raw_data,
-                               type        => "received",
-                               received_url  => $_->{URL},
-                               received_path => $_->{PATH},
-                               received_host => $_->{HOST},
+                               type => "received",
+                               vinfo_prefixed_keys("received", $_),
                              };
             }
           }
@@ -3186,7 +3185,7 @@ MAIN:
           default_format => "table",
           data  => \@action_log,
           formats => { raw   => [ qw( time type status target_url source_url parent_url ) ],
-                       table => [ qw( type status target_url source_url parent_url ) ],
+                       table => [ qw( type status target source parent ) ],
                      },
          );
       }
