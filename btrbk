@@ -1835,7 +1835,19 @@ MAIN:
     @filter_args = @ARGV;
   }
   elsif($command eq "list") {
-    $action_list = "target";
+    my $subcommand = shift @ARGV;
+    $action_list = "target-all";
+    if(defined($subcommand)) {
+      if(($subcommand eq "volume") ||
+         ($subcommand eq "source") ||
+         ($subcommand eq "target"))
+      {
+        $action_list = $subcommand;
+      }
+      else {
+        unshift @ARGV, $subcommand;
+      }
+    }
     $args_expected_min = 0;
     $args_expected_max = 9999;
     $args_allow_group = 1;
@@ -2205,7 +2217,7 @@ MAIN:
                         source_host       => $svol->{HOST},
                         source_rsh        => ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : undef),
                         snapshot_path     => $sroot->{PATH} . (config_key($config_subvol, "snapshot_dir", prefix => '/') // ""),
-                        snapshot_basename => config_key($config_subvol, "snapshot_name"),
+                        snapshot_name     => config_key($config_subvol, "snapshot_name"),
                         snapshot_preserve => format_preserve_matrix($config_subvol, "snapshot"),
                       };
         push @subvol_data, $subvolh;
@@ -2235,32 +2247,55 @@ MAIN:
       }
     }
 
-    my @raw_vol_keys    = qw( volume_url volume_path volume_host volume_rsh );
-    my @raw_subvol_keys = qw( source_url source_host source_path source_rsh snapshot_path snapshot_basename );
+    my @raw_vol_keys    = qw( volume_url volume_host volume_path volume_rsh );
+    my @raw_subvol_keys = qw( source_url source_host source_path source_rsh snapshot_path snapshot_name );
     my @raw_target_keys = qw( target_url target_host target_path target_rsh );
     $output_format ||= "table";
-    # TODO: honor $action_list and/or $action_config_dump to add filters
-    print_formatted(
-      output_format  => $output_format,
-      default_format => "table",
-      data  => \@mixed_data,
-      formats => { raw   => [ @raw_subvol_keys, @raw_target_keys ],
-                   table => [ qw( source_host source_path snapshot_path snapshot_basename target_host target_path ) ],
-                   long  => [ qw( source_host source_path snapshot_path snapshot_basename snapshot_preserve target_host target_path target_preserve ) ],
-                 },
-      # data  => \@vol_data, # volume only
-      # formats  => { raw   => \@raw_vol_keys,
-      #               table => [ qw( volume_host volume_path ) ],
-      #             },
-      # data  => \@subvol_data, # source only
-      # formats  => { raw  => \@raw_subvol_keys,
-      #               table => [ qw( source_host source_path snapshot_path snapshot_basename ) ],
-      #             },
-      # data    => \@target_data,
-      # formats => { raw => \@raw_target_keys,
-      #              table   => [ qw( target_host target_path ) ],
-      #            },
-     );
+    if($action_list eq "volume") {
+      print_formatted(
+        output_format  => $output_format,
+        default_format => "table",
+        data  => \@vol_data,
+        formats  => { raw   => \@raw_vol_keys,
+                      table => [ qw( volume_host volume_path ) ],
+                      long  => \@raw_vol_keys,
+                    },
+       );
+    }
+    elsif($action_list eq "source") {
+      print_formatted(
+        output_format  => $output_format,
+        default_format => "table",
+        data  => \@subvol_data,
+        formats  => { raw   => \@raw_subvol_keys,
+                      table => [ qw( source_host source_path snapshot_path snapshot_name ) ],
+                      long  => \@raw_subvol_keys,
+                    },
+       );
+    }
+    elsif($action_list eq "target") {
+      print_formatted(
+        output_format  => $output_format,
+        default_format => "table",
+        data    => \@target_data,
+        formats => { raw   => \@raw_target_keys,
+                     table => [ qw( target_host target_path ) ],
+                     long  => \@raw_target_keys,
+                   },
+       );
+    }
+    else {
+      # default format
+      print_formatted(
+        output_format  => $output_format,
+        default_format => "table",
+        data  => \@mixed_data,
+        formats => { raw   => [ @raw_subvol_keys, @raw_target_keys ],
+                     table => [ qw( source_host source_path snapshot_path snapshot_name target_host target_path ) ],
+                     long  => [ qw( source_host source_path snapshot_path snapshot_name snapshot_preserve target_host target_path target_preserve ) ],
+                   },
+       );
+    }
     exit 0;
   }
 
