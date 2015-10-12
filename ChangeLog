@@ -4,9 +4,10 @@ btrbk-current
   * Allow filtering subcommands by group as well as targets.
   * Added "config print" command.
   * Added "list" command (experimental).
-  * Added "--format=table|long|raw" and "-t, --table" command line
+  * Added "--format=table|long|raw" and "-t,--table" command line
     options, producing tabular and raw (machine-readable) output for
     "(dry)run", "tree" and "list" commands.
+  * Print scheduler details if -v option is set on action run/dryrun.
   * Added configuration option "ssh_cipher_spec" (close: #47).
   * Added "target raw", with GnuPG and compression support
     (experimental).

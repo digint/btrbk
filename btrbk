@@ -1542,13 +1542,12 @@ sub schedule(@)
   my $preserve_weekly      = $args{preserve_weekly}      // die;
   my $preserve_monthly     = $args{preserve_monthly}     // die;
   my $preserve_latest      = $args{preserve_latest}      || 0;
-  my $log_verbose          = $args{log_verbose};
+  my $results_list         = $args{results};
+  my $result_hints         = $args{result_hints} // {};
 
-  if($log_verbose) {
-    INFO "Filter scheme: preserving all within $preserve_daily days";
-    INFO "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
-    INFO "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
-  }
+  DEBUG "Filter scheme: preserving all within $preserve_daily days";
+  DEBUG "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
+  DEBUG "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
 
   # sort the schedule, ascending by date
   my @sorted_schedule = sort { ($a->{btrbk_date}->[0] <=> $b->{btrbk_date}->[0]) ||
@@ -1610,32 +1609,49 @@ sub schedule(@)
   # assemble results
   my @delete;
   my @preserve;
+  my %preserve_matrix = ( d   => $preserve_daily,
+                          w   => $preserve_weekly,
+                          m   => $preserve_monthly,
+                          dow => $preserve_day_of_week,
+                         );
+  my %result_base = ( %preserve_matrix,
+                      scheme => format_preserve_matrix(%preserve_matrix, format => "short"),
+                      %$result_hints,
+                     );
   foreach my $href (@sorted_schedule)
   {
     if($href->{preserve}) {
-      INFO "=== $href->{name}: $href->{preserve}" if($href->{name});
       push(@preserve, $href->{value});
+      DEBUG "=== $href->{name}: $href->{preserve}" if($href->{name});
+      push @$results_list, { %result_base,
+                             # action => "preserve",
+                             reason => $href->{preserve},
+                             value => $href->{value},
+                           } if($results_list);
+
     }
     else {
-      INFO "<<< $href->{name}" if($href->{name});
       push(@delete, $href->{value});
+      DEBUG "<<< $href->{name}" if($href->{name});
+      push @$results_list, { %result_base,
+                             action => "delete",
+                             value => $href->{value},
+                           } if($results_list);;
     }
   }
-  DEBUG "Preserving " . @preserve . "/" . @$schedule . " items" unless($log_verbose);
+  DEBUG "Preserving " . @preserve . "/" . @$schedule . " items";
   return (\@preserve, \@delete);
 }
 
 
-sub format_preserve_matrix($$;$)
+sub format_preserve_matrix(@)
 {
-  my $config = shift || die;
-  my $prefix = shift || die;
-  my $format = shift || "long";
-  my @out = "";
-  my $dow = config_key($config, "preserve_day_of_week");
-  my $d = config_key($config, "${prefix}_preserve_daily");
-  my $w = config_key($config, "${prefix}_preserve_weekly");
-  my $m = config_key($config, "${prefix}_preserve_monthly");
+  my %args = @_;
+  my $dow = $args{dow} // config_key($args{config}, "preserve_day_of_week");
+  my $d   = $args{d}   // config_key($args{config}, "$args{prefix}_preserve_daily");
+  my $w   = $args{w}   // config_key($args{config}, "$args{prefix}_preserve_weekly");
+  my $m   = $args{m}   // config_key($args{config}, "$args{prefix}_preserve_monthly");
+  my $format = $args{format} // "long";
   $d =~ s/^all$/-1/;
   $w =~ s/^all$/-1/;
   $m =~ s/^all$/-1/;
@@ -1690,7 +1706,8 @@ sub print_header(@)
 sub print_formatted(@)
 {
   my %args = @_;
-  my $format = $args{output_format} || die;
+  my $title = $args{title};
+  my $format = $args{output_format} || "table";
   my $default = $args{default_format} || die;
   my $data = $args{data} || die;
   my $keys = $args{formats}->{$format};
@@ -1701,6 +1718,7 @@ sub print_formatted(@)
     $format = $default;
   }
 
+  print "$title\n" if($title);
   if($format eq "raw")
   {
     # output: key0="value0" key1="value1" ...
@@ -2220,7 +2238,7 @@ MAIN:
                         source_rsh        => ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : undef),
                         snapshot_path     => $sroot->{PATH} . (config_key($config_subvol, "snapshot_dir", prefix => '/') // ""),
                         snapshot_name     => config_key($config_subvol, "snapshot_name"),
-                        snapshot_preserve => format_preserve_matrix($config_subvol, "snapshot"),
+                        snapshot_preserve => format_preserve_matrix(config => $config_subvol, prefix => "snapshot"),
                       };
         push @subvol_data, $subvolh;
 
@@ -2234,7 +2252,7 @@ MAIN:
                           target_path => $droot->{PATH},
                           target_host => $droot->{HOST},
                           target_rsh  => ($droot->{RSH} ? join(" ", @{$droot->{RSH}}) : undef),
-                          target_preserve => format_preserve_matrix($config_target, "target"),
+                          target_preserve => format_preserve_matrix(config => $config_target, prefix => "target"),
                         };
           if($action_list eq "target_uniq") {
             next if($target_uniq{$droot->{URL}});
@@ -2832,6 +2850,7 @@ MAIN:
     #
     # remove backups following a preserve daily/weekly/monthly scheme
     #
+    my $schedule_results = [];
     if($preserve_backups || $resume_only) {
       INFO "Preserving all backups (option \"-p\" or \"-r\" present)";
     }
@@ -2890,7 +2909,7 @@ MAIN:
               #   next;
               # }
               push(@schedule, { value      => $vol,
-                                name       => $vol->{PRINT},
+                                name       => $vol->{PRINT},  # only for logging
                                 btrbk_date => $filename_info->{btrbk_date},
                                 preserve   => $vol->{FORCE_PRESERVE}
                                });
@@ -2903,7 +2922,8 @@ MAIN:
               preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
               preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
               preserve_latest      => $preserve_latest_backup,
-              log_verbose          => 1,
+              results              => $schedule_results,
+              result_hints         => { topic => "backup", root_path => $droot->{PATH} },
              );
             my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_target, "btrfs_commit_delete"));
             if(defined($ret)) {
@@ -2933,7 +2953,7 @@ MAIN:
             my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapdir . $snapshot_basename);
             next unless($filename_info);  # ignore non-btrbk files
             push(@schedule, { value      => $vol,
-                              name       => $vol->{PRINT},
+                              name       => $vol->{PRINT},  # only for logging
                               btrbk_date => $filename_info->{btrbk_date}
                              });
           }
@@ -2945,7 +2965,8 @@ MAIN:
             preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
             preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
             preserve_latest      => $preserve_latest_snapshot,
-            log_verbose          => 1,
+            results              => $schedule_results,
+            result_hints         => { topic => "snapshot", root_path => $sroot->{PATH} },
            );
           my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_subvol, "btrfs_commit_delete"));
           if(defined($ret)) {
@@ -2962,11 +2983,47 @@ MAIN:
     my $time_elapsed = time - $start_time;
     INFO "Completed within: ${time_elapsed}s  (" . localtime(time) . ")";
 
-    #
-    # print summary
-    #
+
     unless($quiet)
     {
+      #
+      # print scheduling results
+      #
+      if($loglevel >= 2) {
+        my @data = map { $_->{url} = $_->{value}->{URL};
+                         $_->{host} = $_->{value}->{HOST};
+                         $_->{path} = $_->{value}->{PATH};
+                         $_->{name} = $_->{value}->{SUBVOL_PATH};
+                         $_->{target} = $_->{value}->{PRINT};
+                         $_;
+                       } @$schedule_results;
+        my @data_backup = map { $_->{topic} eq "backup" ? $_ : () } @data;
+        my @data_snapshot = map { $_->{topic} eq "snapshot" ? $_ : () } @data;
+
+        my %format_args = (
+          output_format  => $output_format,
+          default_format => "table",
+          formats  => { raw   => [ qw( topic action url host path dow d m w) ],
+                        table => [ qw( action target scheme reason ) ],
+                        long  => [ qw( action host root_path name scheme reason ) ],
+                      },
+         );
+        print_formatted( title => "SNAPSHOT SCHEDULE",
+                         data  => \@data_snapshot,
+                         %format_args,
+                        );
+        print "\n";
+        print_formatted( title => "BACKUP SCHEDULE",
+                         data  => \@data_backup,
+                         %format_args,
+                        );
+        print "\n";
+      }
+
+
+      #
+      # print summary
+      #
       my @unrecoverable;
       my @out;
       my @raw_data;
@@ -3115,6 +3172,7 @@ MAIN:
       else
       {
         print_formatted(
+          title => "SUMMARY",
           output_format  => $output_format,
           default_format => "table",
           data  => [ sort { $a->{SORT} <=> $b->{SORT} } @raw_data ],
