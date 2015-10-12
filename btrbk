@@ -193,11 +193,13 @@ sub ABORTED($$)
   my $config = shift;
   my $t = shift;
   $config->{ABORTED} = $t;
-  action("abort_" . ($config->{CONTEXT} || "undef"),
-         status => "ABORT",
-         target_url => $config->{url},
-         error_message => $t,
-        );
+  unless($t eq "USER_SKIP") {
+    action("abort_" . ($config->{CONTEXT} || "undef"),
+           status => "ABORT",
+           target_url => $config->{url},
+           error_message => $t,
+          );
+  }
 }
 
 sub run_cmd(@)
@@ -1314,7 +1316,7 @@ sub macro_send_receive($@)
 
   # check for existing target subvolume
   if(my $err_vol = vinfo_subvol($target, $snapshot->{NAME})) {
-    $config_target->{ABORTED} = "Target subvolume \"$err_vol->{PRINT}\" already exists";
+    ABORTED($config_target, "Target subvolume \"$err_vol->{PRINT}\" already exists");
     $config_target->{UNRECOVERABLE} = "Please delete stray subvolume: $err_vol->{PRINT}";
     ERROR $config_target->{ABORTED} . ", aborting send/receive of: $snapshot->{PRINT}";
     ERROR $config_target->{UNRECOVERABLE};
@@ -1334,7 +1336,7 @@ sub macro_send_receive($@)
     else {
       WARN "Backup to $target->{PRINT} failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
       $info{ERROR} = 1;
-      $config_target->{ABORTED} = "No common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+      ABORTED($config_target, "No common parent subvolume found, and option \"incremental\" is set to \"strict\"");
       return undef;
     }
   }
@@ -1349,7 +1351,7 @@ sub macro_send_receive($@)
   if($target_type eq "send-receive")
   {
     $ret = btrfs_send_receive($snapshot, $target, $parent, \$vol_received);
-    $config_target->{ABORTED} = "Failed to send/receive subvolume" unless($ret);
+    ABORTED($config_target, "Failed to send/receive subvolume") unless($ret);
   }
   elsif($target_type eq "raw")
   {
@@ -1374,7 +1376,7 @@ sub macro_send_receive($@)
                  }
     }
     $ret = btrfs_send_to_file($snapshot, $target, $parent, \$vol_received, compress => $compress, encrypt => $encrypt);
-    $config_target->{ABORTED} = "Failed to send subvolume to raw file" unless($ret);
+    ABORTED($config_target, "Failed to send subvolume to raw file") unless($ret);
   }
   else
   {
@@ -2128,17 +2130,17 @@ MAIN:
           }
           unless($found_target) {
             DEBUG "No match on filter command line argument, skipping target: $target_url";
-            $config_target->{ABORTED} = "USER_SKIP";
+            ABORTED($config_target, "USER_SKIP");
           }
         }
         unless($found_subvol) {
           DEBUG "No match on filter command line argument, skipping subvolume: $subvol_url";
-          $config_subvol->{ABORTED} = "USER_SKIP";
+          ABORTED($config_subvol, "USER_SKIP");
         }
       }
       unless($found_vol) {
         DEBUG "No match on filter command line argument, skipping volume: $vol_url";
-        $config_vol->{ABORTED} = "USER_SKIP";
+        ABORTED($config_vol, "USER_SKIP");
       }
     }
     # make sure all args have a match
@@ -2369,7 +2371,7 @@ MAIN:
     next if($config_vol->{ABORTED});
     my $sroot = vinfo($config_vol->{url}, $config_vol);
     unless(vinfo_root($sroot)) {
-      $config_vol->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
+      ABORTED($config_vol, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
       WARN "Skipping volume \"$sroot->{PRINT}\": $config_vol->{ABORTED}";
       next;
     }
@@ -2387,19 +2389,19 @@ MAIN:
         $svol = vinfo_child($sroot, $config_subvol->{rel_path});
         my $detail = btrfs_subvolume_detail($svol);
         unless($detail) {
-          $config_subvol->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
+          ABORTED($config_subvol, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
           WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
           next;
         }
         if($detail->{is_root}) {
-          $config_subvol->{ABORTED} = "Subvolume is btrfs root";
+          ABORTED($config_subvol, "Subvolume is btrfs root");
           WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
           next;
         }
         if(grep { $_->{uuid} eq $detail->{uuid} } values %{vinfo_subvol_list($sroot)}) {
           vinfo_set_detail($svol, $uuid_info{$detail->{uuid}});
         } else {
-          $config_subvol->{ABORTED} = "Not a child subvolume of: $sroot->{PRINT}";
+          ABORTED($config_subvol, "Not a child subvolume of: $sroot->{PRINT}");
           WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
           next;
         }
@@ -2426,7 +2428,7 @@ MAIN:
         if($target_type eq "send-receive")
         {
           unless(vinfo_root($droot)) {
-            $config_target->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
+            ABORTED($config_target, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
             WARN "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
             next;
           }
@@ -2444,7 +2446,7 @@ MAIN:
             non_destructive => 1,
            );
           unless(defined($ret)) {
-            $config_target->{ABORTED} = "Failed to list files from: $droot->{PATH}";
+            ABORTED($config_target, "Failed to list files from: $droot->{PATH}");
             WARN  "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
             next;
           }
@@ -2458,7 +2460,7 @@ MAIN:
               next;
             }
             unless($file =~ s/^\Q$droot->{PATH}\E\///) {
-              $config_target->{ABORTED} = "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"";
+              ABORTED($config_target, "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
               last;
             }
             my $filename_info = parse_filename($file, $snapshot_basename, 1);
@@ -2752,7 +2754,7 @@ MAIN:
             $config_subvol->{SNAPSHOT} = $snapshot;
           }
           else {
-            $config_subvol->{ABORTED} = "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name";
+            ABORTED($config_subvol, "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name");
             WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
           }
         }
@@ -2971,7 +2973,7 @@ MAIN:
               $config_target->{SUBVOL_DELETED} = $delete;
             }
             else {
-              $config_target->{ABORTED} = "Failed to delete subvolume";
+              ABORTED($config_target, "Failed to delete subvolume");
               $target_aborted = -1;
             }
           }
@@ -3014,7 +3016,7 @@ MAIN:
             $config_subvol->{SUBVOL_DELETED} = $delete;
           }
           else {
-            $config_subvol->{ABORTED} = "Failed to delete subvolume";
+            ABORTED($config_subvol, "Failed to delete subvolume");
           }
         }
       }
