@@ -2,13 +2,17 @@ btrbk-current
 
   * Added configuration option "group".
   * Allow filtering subcommands by group as well as targets.
-  * Added "--raw-output" command line option, producing raw
-    (machine-readable) output for "(dry)run" and "tree" commands.
-  * Added "config dump" command (experimental).
+  * Added "config print" command.
+  * Added "list" command (experimental).
+  * Added "--format=table|long|raw" and "-t,--table" command line
+    options, producing tabular and raw (machine-readable) output for
+    "(dry)run", "tree" and "list" commands.
+  * Print scheduler details if -v option is set on action run/dryrun.
   * Added configuration option "ssh_cipher_spec" (close: #47).
   * Added "target raw", with GnuPG and compression support
     (experimental).
   * Added configuration option "timestamp_format short|long".
+  * Added transaction log (configuration option "transaction_log").
   * Bugfix: correctly handle "incremental no" option.
   * Bugfix: return exit status 10 instead of 0 if one or more backup
     tasks aborted.

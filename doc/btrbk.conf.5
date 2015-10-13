@@ -258,6 +258,13 @@ can lead to false guesses if the snapshot or target subvolumes are
 manipulated by hand (moved, deleted).
 .RE
 .PP
+\fBtransaction_log\fR  <file>
+.RS 4
+If set, all transactions (snapshot create, subvolume send-receive,
+subvolume delete) as well as abort messages are logged to <file>, in a
+space-separated table format.
+.RE
+.PP
 Lines that contain a hash character (#) in the first column are
 treated as comments.
 .SH AVAILABILITY

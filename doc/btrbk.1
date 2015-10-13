@@ -79,10 +79,17 @@ Set the level of verbosity. Accepted levels are warn, info, debug,
 and trace.
 .RE
 .PP
-\-\-raw\-output
+\-t, \-\-table
 .RS 4
-Print raw (machine-readable) output. Changes output format for
-\fBrun\fR, \fBdryrun\fR and \fBtree\fR. Useful for further scripting.
+Print output in table format (shortcut for "--format=table").
+.RE
+.PP
+\-\-format table|long|raw
+.RS 4
+Print output in specified format. If set to "raw", prints
+space-separated key="value" pairs (machine-readable). Affects output
+format for \fBrun\fR, \fBdryrun\fR, \fBlist\fR and \fBtree\fR
+commands. Useful for further exporting/scripting.
 .RE
 .PP
 \-\-progress
@@ -121,25 +128,8 @@ configured retention policy will be deleted. Note that the latest
 snapshot as well as the latest backup is always preserved, regardless
 of the retention policy.
 .PP
-If the \-\-raw\-output command line option is set, print the output in
-the following format:
-.PP
-.RS 4
-snapshot <snapshot-url> <src-subvol-url>
-...
-.RE
-.RS 4
-receive <target-url> <src-subvol-url> [<parent-subvol-url>]
-...
-.RE
-.RS 4
-delete <target-url>
-...
-.RE
-.RS 4
-aborted [volume|subvolume|target] <url> -- abort_reason
-...
-.RE
+Use the \fI\-\-format\fR command line option to switch between
+different output formats.
 .RE
 .PP
 .B dryrun
@@ -151,12 +141,15 @@ in conjunction with \fI\-l debug\fR to see the btrfs commands that
 would be executed.
 .RE
 .PP
-.B info
+.B list
 [filter...]
 .RS 4
-Print filesystem usage information for all source/target
-volumes. Optionally filtered by [filter...] arguments (see \fIFILTER
-STATEMENTS\fR below).
+Print the source/snapshot/target relations of the configured
+subvolumes in a tabular form. Optionally filtered by [filter...]
+arguments (see \fIFILTER STATEMENTS\fR below). Accepts predefined
+filters \fIvolume\fR, \fIsource\fR and \fItarget\fR. Use the
+\fI\-\-format\fR command line option to switch between different
+output formats.
 .RE
 .PP
 .B tree
@@ -164,15 +157,16 @@ STATEMENTS\fR below).
 .RS 4
 Print the snapshots and their corresponding backup subvolumes as a
 tree. Optionally filtered by [filter...] arguments (see \fIFILTER
-STATEMENTS\fR below).
-.PP
-If the \-\-raw\-output command line option is set, print the output in
-the following format:
-.PP
-.RS 4
-<subvol-url> <snapshot-url> <received-from-url>
-...
+STATEMENTS\fR below). Use the \fI\-\-format\fR command line option to
+switch between different output formats.
 .RE
+.PP
+.B info
+[filter...]
+.RS 4
+Print filesystem usage information for all source/target
+volumes. Optionally filtered by [filter...] arguments (see \fIFILTER
+STATEMENTS\fR below).
 .RE
 .PP
 .B origin
@@ -188,10 +182,11 @@ parent-child relationship as well as the received-from information.
 Print new files since subvolume <from> for subvolume <to>.
 .RE
 .PP
-.B config dump
-volume|source|target [filter...] \fI*experimental*\fR
+.B config
+print|print-all
 .RS 4
-Dump parsed content from the configuration file, in format: key="value"...
+Prints the parsed configuration file. Use the \fI\-\-format\fR command
+line option to switch between different output formats.
 .RE
 .SH FILTER STATEMENTS
 Filter arguments are accepted in form:

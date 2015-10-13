@@ -37,12 +37,12 @@ valid mount-points, you can loop through the configuration and mount
 the volumes like this:
 
     #!/bin/sh
-    btrbk config dump volume | while read line; do
+    btrbk config list volume --format=raw | while read line; do
         eval $line
         $volume_rsh mount $volume_path
     done
 
-Note that the `btrbk config dump volume` command accepts filters (see
+Note that the `btrbk config list` command accepts filters (see
 [btrbk(1)], FILTER STATEMENTS), which means you can e.g. add "group
 automount" tags in your configuration and dump only the volumes of
 this group: `btrbk config dump volume automount`.

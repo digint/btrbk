@@ -45,6 +45,7 @@ use warnings FATAL => qw( all );
 use Carp qw(confess);
 use Date::Calc qw(Today_and_Now Delta_Days Day_of_Week);
 use Getopt::Long qw(GetOptions);
+use POSIX qw(strftime);
 use Data::Dumper;
 
 our $VERSION       = "0.21.0-dev";
@@ -89,6 +90,7 @@ my %config_options = (
   ssh_port                  => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   ssh_compression           => { default => undef,    accept => [ "yes", "no" ] },
   ssh_cipher_spec           => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
+  transaction_log           => { default => undef,    accept_file => { absolute => 1 } },
 
   raw_target_compress       => { default => undef,    accept => [ "no", "gzip", "bzip2", "xz" ] },
   raw_target_encrypt        => { default => undef,    accept => [ "no", "gpg" ] },
@@ -117,16 +119,54 @@ my %config_options = (
 
 my @config_target_types = qw(send-receive raw);
 
+my %table_formats = (
+  list_volume => { table => [ qw( volume ) ],
+                   long  => [ qw( volume_host volume_path ) ],
+                   raw   => [ qw( volume_url volume_host volume_path volume_rsh ) ],
+                 },
+  list_source => { table => [ qw( source_host source_path snapshot_path snapshot_name ) ],
+                   long  => [ qw( source_host source_path snapshot_path snapshot_name ) ],
+                   raw   => [ qw( source_url source_host source_path snapshot_path snapshot_name source_rsh ) ],
+                 },
+  list_target => { table => [ qw( target ) ],
+                   long  => [ qw( target_host target_path ) ],
+                   raw   => [ qw( target_url target_host target_path target_rsh ) ],
+                 },
+  list        => { table => [ qw( source snapshot_path snapshot_name target ) ],
+                   long  => [ qw( source_host source_path snapshot_path snapshot_name snapshot_preserve target_host target_path target_preserve ) ],
+                   raw   => [ qw( source_url source_host source_path snapshot_path snapshot_name snapshot_preserve target_url target_host target_path target_preserve source_rsh target_rsh ) ],
+                 },
+
+  tree        => { table => [ qw( source snapshot btrbk_flags received ) ],
+                   long  => [ qw( source_host source_path snapshot_path snapshot_name btrbk_flags received_host received_path ) ],
+                   raw   => [ qw( source_host source_path snapshot_path snapshot_name btrbk_flags received_host received_path source_rsh ) ],
+                 },
+
+  schedule    => { table => [ qw( action target scheme reason ) ],
+                   long  => [ qw( action host root_path name scheme reason ) ],
+                   raw   => [ qw( topic action url host path dow d m w) ],
+                 },
+
+  action_log  => { table => [ qw( type status target source parent ) ],
+                   long  => [ qw( localtime type status duration target_host target_path source_host source_path parent_path message ) ],
+                   raw   => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
+                   tlog  => [ qw( localtime type status target_url source_url parent_url message ) ],
+                 },
+);
+
 my %root_tree_cache;    # map URL to SUBTREE (needed since "btrfs subvolume list" does not provide us with the uuid of the btrfs root node)
 my %vinfo_cache;        # map URL to vinfo
 my %uuid_info;          # map UUID to btr_tree node
 my %uuid_fs_map;        # map UUID to URL
 
+my @action_log;
+
 my $dryrun;
 my $loglevel = 1;
 my $show_progress = 0;
-my $raw_output = 0;
 my $err = "";
+my $output_format;
+my $tlog_fh;
 
 
 $SIG{__DIE__} = sub {
@@ -156,12 +196,14 @@ sub HELP_MESSAGE
   print STDERR "   -v, --verbose         be verbose (set loglevel=info)\n";
   print STDERR "   -q, --quiet           be quiet (do not print summary for the \"run\" command)\n";
   print STDERR "   -l, --loglevel=LEVEL  set logging level (warn, info, debug, trace)\n";
-  print STDERR "       --raw-output      print raw (machine-readable) output\n";
+  print STDERR "   -t, --table           change output to table format\n";
+  print STDERR "       --format=FORMAT   change output format, FORMAT=table|long|raw\n";
   print STDERR "       --progress        show progress bar on send-receive operation\n";
   print STDERR "\n";
   print STDERR "commands:\n";
   print STDERR "   run    [filter...]  perform backup operations as defined in the config file\n";
   print STDERR "   dryrun [filter...]  don't run btrfs commands; show what would be executed\n";
+  print STDERR "   list   [filter...]  print source/snapshot/target relations\n";
   print STDERR "   tree   [filter...]  shows backup tree\n";
   print STDERR "   info   [filter...]  print useful filesystem information\n";
   print STDERR "   origin <subvol>     print origin information for subvolume\n";
@@ -175,6 +217,56 @@ sub DEBUG { my $t = shift; print STDERR "$t\n" if($loglevel >= 3);  }
 sub INFO  { my $t = shift; print STDERR "$t\n" if($loglevel >= 2);  }
 sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
 sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
+
+sub ABORTED($$)
+{
+  my $config = shift;
+  my $t = shift;
+  $config->{ABORTED} = $t;
+  unless($t eq "USER_SKIP") {
+    $t =~ s/\n/ /g;
+    action("abort_" . ($config->{CONTEXT} || "undef"),
+           status => "ABORT",
+           vinfo_prefixed_keys("target", vinfo($config->{url}, $config)),
+           message => $t,
+          );
+  }
+}
+
+
+sub init_transaction_log($)
+{
+  my $file = shift // die;
+  if(open($tlog_fh, ">> $file"))
+  {
+     # print headers and startup message
+    print_formatted("action_log", [ ], output_format => "tlog", outfile => $tlog_fh);
+    INFO "Using transaction log: $file";
+  } else {
+    $tlog_fh = undef;
+    ERROR "Failed to open transaction log '$file': $!";
+  }
+}
+
+sub close_transaction_log()
+{
+  if($tlog_fh) {
+    DEBUG "Closing transaction log";
+    close $tlog_fh || ERROR "Failed to close transaction log: $!";
+  }
+}
+
+sub action($@)
+{
+  my $type = shift // die;
+  my $h = { @_ };
+  my $time = time;
+  $h->{type} = $type;
+  $h->{time} = $time;
+  $h->{localtime} = strftime("%FT%T%z", localtime($time));
+  print_formatted("action_log", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh);
+  push @action_log, $h;
+}
 
 
 sub run_cmd(@)
@@ -370,6 +462,21 @@ sub vinfo_set_detail($$)
 }
 
 
+# returns hash: ( $prefix_{url,path,host,name,subvol_path,rsh} => value, ... )
+sub vinfo_prefixed_keys($$)
+{
+  my $prefix = shift || die;
+  my $vinfo = shift || die;
+  my %ret;
+  foreach (qw( URL PATH HOST NAME SUBVOL_PATH )) {
+    $ret{$prefix . '_' . lc($_)} = $vinfo->{$_};
+  }
+  $ret{$prefix} = $vinfo->{PRINT};
+  $ret{$prefix . "_rsh"} = ($vinfo->{RSH} ? join(" ", @{$vinfo->{RSH}}) : undef),
+  return %ret;
+}
+
+
 sub config_key($$;@)
 {
   my $node = shift || die;
@@ -387,6 +494,44 @@ sub config_key($$;@)
   $retval = $opts{prefix} . $retval if(defined($opts{prefix}) && defined($retval));
   $retval .= $opts{postfix} if(defined($opts{postfix}) && defined($retval));
   return $retval;
+}
+
+
+sub config_dump_keys($;@)
+{
+  my $config = shift || die;
+  my %opts = @_;
+  my @ret;
+  my $maxlen = 0;
+
+  foreach my $key (sort keys %config_options)
+  {
+    my $val;
+    if($opts{resolve}) {
+      $val = config_key($config, $key);
+    } else {
+      next unless exists($config->{$key});
+      $val = $config->{$key};
+    }
+    if($opts{skip_defaults}) {
+      if(defined($config_options{$key}->{default}) && defined($val)) {
+        next if($val eq $config_options{$key}->{default});
+      }
+      if((not defined($config_options{$key}->{default})) && (not (defined($val)))) {
+        next; # both undef, skip
+      }
+    }
+    if(ref($val) eq "ARRAY") {
+      my $val2 = join(',', @$val);
+      $val = $val2;
+    }
+    $val //= "<unset>";
+    my $len = length($key);
+    $maxlen = $len if($len > $maxlen);
+    push @ret, { key => $key, val => $val, len => $len };
+  }
+  # print as table
+  return map { ($opts{prefix} // "") . $_->{key} . (' ' x (1 + $maxlen - $_->{len})) . ' ' . $_->{val} } @ret;
 }
 
 
@@ -893,16 +1038,24 @@ sub btrfs_subvolume_find_new($$;$)
 sub btrfs_subvolume_snapshot($$)
 {
   my $svol = shift || die;
-  my $target_path = shift // die;
+  my $target_vol = shift // die;
+  my $target_path = $target_vol->{PATH} // die;
   my $src_path = $svol->{PATH} // die;
   DEBUG "[btrfs] snapshot (ro):";
   DEBUG "[btrfs]   host  : $svol->{HOST}" if($svol->{HOST});
   DEBUG "[btrfs]   source: $src_path";
   DEBUG "[btrfs]   target: $target_path";
-  INFO ">>> " . ($svol->{HOST} ? "{$svol->{HOST}}" : "") .  $target_path;
+  INFO ">>> $target_vol->{PRINT}";
+  my $starttime = time;
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume snapshot), '-r', $src_path, $target_path ],
                     rsh => $svol->{RSH},
                    );
+  action("snapshot",
+         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+         duration => (time - $starttime),
+         vinfo_prefixed_keys("target", $target_vol),
+         vinfo_prefixed_keys("source", $svol),
+        );
   ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
   return defined($ret) ? $target_path : undef;
 }
@@ -928,9 +1081,15 @@ sub btrfs_subvolume_delete($@)
   my @options;
   @options = ("--commit-$commit") if($commit);
   my @target_paths = map( { $_->{PATH} } @$targets);
+  my $starttime = time;
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume delete), @options, @target_paths ],
                     rsh => $rsh,
                    );
+  action($opts{type} // "delete",
+         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+         duration => (time - $starttime),
+         vinfo_prefixed_keys("target", $_),
+        ) foreach (@$targets);
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
   return defined($ret) ? scalar(@$targets) : undef;
 }
@@ -977,7 +1136,16 @@ sub btrfs_send_receive($$$$)
     rsh => $target->{RSH},
     name => "btrfs receive",
   };
+  my $starttime = time;
   my $ret = run_cmd(@cmd_pipe);
+  action("send-receive",
+         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+         duration => (time - $starttime),
+         vinfo_prefixed_keys("target", $vol_received),
+         vinfo_prefixed_keys("source", $snapshot),
+         vinfo_prefixed_keys("parent", $parent),
+        );
+
   unless(defined($ret)) {
     ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
 
@@ -985,7 +1153,7 @@ sub btrfs_send_receive($$$$)
     #       we need to do this by hand.
     # TODO: remove this as soon as btrfs-progs handle receive errors correctly.
     DEBUG "send/received failed, deleting (possibly present and garbled) received subvolume: $vol_received->{PRINT}";
-    my $ret = btrfs_subvolume_delete($vol_received, commit => "after");
+    my $ret = btrfs_subvolume_delete($vol_received, commit => "after", type => "delete_garbled");
     if(defined($ret)) {
       WARN "Deleted partially received (garbled) subvolume: $vol_received->{PRINT}";
     }
@@ -1071,6 +1239,7 @@ sub btrfs_send_to_file($$$$;@)
   DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
   DEBUG "[btrfs]   target: $target->{PRINT}";
 
+  my $starttime = time;
   my $ret = run_cmd(@cmd_pipe);
   if(defined($ret)) {
     # Test target file for "exists and size > 0" after writing,
@@ -1082,6 +1251,13 @@ sub btrfs_send_to_file($$$$;@)
       name => "test",
     });
   }
+  action("send-to-raw",
+         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+         duration => (time - $starttime),
+         vinfo_prefixed_keys("target", $vol_received),
+         vinfo_prefixed_keys("source", $snapshot),
+         vinfo_prefixed_keys("parent", $parent),
+        );
   unless(defined($ret)) {
     ERROR "Failed to send btrfs subvolume to raw file: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}";
     return undef;
@@ -1242,7 +1418,7 @@ sub macro_send_receive($@)
 
   # check for existing target subvolume
   if(my $err_vol = vinfo_subvol($target, $snapshot->{NAME})) {
-    $config_target->{ABORTED} = "Target subvolume \"$err_vol->{PRINT}\" already exists";
+    ABORTED($config_target, "Target subvolume \"$err_vol->{PRINT}\" already exists");
     $config_target->{UNRECOVERABLE} = "Please delete stray subvolume: $err_vol->{PRINT}";
     ERROR $config_target->{ABORTED} . ", aborting send/receive of: $snapshot->{PRINT}";
     ERROR $config_target->{UNRECOVERABLE};
@@ -1262,7 +1438,7 @@ sub macro_send_receive($@)
     else {
       WARN "Backup to $target->{PRINT} failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
       $info{ERROR} = 1;
-      $config_target->{ABORTED} = "No common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+      ABORTED($config_target, "No common parent subvolume found, and option \"incremental\" is set to \"strict\"");
       return undef;
     }
   }
@@ -1277,7 +1453,7 @@ sub macro_send_receive($@)
   if($target_type eq "send-receive")
   {
     $ret = btrfs_send_receive($snapshot, $target, $parent, \$vol_received);
-    $config_target->{ABORTED} = "Failed to send/receive subvolume" unless($ret);
+    ABORTED($config_target, "Failed to send/receive subvolume") unless($ret);
   }
   elsif($target_type eq "raw")
   {
@@ -1302,7 +1478,7 @@ sub macro_send_receive($@)
                  }
     }
     $ret = btrfs_send_to_file($snapshot, $target, $parent, \$vol_received, compress => $compress, encrypt => $encrypt);
-    $config_target->{ABORTED} = "Failed to send subvolume to raw file" unless($ret);
+    ABORTED($config_target, "Failed to send subvolume to raw file") unless($ret);
   }
   else
   {
@@ -1503,13 +1679,12 @@ sub schedule(@)
   my $preserve_weekly      = $args{preserve_weekly}      // die;
   my $preserve_monthly     = $args{preserve_monthly}     // die;
   my $preserve_latest      = $args{preserve_latest}      || 0;
-  my $log_verbose          = $args{log_verbose};
+  my $results_list         = $args{results};
+  my $result_hints         = $args{result_hints} // {};
 
-  if($log_verbose) {
-    INFO "Filter scheme: preserving all within $preserve_daily days";
-    INFO "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
-    INFO "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
-  }
+  DEBUG "Filter scheme: preserving all within $preserve_daily days";
+  DEBUG "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
+  DEBUG "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
 
   # sort the schedule, ascending by date
   my @sorted_schedule = sort { ($a->{btrbk_date}->[0] <=> $b->{btrbk_date}->[0]) ||
@@ -1571,19 +1746,58 @@ sub schedule(@)
   # assemble results
   my @delete;
   my @preserve;
+  my %preserve_matrix = ( d   => $preserve_daily,
+                          w   => $preserve_weekly,
+                          m   => $preserve_monthly,
+                          dow => $preserve_day_of_week,
+                         );
+  my %result_base = ( %preserve_matrix,
+                      scheme => format_preserve_matrix(%preserve_matrix, format => "short"),
+                      %$result_hints,
+                     );
   foreach my $href (@sorted_schedule)
   {
     if($href->{preserve}) {
-      INFO "=== $href->{name}: $href->{preserve}" if($href->{name});
       push(@preserve, $href->{value});
+      DEBUG "=== $href->{name}: $href->{preserve}" if($href->{name});
+      push @$results_list, { %result_base,
+                             # action => "preserve",
+                             reason => $href->{preserve},
+                             value => $href->{value},
+                           } if($results_list);
+
     }
     else {
-      INFO "<<< $href->{name}" if($href->{name});
       push(@delete, $href->{value});
+      DEBUG "<<< $href->{name}" if($href->{name});
+      push @$results_list, { %result_base,
+                             action => "delete",
+                             value => $href->{value},
+                           } if($results_list);;
     }
   }
-  DEBUG "Preserving " . @preserve . "/" . @$schedule . " items" unless($log_verbose);
+  DEBUG "Preserving " . @preserve . "/" . @$schedule . " items";
   return (\@preserve, \@delete);
+}
+
+
+sub format_preserve_matrix(@)
+{
+  my %args = @_;
+  my $dow = $args{dow} // config_key($args{config}, "preserve_day_of_week");
+  my $d   = $args{d}   // config_key($args{config}, "$args{prefix}_preserve_daily");
+  my $w   = $args{w}   // config_key($args{config}, "$args{prefix}_preserve_weekly");
+  my $m   = $args{m}   // config_key($args{config}, "$args{prefix}_preserve_monthly");
+  my $format = $args{format} // "long";
+  $d =~ s/^all$/-1/;
+  $w =~ s/^all$/-1/;
+  $m =~ s/^all$/-1/;
+  if($format eq "short") {
+    # short format
+    return sprintf("%2sd %2sw %2sm", $d, $w, $m);
+  }
+  # long format
+  return sprintf("%2sd %2sw %2sm ($dow)", $d, $w, $m);
 }
 
 
@@ -1599,19 +1813,20 @@ sub print_header(@)
   }
   if($config) {
     print "    Config: $config->{SRC_FILE}\n";
-
-    if($config->{CMDLINE_FILTER_LIST})
-    {
-      my @list = sort @{$config->{CMDLINE_FILTER_LIST}};
-      my @sorted = ( grep(/^group/,     @list),
-                     grep(/^volume/,    @list),
-                     grep(/^subvolume/, @list),
-                     grep(/^target/,    @list) );
-      die unless(scalar(@list) == scalar(@sorted));
-      print "    Filter: ";
-      print join("\n            ", @sorted);
-      print "\n";
-    }
+  }
+  if($dryrun) {
+    print "    Dryrun: YES\n";
+  }
+  if($config && $config->{CMDLINE_FILTER_LIST}) {
+    my @list = sort @{$config->{CMDLINE_FILTER_LIST}};
+    my @sorted = ( grep(/^group/,     @list),
+                   grep(/^volume/,    @list),
+                   grep(/^subvolume/, @list),
+                   grep(/^target/,    @list) );
+    die unless(scalar(@list) == scalar(@sorted));
+    print "    Filter: ";
+    print join("\n            ", @sorted);
+    print "\n";
   }
   if($args{info}) {
     print "\n" . join("\n", grep(defined, @{$args{info}})) . "\n";
@@ -1622,6 +1837,88 @@ sub print_header(@)
     print "\n";
   }
   print "--------------------------------------------------------------------------------\n";
+}
+
+
+sub print_formatted(@)
+{
+  my $format_key = shift || die;
+  my $data = shift || die;
+  my $default_format = "table";
+  my %args = @_;
+  my $title = $args{title};
+  my $format = $args{output_format} || $output_format || $default_format;
+  my $keys = $table_formats{$format_key}->{$format};
+
+  unless($keys) {
+    WARN "Unsupported output format \"$format\", defaulting to \"$default_format\" format.";
+    $keys = $table_formats{$format_key}->{$default_format} || die;
+    $format = $default_format;
+  }
+
+  print "$title\n" if($title);
+  if($format eq "raw")
+  {
+    # output: key0="value0" key1="value1" ...
+    foreach my $row (@$data) {
+      print "list_type=\"$format_key\" ";
+      print join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
+    }
+  }
+  elsif($format eq "tlog")
+  {
+    # output: value0 value1, ...
+    if($tlog_fh) {
+      unless($args{no_header}) {
+        print $tlog_fh join(' ', @$keys) . "\n";
+      }
+      foreach my $row (@$data) {
+        print $tlog_fh join(' ', map { ($row->{$_} // "-") } @$keys) . "\n";
+      }
+    }
+  }
+  else
+  {
+    # sanitize and calculate maxlen for each column
+    # NOTE: this is destructive on data!
+    my %maxlen;
+    my @sane_data;
+    foreach my $key (@$keys) {
+      $maxlen{$key} = length($key); # initialize with size of key
+    }
+    foreach my $row (@$data) {
+      foreach my $key (@$keys) {
+        my $val = $row->{$key};
+        if(ref $val eq "ARRAY") {
+          $val = join(',', @{$val});
+        }
+        $val //= "-";
+        $val = "-" if($val eq "");
+        $row->{$key} = $val;  # write back the sanitized value
+        $maxlen{$key} = length($val) if($maxlen{$key} < length($val));
+      }
+    }
+
+    # print keys (headings)
+    my $fill = '';
+    foreach (@$keys) {
+      print $fill . $_;
+      $fill = ' ' x (2 + $maxlen{$_} - length($_));
+    }
+    print "\n";
+    print join("  ", map { '-' x ($maxlen{$_}) } @$keys) . "\n";
+
+    # print values
+    foreach my $row (@$data) {
+      my $fill = '';
+      foreach (@$keys) {
+        my $val = $row->{$_};
+        print $fill . $val;
+        $fill = ' ' x (2 + $maxlen{$_} - length($val));
+      }
+      print "\n";
+    }
+  }
 }
 
 
@@ -1650,7 +1947,8 @@ MAIN:
     'verbose|v'     => sub { $loglevel = 2; },
     'loglevel|l=s'  => \$loglevel,
     'progress'      => \$show_progress,
-    'raw-output'    => \$raw_output,
+    'table|t'       => sub { $output_format = "table" },
+    'format=s'      => \$output_format,
    ))
   {
     VERSION_MESSAGE();
@@ -1678,7 +1976,7 @@ MAIN:
     WARN 'found option "--progress", but "pv" is not present: (please install "pv")';
     $show_progress = 0;
   }
-  my ($action_run, $action_info, $action_tree, $action_diff, $action_origin, $action_config);
+  my ($action_run, $action_info, $action_tree, $action_diff, $action_origin, $action_config_print, $action_list);
   my @filter_args;
   my $args_allow_group = 0;
   my ($args_expected_min, $args_expected_max) = (0, 0);
@@ -1714,21 +2012,39 @@ MAIN:
     $args_expected_min = $args_expected_max = 1;
     @filter_args = @ARGV;
   }
-  elsif ($command eq "config") {
-    $action_config = shift @ARGV // "";
-    $action_config .= ' ' . (shift @ARGV // "");
-    unless(($action_config eq "dump source") ||
-           ($action_config eq "dump target") ||
-           ($action_config eq "dump volume"))
-    {
-      ERROR "unknown subcommand for \"config\" command: $action_config";
-      HELP_MESSAGE(0);
-      exit 2;
+  elsif($command eq "list") {
+    my $subcommand = shift @ARGV;
+    $action_list = "target-all";
+    if(defined($subcommand)) {
+      if(($subcommand eq "volume") ||
+         ($subcommand eq "source") ||
+         ($subcommand eq "target"))
+      {
+        $action_list = $subcommand;
+      }
+      else {
+        unshift @ARGV, $subcommand;
+      }
     }
     $args_expected_min = 0;
     $args_expected_max = 9999;
     $args_allow_group = 1;
     @filter_args = @ARGV;
+  }
+  elsif ($command eq "config") {
+    my $subcommand = shift @ARGV // "";
+    if(($subcommand eq "print") || ($subcommand eq "print-all")) {
+      $action_config_print = $subcommand;
+      $args_expected_min = 0;
+      $args_expected_max = 9999;
+      $args_allow_group = 1;
+      @filter_args = @ARGV;
+    }
+    else {
+      ERROR "Unknown subcommand for \"config\" command: $subcommand";
+      HELP_MESSAGE(0);
+      exit 2;
+    }
   }
   else {
     ERROR "Unrecognized command: $command";
@@ -1880,9 +2196,18 @@ MAIN:
 
 
   #
+  # open transaction log
+  #
+  if($action_run && (not $dryrun) && config_key($config, "transaction_log")) {
+    init_transaction_log(config_key($config, "transaction_log"));
+  }
+  action("startup", status => "v$VERSION", message => "$version_info");
+
+
+  #
   # filter subvolumes matching command line arguments
   #
-  if(($action_run || $action_tree || $action_info || $action_config) && scalar(@filter_args))
+  if(($action_run || $action_tree || $action_info || $action_list || $action_config_print) && scalar(@filter_args))
   {
     my %match;
     foreach my $config_vol (@{$config->{VOLUME}}) {
@@ -1931,17 +2256,17 @@ MAIN:
           }
           unless($found_target) {
             DEBUG "No match on filter command line argument, skipping target: $target_url";
-            $config_target->{ABORTED} = "USER_SKIP";
+            ABORTED($config_target, "USER_SKIP");
           }
         }
         unless($found_subvol) {
           DEBUG "No match on filter command line argument, skipping subvolume: $subvol_url";
-          $config_subvol->{ABORTED} = "USER_SKIP";
+          ABORTED($config_subvol, "USER_SKIP");
         }
       }
       unless($found_vol) {
         DEBUG "No match on filter command line argument, skipping volume: $vol_url";
-        $config_vol->{ABORTED} = "USER_SKIP";
+        ABORTED($config_vol, "USER_SKIP");
       }
     }
     # make sure all args have a match
@@ -2008,55 +2333,108 @@ MAIN:
   }
 
 
-  if($action_config)
+  if($action_config_print)
   {
+    my $resolve = ($action_config_print eq "print-all");
+    #
+    # print configuration lines, machine readable
+    #
+    my @out;
+    push @out, config_dump_keys($config, skip_defaults => 1);
+    foreach my $config_vol (@{$config->{VOLUME}}) {
+      next if($config_vol->{ABORTED});
+      my $sroot = vinfo($config_vol->{url}, $config_vol);
+      push @out, "\nvolume $sroot->{URL}";
+      push @out, config_dump_keys($config_vol, prefix => "\t", resolve => $resolve);
+
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+        next if($config_subvol->{ABORTED});
+        my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+        # push @out, "\n  subvolume $svol->{URL}";
+        push @out, "\n\tsubvolume $svol->{SUBVOL_PATH}";
+        push @out, config_dump_keys($config_subvol, prefix => "\t\t", resolve => $resolve);
+
+        foreach my $config_target (@{$config_subvol->{TARGET}})
+        {
+          next if($config_target->{ABORTED});
+          my $droot = vinfo($config_target->{url}, $config_target);
+          push @out, "\n\t\ttarget $config_target->{target_type} $droot->{URL}";
+          push @out, config_dump_keys($config_target, prefix => "\t\t\t", resolve => $resolve);
+        }
+      }
+    }
+
+    print_header(title => "Configuration Dump",
+                 config => $config,
+                 time => $start_time,
+                );
+
+    print join("\n", @out) . "\n";
+    exit 0;
+  }
+
+
+  if($action_list)
+  {
+    my @vol_data;
+    my @subvol_data;
+    my @target_data;
+    my @mixed_data;
+    my %target_uniq;
+
     #
     # print configuration lines, machine readable
     #
     foreach my $config_vol (@{$config->{VOLUME}}) {
       next if($config_vol->{ABORTED});
       my $sroot = vinfo($config_vol->{url}, $config_vol);
-
-      my @vol_info;
-      push @vol_info, "volume_url=\"$sroot->{URL}\"";
-      push @vol_info, "volume_path=\"$sroot->{PATH}\"";
-      push @vol_info, "volume_rsh=\"" . ($sroot->{RSH} ? join(" ", @{$sroot->{RSH}}) : "") . "\"";
-
-      if($action_config eq "dump volume") {
-        print join(' ', @vol_info) . "\n";
-        next;
-      }
+      my $volh = { vinfo_prefixed_keys("volume", $sroot) };
+      push @vol_data, $volh;
 
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
         next if($config_subvol->{ABORTED});
         my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+        my $subvolh = { %$volh,
+                        vinfo_prefixed_keys("source", $svol),
+                        snapshot_path     => $sroot->{PATH} . (config_key($config_subvol, "snapshot_dir", prefix => '/') // ""),
+                        snapshot_name     => config_key($config_subvol, "snapshot_name"),
+                        snapshot_preserve => format_preserve_matrix(config => $config_subvol, prefix => "snapshot"),
+                      };
+        push @subvol_data, $subvolh;
 
-        my @sline;
-        push @sline, "source_url=\"$svol->{URL}\"";
-        push @sline, "source_path=\"$svol->{PATH}\"";
-        push @sline, "snapshot_path=\"$sroot->{PATH}" . (config_key($config_subvol, "snapshot_dir", prefix => '/') // "") . "\"";
-        push @sline, "snapshot_basename=\"" . config_key($config_subvol, "snapshot_name") . "\"";
-        push @sline, "source_host=\"" . ($svol->{HOST} // "") . "\"";
-        push @sline, "source_rsh=\"" . ($svol->{RSH} ? join(" ", @{$svol->{RSH}}) : "") . "\"";
-
-        if($action_config eq "dump source") {
-          print join(' ', @sline) . "\n";
-        }
-        elsif($action_config eq "dump target")
+        my $found = 0;
+        foreach my $config_target (@{$config_subvol->{TARGET}})
         {
-          foreach my $config_target (@{$config_subvol->{TARGET}})
-          {
-            next if($config_target->{ABORTED});
-            my $droot = vinfo($config_target->{url}, $config_target);
-            my @dline = @sline;
-            push @dline, "target_url=\"$droot->{URL}\"";
-            push @dline, "target_path=\"$droot->{PATH}\"";
-            push @dline, "target_host=\"" . ($droot->{HOST} // "") . "\"";
-            push @dline, "target_rsh=\"" . ($droot->{RSH} ? join(" ", @{$droot->{RSH}}) : "") . "\"";
-            print join(' ', @dline) . "\n";
+          next if($config_target->{ABORTED});
+          my $droot = vinfo($config_target->{url}, $config_target);
+          my $targeth = { %$subvolh,
+                          vinfo_prefixed_keys("target", $droot),
+                          target_preserve => format_preserve_matrix(config => $config_target, prefix => "target"),
+                        };
+          if($action_list eq "target") {
+            next if($target_uniq{$droot->{URL}});
+            $target_uniq{$droot->{URL}} = 1;
           }
+          push @target_data, $targeth;
+          push @mixed_data, $targeth;
+          $found = 1;
         }
+        # make sure the subvol is always printed (even if no targets around)
+        push @mixed_data, $subvolh unless($found);
       }
+    }
+    if($action_list eq "volume") {
+      print_formatted("list_volume", \@vol_data);
+    }
+    elsif($action_list eq "source") {
+      print_formatted("list_source", \@subvol_data);
+    }
+    elsif($action_list eq "target") {
+      print_formatted("list_target", \@target_data);
+    }
+    else {
+      # default format
+      print_formatted("list", \@mixed_data);
     }
     exit 0;
   }
@@ -2072,7 +2450,7 @@ MAIN:
     next if($config_vol->{ABORTED});
     my $sroot = vinfo($config_vol->{url}, $config_vol);
     unless(vinfo_root($sroot)) {
-      $config_vol->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
+      ABORTED($config_vol, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
       WARN "Skipping volume \"$sroot->{PRINT}\": $config_vol->{ABORTED}";
       next;
     }
@@ -2090,19 +2468,19 @@ MAIN:
         $svol = vinfo_child($sroot, $config_subvol->{rel_path});
         my $detail = btrfs_subvolume_detail($svol);
         unless($detail) {
-          $config_subvol->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
+          ABORTED($config_subvol, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
           WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
           next;
         }
         if($detail->{is_root}) {
-          $config_subvol->{ABORTED} = "Subvolume is btrfs root";
+          ABORTED($config_subvol, "Subvolume is btrfs root");
           WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
           next;
         }
         if(grep { $_->{uuid} eq $detail->{uuid} } values %{vinfo_subvol_list($sroot)}) {
           vinfo_set_detail($svol, $uuid_info{$detail->{uuid}});
         } else {
-          $config_subvol->{ABORTED} = "Not a child subvolume of: $sroot->{PRINT}";
+          ABORTED($config_subvol, "Not a child subvolume of: $sroot->{PRINT}");
           WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
           next;
         }
@@ -2129,7 +2507,7 @@ MAIN:
         if($target_type eq "send-receive")
         {
           unless(vinfo_root($droot)) {
-            $config_target->{ABORTED} = "Failed to fetch subvolume detail" . ($err ? ": $err" : "");
+            ABORTED($config_target, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
             WARN "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
             next;
           }
@@ -2147,7 +2525,7 @@ MAIN:
             non_destructive => 1,
            );
           unless(defined($ret)) {
-            $config_target->{ABORTED} = "Failed to list files from: $droot->{PATH}";
+            ABORTED($config_target, "Failed to list files from: $droot->{PATH}");
             WARN  "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
             next;
           }
@@ -2161,7 +2539,7 @@ MAIN:
               next;
             }
             unless($file =~ s/^\Q$droot->{PATH}\E\///) {
-              $config_target->{ABORTED} = "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"";
+              ABORTED($config_target, "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
               last;
             }
             my $filename_info = parse_filename($file, $snapshot_basename, 1);
@@ -2280,50 +2658,58 @@ MAIN:
     # print snapshot tree
     #
     # TODO: reverse tree: print all backups from $droot and their corresponding source snapshots
-    my @out;
+    my @tree_out;
     my @raw_out;
     foreach my $config_vol (@{$config->{VOLUME}})
     {
       next if($config_vol->{ABORTED});
       my %droot_compat;
       my $sroot = $config_vol->{sroot} || die;
-      push @out, "$sroot->{PRINT}";
+      push @tree_out, "$sroot->{PRINT}";
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
       {
         next if($config_subvol->{ABORTED});
         my $svol = $config_subvol->{svol} || die;
-        push @out, "|-- $svol->{PRINT}";
+        push @tree_out, "|-- $svol->{PRINT}";
         foreach my $snapshot (sort { $a->{cgen} cmp $b->{cgen} } get_snapshot_children($sroot, $svol))
         {
+          my $raw_data = { type => "snapshot",
+                           btrbk_flags => [ ],
+                           vinfo_prefixed_keys("source", $svol),
+                           vinfo_prefixed_keys("snapshot", $snapshot),
+                           snapshot_name => config_key($config_subvol, "snapshot_name"),
+                         };
           if($snapshot->{cgen} == $svol->{gen}) {
-            push @out, "|   ^== $snapshot->{PATH}";
+            push @tree_out, "|   ^== $snapshot->{PATH}";
+            push @{$raw_data->{btrbk_flags}}, "up-to-date";
           } else {
-            push @out, "|   ^-- $snapshot->{PATH}";
+            push @tree_out, "|   ^-- $snapshot->{PATH}";
           }
+          push @raw_out, $raw_data;
           foreach my $config_target (@{$config_subvol->{TARGET}})
           {
             next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
-              push @out, "|   |   >>> $_->{PRINT}";
-              push @raw_out, "$svol->{URL} $snapshot->{URL} $_->{URL}"
+              push @tree_out, "|   |   >>> $_->{PRINT}";
+              push @raw_out, { %$raw_data,
+                               type => "received",
+                               vinfo_prefixed_keys("received", $_),
+                             };
             }
           }
         }
       }
       if(keys %droot_compat) {
-        push @out, "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:";
-        push @out, "      - " . join("\n      - ", (sort keys %droot_compat));
+        push @tree_out, "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:";
+        push @tree_out, "      - " . join("\n      - ", (sort keys %droot_compat));
       }
-      push @out, "";
+      push @tree_out, "";
     }
 
-    if($raw_output) {
-      print join("\n", @raw_out);
-      print "\n";
-    }
-    else {
+    $output_format ||= "tree";
+    if($output_format eq "tree") {
       print_header(title => "Backup Tree",
                    config => $config,
                    time => $start_time,
@@ -2333,7 +2719,10 @@ MAIN:
                      ">>>  received subvolume (backup)",
                     ]
                   );
-      print join("\n", @out);
+      print join("\n", @tree_out);
+    }
+    else {
+      print_formatted("tree", \@raw_out);
     }
     exit 0;
   }
@@ -2427,11 +2816,12 @@ MAIN:
 
           # finally create the snapshot
           INFO "Creating subvolume snapshot for: $svol->{PRINT}";
-          if(btrfs_subvolume_snapshot($svol, "$sroot->{PATH}/$snapdir$snapshot_name")) {
-            $config_subvol->{SNAPSHOT} = vinfo_child($sroot, "$snapdir$snapshot_name");
+          my $snapshot = vinfo_child($sroot, "$snapdir$snapshot_name");
+          if(btrfs_subvolume_snapshot($svol, $snapshot)) {
+            $config_subvol->{SNAPSHOT} = $snapshot;
           }
           else {
-            $config_subvol->{ABORTED} = "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name";
+            ABORTED($config_subvol, "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name");
             WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
           }
         }
@@ -2569,6 +2959,7 @@ MAIN:
     #
     # remove backups following a preserve daily/weekly/monthly scheme
     #
+    my $schedule_results = [];
     if($preserve_backups || $resume_only) {
       INFO "Preserving all backups (option \"-p\" or \"-r\" present)";
     }
@@ -2627,7 +3018,7 @@ MAIN:
               #   next;
               # }
               push(@schedule, { value      => $vol,
-                                name       => $vol->{PRINT},
+                                name       => $vol->{PRINT},  # only for logging
                                 btrbk_date => $filename_info->{btrbk_date},
                                 preserve   => $vol->{FORCE_PRESERVE}
                                });
@@ -2640,15 +3031,16 @@ MAIN:
               preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
               preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
               preserve_latest      => $preserve_latest_backup,
-              log_verbose          => 1,
+              results              => $schedule_results,
+              result_hints         => { topic => "backup", root_path => $droot->{PATH} },
              );
-            my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_target, "btrfs_commit_delete"));
+            my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_target, "btrfs_commit_delete"), type => "delete_target");
             if(defined($ret)) {
               INFO "Deleted $ret subvolumes in: $droot->{PRINT}/$snapshot_basename.*";
               $config_target->{SUBVOL_DELETED} = $delete;
             }
             else {
-              $config_target->{ABORTED} = "Failed to delete subvolume";
+              ABORTED($config_target, "Failed to delete subvolume");
               $target_aborted = -1;
             }
           }
@@ -2670,7 +3062,7 @@ MAIN:
             my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapdir . $snapshot_basename);
             next unless($filename_info);  # ignore non-btrbk files
             push(@schedule, { value      => $vol,
-                              name       => $vol->{PRINT},
+                              name       => $vol->{PRINT},  # only for logging
                               btrbk_date => $filename_info->{btrbk_date}
                              });
           }
@@ -2682,118 +3074,136 @@ MAIN:
             preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
             preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
             preserve_latest      => $preserve_latest_snapshot,
-            log_verbose          => 1,
+            results              => $schedule_results,
+            result_hints         => { topic => "snapshot", root_path => $sroot->{PATH} },
            );
-          my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_subvol, "btrfs_commit_delete"));
+          my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_subvol, "btrfs_commit_delete"), type => "delete_snapshot");
           if(defined($ret)) {
             INFO "Deleted $ret subvolumes in: $sroot->{PRINT}/$snapdir$snapshot_basename.*";
             $config_subvol->{SUBVOL_DELETED} = $delete;
           }
           else {
-            $config_subvol->{ABORTED} = "Failed to delete subvolume";
+            ABORTED($config_subvol, "Failed to delete subvolume");
           }
+        }
+      }
+    }
+
+    my $err_count = 0;
+    foreach my $config_vol (@{$config->{VOLUME}}) {
+      if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) { $err_count++; next; }
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+        if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) { $err_count++; next; }
+        foreach my $config_target (@{$config_subvol->{TARGET}}) {
+          if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) { $err_count++; next; }
         }
       }
     }
 
     my $time_elapsed = time - $start_time;
     INFO "Completed within: ${time_elapsed}s  (" . localtime(time) . ")";
+    action("finished",
+           duration => $time_elapsed,
+           message => $err_count ? "At least one backup task aborted" : "No errors"
+          );
+    close_transaction_log();
 
-    #
-    # print summary
-    #
+
     unless($quiet)
     {
-      my @unrecoverable;
-      my @out;
-      my @raw_snapshot_out;
-      my @raw_delete_out;
-      my @raw_receive_out;
-      my @raw_err_out;
-      my $err_count = 0;
-      foreach my $config_vol (@{$config->{VOLUME}})
-      {
-        my $sroot = $config_vol->{sroot} || vinfo($config_vol->{url}, $config_vol);
-        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-        {
-          my @subvol_out;
-          my $svol = $config_subvol->{svol} || vinfo_child($sroot, $config_subvol->{rel_path});
+      #
+      # print scheduling results
+      #
+      if($loglevel >= 2) {
+        my @data = map { $_->{url} = $_->{value}->{URL};
+                         $_->{host} = $_->{value}->{HOST};
+                         $_->{path} = $_->{value}->{PATH};
+                         $_->{name} = $_->{value}->{SUBVOL_PATH};
+                         $_->{target} = $_->{value}->{PRINT};
+                         $_;
+                       } @$schedule_results;
+        my @data_backup = map { $_->{topic} eq "backup" ? $_ : () } @data;
+        my @data_snapshot = map { $_->{topic} eq "snapshot" ? $_ : () } @data;
 
-          if($config_subvol->{SNAPSHOT_UP_TO_DATE}) {
-            push @subvol_out, "=== $config_subvol->{SNAPSHOT_UP_TO_DATE}->{PRINT}";
-          }
-          if($config_subvol->{SNAPSHOT}) {
-            push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}";
-            push @raw_snapshot_out, "snapshot $config_subvol->{SNAPSHOT}->{URL} $svol->{URL}";
-          }
-          if($config_subvol->{SUBVOL_DELETED}) {
-            push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_subvol->{SUBVOL_DELETED}});
-            push @raw_delete_out, "delete $_->{URL}" foreach(@{$config_subvol->{SUBVOL_DELETED}});
-          }
-          foreach my $config_target (@{$config_subvol->{TARGET}})
-          {
-            my $droot = $config_target->{droot} || vinfo($config_target->{url}, $config_target);
-            foreach(@{$config_target->{SUBVOL_RECEIVED} // []}) {
-              my $create_mode = "***";
-              $create_mode = ">>>" if($_->{parent});
-              # substr($create_mode, 0, 1, '%') if($_->{resume});
-              $create_mode = "!!!" if($_->{ERROR});
-              push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
-              if($_->{ERROR}) {
-                push @raw_err_out, "error receive $_->{received_subvolume}->{URL} $_->{snapshot}->{URL}" . ($_->{parent} ? " $_->{parent}->{URL}" : "");
-              } else {
-                push @raw_receive_out, "receive $_->{received_subvolume}->{URL} $_->{snapshot}->{URL}" . ($_->{parent} ? " $_->{parent}->{URL}" : "");
-              }
-            }
-
-            if($config_target->{SUBVOL_DELETED}) {
-              push @subvol_out, "--- $_->{PRINT}" foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_target->{SUBVOL_DELETED}});
-              push @raw_delete_out, "delete $_->{URL}" foreach(@{$config_target->{SUBVOL_DELETED}});
-            }
-
-            if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) {
-              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
-              push @raw_err_out, "aborted target $droot->{URL} -- $config_target->{ABORTED}";
-              $err_count++;
-            }
-
-            push(@unrecoverable, $config_target->{UNRECOVERABLE}) if($config_target->{UNRECOVERABLE});
-          }
-          if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
-            # repeat volume errors in subvolume context ($err_count is increased in volume context below)
-            push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: $config_vol->{ABORTED}";
-          }
-          if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) {
-            push @subvol_out, "!!! Aborted: $config_subvol->{ABORTED}";
-            push @raw_err_out, "aborted subvolume $svol->{URL} -- $config_subvol->{ABORTED}";
-            $err_count++;
-          }
-
-          if(@subvol_out) {
-            push @out, "$svol->{PRINT}", @subvol_out, "";
-          }
-          elsif($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} eq "USER_SKIP")) {
-            # don't print "<no_action>" on USER_SKIP
-          }
-          else {
-            push @out, "$svol->{PRINT}", "<no_action>", "";
-          }
-        }
-        if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
-          push @raw_err_out, "aborted volume $sroot->{URL} -- $config_vol->{ABORTED}";
-          $err_count++;
-        }
-      }
-
-      if($raw_output)
-      {
-        if($dryrun) {
-          $_ = "DRYRUN $_" foreach(@raw_snapshot_out, @raw_receive_out, @raw_delete_out);
-        }
-        print join("\n", @raw_snapshot_out, @raw_receive_out, @raw_delete_out, @raw_err_out);
+        print_formatted("schedule", \@data_snapshot, title => "SNAPSHOT SCHEDULE");
+        print "\n";
+        print_formatted("schedule", \@data_backup, title => "BACKUP SCHEDULE");
         print "\n";
       }
-      else {
+
+
+      #
+      # print summary
+      #
+      $output_format ||= "custom";
+      if($output_format eq "custom")
+      {
+        my @unrecoverable;
+        my @out;
+        foreach my $config_vol (@{$config->{VOLUME}})
+        {
+          my $sroot = $config_vol->{sroot} || vinfo($config_vol->{url}, $config_vol);
+          foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+          {
+            my @subvol_out;
+            my $svol = $config_subvol->{svol} || vinfo_child($sroot, $config_subvol->{rel_path});
+
+            if($config_subvol->{SNAPSHOT_UP_TO_DATE}) {
+              push @subvol_out, "=== $config_subvol->{SNAPSHOT_UP_TO_DATE}->{PRINT}";
+            }
+            if($config_subvol->{SNAPSHOT}) {
+              push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}";
+            }
+            if($config_subvol->{SUBVOL_DELETED}) {
+              foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_subvol->{SUBVOL_DELETED}}) {
+                push @subvol_out, "--- $_->{PRINT}";
+              }
+            }
+            foreach my $config_target (@{$config_subvol->{TARGET}})
+            {
+              my $droot = $config_target->{droot} || vinfo($config_target->{url}, $config_target);
+              foreach(@{$config_target->{SUBVOL_RECEIVED} // []}) {
+                my $create_mode = "***";
+                $create_mode = ">>>" if($_->{parent});
+                # substr($create_mode, 0, 1, '%') if($_->{resume});
+                $create_mode = "!!!" if($_->{ERROR});
+                push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
+              }
+
+              if($config_target->{SUBVOL_DELETED}) {
+                foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_target->{SUBVOL_DELETED}}) {
+                  push @subvol_out, "--- $_->{PRINT}";
+                }
+              }
+
+              if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) {
+                push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
+              }
+
+              if($config_target->{UNRECOVERABLE}) {
+                push(@unrecoverable, $config_target->{UNRECOVERABLE});
+              }
+            }
+            if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
+              # repeat volume errors in subvolume context
+              push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: $config_vol->{ABORTED}";
+            }
+            if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) {
+              push @subvol_out, "!!! Aborted: $config_subvol->{ABORTED}";
+            }
+
+            if(@subvol_out) {
+              push @out, "$svol->{PRINT}", @subvol_out, "";
+            }
+            elsif($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} eq "USER_SKIP")) {
+              # don't print "<no_action>" on USER_SKIP
+            }
+            else {
+              push @out, "$svol->{PRINT}", "<no_action>", "";
+            }
+          }
+        }
+
         print_header(title => "Backup Summary",
                      config => $config,
                      time => $start_time,
@@ -2824,17 +3234,14 @@ MAIN:
           print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
         }
       }
-    }
-
-    foreach my $config_vol (@{$config->{VOLUME}}) {
-      exit 10 if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP"));
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-        exit 10 if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP"));
-        foreach my $config_target (@{$config_subvol->{TARGET}}) {
-          exit 10 if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP"));
-        }
+      else
+      {
+        # print action log
+        print_formatted("action_log", \@action_log, title => "BACKUP SUMMARY");
       }
     }
+
+    exit 10 if($err_count);
   }
 }
 
