@@ -12,6 +12,7 @@ btrbk-current
   * Added "target raw", with GnuPG and compression support
     (experimental).
   * Added configuration option "timestamp_format short|long".
+  * Added transaction log (configuration option "transaction_log").
   * Bugfix: correctly handle "incremental no" option.
   * Bugfix: return exit status 10 instead of 0 if one or more backup
     tasks aborted.

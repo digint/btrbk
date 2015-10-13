@@ -45,6 +45,7 @@ use warnings FATAL => qw( all );
 use Carp qw(confess);
 use Date::Calc qw(Today_and_Now Delta_Days Day_of_Week);
 use Getopt::Long qw(GetOptions);
+use POSIX qw(strftime);
 use Data::Dumper;
 
 our $VERSION       = "0.21.0-dev";
@@ -89,6 +90,7 @@ my %config_options = (
   ssh_port                  => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   ssh_compression           => { default => undef,    accept => [ "yes", "no" ] },
   ssh_cipher_spec           => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
+  transaction_log           => { default => undef,    accept_file => { absolute => 1 } },
 
   raw_target_compress       => { default => undef,    accept => [ "no", "gzip", "bzip2", "xz" ] },
   raw_target_encrypt        => { default => undef,    accept => [ "no", "gpg" ] },
@@ -146,8 +148,9 @@ my %table_formats = (
                  },
 
   action_log  => { table => [ qw( type status target source parent ) ],
-                   long  => [ qw( localtime type status target_host target_path source_host source_path parent_path error_message ) ],
-                   raw   => [ qw( time localtime type status target_url source_url parent_url error_message ) ],
+                   long  => [ qw( localtime type status duration target_host target_path source_host source_path parent_path message ) ],
+                   raw   => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
+                   tlog  => [ qw( localtime type status target_url source_url parent_url message ) ],
                  },
 );
 
@@ -162,7 +165,8 @@ my $dryrun;
 my $loglevel = 1;
 my $show_progress = 0;
 my $err = "";
-my $output_format = undef;
+my $output_format;
+my $tlog_fh;
 
 
 $SIG{__DIE__} = sub {
@@ -214,28 +218,56 @@ sub INFO  { my $t = shift; print STDERR "$t\n" if($loglevel >= 2);  }
 sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
 sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 
-sub action($@)
-{
-  my $type = shift // die;
-  my %h = @_;
-  $h{type} = $type;
-  $h{time} = time;
-  push @action_log, \%h;
-}
-
 sub ABORTED($$)
 {
   my $config = shift;
   my $t = shift;
   $config->{ABORTED} = $t;
   unless($t eq "USER_SKIP") {
+    $t =~ s/\n/ /g;
     action("abort_" . ($config->{CONTEXT} || "undef"),
            status => "ABORT",
            vinfo_prefixed_keys("target", vinfo($config->{url}, $config)),
-           error_message => $t,
+           message => $t,
           );
   }
 }
+
+
+sub init_transaction_log($)
+{
+  my $file = shift // die;
+  if(open($tlog_fh, ">> $file"))
+  {
+     # print headers and startup message
+    print_formatted("action_log", [ ], output_format => "tlog", outfile => $tlog_fh);
+    INFO "Using transaction log: $file";
+  } else {
+    $tlog_fh = undef;
+    ERROR "Failed to open transaction log '$file': $!";
+  }
+}
+
+sub close_transaction_log()
+{
+  if($tlog_fh) {
+    DEBUG "Closing transaction log";
+    close $tlog_fh || ERROR "Failed to close transaction log: $!";
+  }
+}
+
+sub action($@)
+{
+  my $type = shift // die;
+  my $h = { @_ };
+  my $time = time;
+  $h->{type} = $type;
+  $h->{time} = $time;
+  $h->{localtime} = strftime("%FT%T%z", localtime($time));
+  print_formatted("action_log", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh);
+  push @action_log, $h;
+}
+
 
 sub run_cmd(@)
 {
@@ -1014,11 +1046,13 @@ sub btrfs_subvolume_snapshot($$)
   DEBUG "[btrfs]   source: $src_path";
   DEBUG "[btrfs]   target: $target_path";
   INFO ">>> $target_vol->{PRINT}";
+  my $starttime = time;
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume snapshot), '-r', $src_path, $target_path ],
                     rsh => $svol->{RSH},
                    );
   action("snapshot",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+         duration => (time - $starttime),
          vinfo_prefixed_keys("target", $target_vol),
          vinfo_prefixed_keys("source", $svol),
         );
@@ -1047,11 +1081,13 @@ sub btrfs_subvolume_delete($@)
   my @options;
   @options = ("--commit-$commit") if($commit);
   my @target_paths = map( { $_->{PATH} } @$targets);
+  my $starttime = time;
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume delete), @options, @target_paths ],
                     rsh => $rsh,
                    );
   action($opts{type} // "delete",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+         duration => (time - $starttime),
          vinfo_prefixed_keys("target", $_),
         ) foreach (@$targets);
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
@@ -1100,7 +1136,16 @@ sub btrfs_send_receive($$$$)
     rsh => $target->{RSH},
     name => "btrfs receive",
   };
+  my $starttime = time;
   my $ret = run_cmd(@cmd_pipe);
+  action("send-receive",
+         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+         duration => (time - $starttime),
+         vinfo_prefixed_keys("target", $vol_received),
+         vinfo_prefixed_keys("source", $snapshot),
+         vinfo_prefixed_keys("parent", $parent),
+        );
+
   unless(defined($ret)) {
     ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
 
@@ -1194,6 +1239,7 @@ sub btrfs_send_to_file($$$$;@)
   DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
   DEBUG "[btrfs]   target: $target->{PRINT}";
 
+  my $starttime = time;
   my $ret = run_cmd(@cmd_pipe);
   if(defined($ret)) {
     # Test target file for "exists and size > 0" after writing,
@@ -1205,6 +1251,13 @@ sub btrfs_send_to_file($$$$;@)
       name => "test",
     });
   }
+  action("send-to-raw",
+         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+         duration => (time - $starttime),
+         vinfo_prefixed_keys("target", $vol_received),
+         vinfo_prefixed_keys("source", $snapshot),
+         vinfo_prefixed_keys("parent", $parent),
+        );
   unless(defined($ret)) {
     ERROR "Failed to send btrfs subvolume to raw file: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}";
     return undef;
@@ -1438,12 +1491,6 @@ sub macro_send_receive($@)
   $config_target->{SUBVOL_RECEIVED} //= [];
   push(@{$config_target->{SUBVOL_RECEIVED}}, \%info);
 
-  action("send-receive",
-         status => ($dryrun ? "DRYRUN" : ($ret ? "success" : "ERROR")),
-         vinfo_prefixed_keys("target", $vol_received),
-         vinfo_prefixed_keys("source", $snapshot),
-         vinfo_prefixed_keys("parent", $parent),
-        );
   unless($ret) {
     $info{ERROR} = 1;
     return undef;
@@ -1818,6 +1865,18 @@ sub print_formatted(@)
       print join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
     }
   }
+  elsif($format eq "tlog")
+  {
+    # output: value0 value1, ...
+    if($tlog_fh) {
+      unless($args{no_header}) {
+        print $tlog_fh join(' ', @$keys) . "\n";
+      }
+      foreach my $row (@$data) {
+        print $tlog_fh join(' ', map { ($row->{$_} // "-") } @$keys) . "\n";
+      }
+    }
+  }
   else
   {
     # sanitize and calculate maxlen for each column
@@ -2134,6 +2193,15 @@ MAIN:
     ERROR "No volumes defined in configuration file";
     exit 2;
   }
+
+
+  #
+  # open transaction log
+  #
+  if($action_run && (not $dryrun) && config_key($config, "transaction_log")) {
+    init_transaction_log(config_key($config, "transaction_log"));
+  }
+  action("startup", status => "v$VERSION", message => "$version_info");
 
 
   #
@@ -3021,8 +3089,24 @@ MAIN:
       }
     }
 
+    my $err_count = 0;
+    foreach my $config_vol (@{$config->{VOLUME}}) {
+      if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) { $err_count++; next; }
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+        if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) { $err_count++; next; }
+        foreach my $config_target (@{$config_subvol->{TARGET}}) {
+          if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) { $err_count++; next; }
+        }
+      }
+    }
+
     my $time_elapsed = time - $start_time;
     INFO "Completed within: ${time_elapsed}s  (" . localtime(time) . ")";
+    action("finished",
+           duration => $time_elapsed,
+           message => $err_count ? "At least one backup task aborted" : "No errors"
+          );
+    close_transaction_log();
 
 
     unless($quiet)
@@ -3056,8 +3140,6 @@ MAIN:
       {
         my @unrecoverable;
         my @out;
-        my @raw_data;
-        my $err_count = 0;
         foreach my $config_vol (@{$config->{VOLUME}})
         {
           my $sroot = $config_vol->{sroot} || vinfo($config_vol->{url}, $config_vol);
@@ -3096,18 +3178,18 @@ MAIN:
 
               if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) {
                 push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
-                $err_count++;
               }
 
-              push(@unrecoverable, $config_target->{UNRECOVERABLE}) if($config_target->{UNRECOVERABLE});
+              if($config_target->{UNRECOVERABLE}) {
+                push(@unrecoverable, $config_target->{UNRECOVERABLE});
+              }
             }
             if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
-              # repeat volume errors in subvolume context ($err_count is increased in volume context below)
+              # repeat volume errors in subvolume context
               push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: $config_vol->{ABORTED}";
             }
             if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) {
               push @subvol_out, "!!! Aborted: $config_subvol->{ABORTED}";
-              $err_count++;
             }
 
             if(@subvol_out) {
@@ -3119,15 +3201,6 @@ MAIN:
             else {
               push @out, "$svol->{PRINT}", "<no_action>", "";
             }
-          }
-          if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
-            push @raw_data, { type => "btrbk_volume",
-                              status => "ABORT",
-                              target_url => $sroot->{URL},
-                              error_message => $config_vol->{ABORTED},
-                              SORT => 1,
-                            };
-            $err_count++;
           }
         }
 
@@ -3164,20 +3237,11 @@ MAIN:
       else
       {
         # print action log
-        @action_log = map { $_->{localtime} = localtime($_->{time}); $_; } @action_log;
         print_formatted("action_log", \@action_log, title => "BACKUP SUMMARY");
       }
     }
 
-    foreach my $config_vol (@{$config->{VOLUME}}) {
-      exit 10 if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP"));
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-        exit 10 if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP"));
-        foreach my $config_target (@{$config_subvol->{TARGET}}) {
-          exit 10 if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP"));
-        }
-      }
-    }
+    exit 10 if($err_count);
   }
 }
 
