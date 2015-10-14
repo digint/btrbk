@@ -120,35 +120,35 @@ my %config_options = (
 my @config_target_types = qw(send-receive raw);
 
 my %table_formats = (
-  list_volume => { table => [ qw( volume ) ],
-                   long  => [ qw( volume_host volume_path ) ],
+  list_volume => { table => [ qw( volume_host volume_subvol ) ],
+                   long  => [ qw( volume_host volume_subvol ) ],
                    raw   => [ qw( volume_url volume_host volume_path volume_rsh ) ],
                  },
-  list_source => { table => [ qw( source_host source_path snapshot_path snapshot_name ) ],
-                   long  => [ qw( source_host source_path snapshot_path snapshot_name ) ],
+  list_source => { table => [ qw( source_host source_subvol snapshot_path snapshot_name ) ],
+                   long  => [ qw( source_host source_subvol snapshot_path snapshot_name ) ],
                    raw   => [ qw( source_url source_host source_path snapshot_path snapshot_name source_rsh ) ],
                  },
-  list_target => { table => [ qw( target ) ],
-                   long  => [ qw( target_host target_path ) ],
+  list_target => { table => [ qw( target_host target_subvol ) ],
+                   long  => [ qw( target_host target_subvol ) ],
                    raw   => [ qw( target_url target_host target_path target_rsh ) ],
                  },
-  list        => { table => [ qw( source snapshot_path snapshot_name target ) ],
-                   long  => [ qw( source_host source_path snapshot_path snapshot_name snapshot_preserve target_host target_path target_preserve ) ],
-                   raw   => [ qw( source_url source_host source_path snapshot_path snapshot_name snapshot_preserve target_url target_host target_path target_preserve source_rsh target_rsh ) ],
+  list        => { table => [ qw( source_host source_subvol snapshot_path snapshot_name                   target_host target_subvol                 ) ],
+                   long  => [ qw( source_host source_subvol snapshot_path snapshot_name snapshot_preserve target_host target_subvol target_preserve ) ],
+                   raw   => [ qw( source_url source_host source_subvol snapshot_path snapshot_name snapshot_preserve target_url target_host target_subvol target_preserve source_rsh target_rsh ) ],
                  },
 
-  resolved    => { table => [ qw( source snapshot status target ) ],
+  resolved    => { table => [ qw(      source_host source_subvol snapshot_subvol status target_host target_subvol ) ],
                    long  => [ qw( type source_host source_subvol snapshot_subvol status target_host target_subvol ) ],
                    raw   => [ qw( type source_host source_path snapshot_path snapshot_name status target_host target_path source_rsh ) ],
                  },
 
-  schedule    => { table => [ qw( action target scheme reason ) ],
+  schedule    => { table => [ qw( action target_host target_subvol scheme reason ) ],
                    long  => [ qw( action host root_path name scheme reason ) ],
                    raw   => [ qw( topic action url host path dow d m w) ],
                  },
 
-  action_log  => { table => [ qw( type status target source parent ) ],
-                   long  => [ qw( localtime type status duration target_host target_path source_host source_path parent_path message ) ],
+  action_log  => { table => [ qw(           type status          target_host target_subvol source_host source_subvol parent_subvol         ) ],
+                   long  => [ qw( localtime type status duration target_host target_subvol source_host source_subvol parent_subvol message ) ],
                    raw   => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
                    tlog  => [ qw( localtime type status duration target_url source_url parent_url message ) ],
                  },
@@ -3360,7 +3360,7 @@ MAIN:
       else
       {
         # print action log
-        print_formatted("action_log", \@action_log, title => "BACKUP SUMMARY");
+        print_formatted("action_log", \@action_log, title => "TRANSACTION LOG");
       }
     }
 
