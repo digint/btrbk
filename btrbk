@@ -1923,6 +1923,22 @@ sub print_formatted(@)
 }
 
 
+sub exit_status($)
+{
+  my $config = shift;
+  foreach my $config_vol (@{$config->{VOLUME}}) {
+    return 10 if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP"));
+    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+      return 10 if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP"));
+      foreach my $config_target (@{$config_subvol->{TARGET}}) {
+        return 10 if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP"));
+      }
+    }
+  }
+  return 0;
+}
+
+
 MAIN:
 {
   # set PATH instead of using absolute "/sbin/btrfs" (for now), as
@@ -2330,7 +2346,7 @@ MAIN:
         }
       }
     }
-    exit 0;
+    exit exit_status($config);
   }
 
 
@@ -2371,7 +2387,7 @@ MAIN:
                 );
 
     print join("\n", @out) . "\n";
-    exit 0;
+    exit exit_status($config);
   }
 
 
@@ -2437,7 +2453,7 @@ MAIN:
       # default format
       print_formatted("list", \@mixed_data);
     }
-    exit 0;
+    exit exit_status($config);
   }
 
 
@@ -2725,7 +2741,7 @@ MAIN:
     else {
       print_formatted("tree", \@raw_out);
     }
-    exit 0;
+    exit exit_status($config);
   }
 
 
@@ -3090,23 +3106,13 @@ MAIN:
       }
     }
 
-    my $err_count = 0;
-    foreach my $config_vol (@{$config->{VOLUME}}) {
-      if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) { $err_count++; next; }
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-        if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) { $err_count++; next; }
-        foreach my $config_target (@{$config_subvol->{TARGET}}) {
-          if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) { $err_count++; next; }
-        }
-      }
-    }
-
+    my $exit_status = exit_status($config);
     my $time_elapsed = time - $start_time;
     INFO "Completed within: ${time_elapsed}s  (" . localtime(time) . ")";
     action("finished",
-           status => $err_count ? "partial" : "success",
+           status => $exit_status ? "partial" : "success",
            duration => $time_elapsed,
-           message => $err_count ? "At least one backup task aborted" : undef,
+           message => $exit_status ? "At least one backup task aborted" : undef,
           );
     close_transaction_log();
 
@@ -3227,7 +3233,7 @@ MAIN:
         if($preserve_backups || $resume_only) {
           print "\nNOTE: Preserved all backups (option -p or -r present)\n";
         }
-        if($err_count) {
+        if($exit_status) {
           print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
           print "Please check warning and error messages above.\n";
           print join("\n", @unrecoverable) . "\n" if(@unrecoverable);
@@ -3243,7 +3249,7 @@ MAIN:
       }
     }
 
-    exit 10 if($err_count);
+    exit $exit_status if($exit_status);
   }
 }
 
