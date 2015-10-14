@@ -150,7 +150,7 @@ my %table_formats = (
   action_log  => { table => [ qw( type status target source parent ) ],
                    long  => [ qw( localtime type status duration target_host target_path source_host source_path parent_path message ) ],
                    raw   => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
-                   tlog  => [ qw( localtime type status target_url source_url parent_url message ) ],
+                   tlog  => [ qw( localtime type status duration target_url source_url parent_url message ) ],
                  },
 );
 
@@ -222,15 +222,16 @@ sub ABORTED($$)
 {
   my $config = shift;
   my $t = shift;
-  $config->{ABORTED} = $t;
   unless($t eq "USER_SKIP") {
-    $t =~ s/\n/ /g;
+    $t =~ s/\n/\\\\/g;
+    $t =~ s/\r//g;
     action("abort_" . ($config->{CONTEXT} || "undef"),
            status => "ABORT",
            vinfo_prefixed_keys("target", vinfo($config->{url}, $config)),
            message => $t,
           );
   }
+  $config->{ABORTED} = $t;
 }
 
 
@@ -1052,7 +1053,7 @@ sub btrfs_subvolume_snapshot($$)
                    );
   action("snapshot",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         duration => (time - $starttime),
+         duration => ($dryrun ? undef : (time - $starttime)),
          vinfo_prefixed_keys("target", $target_vol),
          vinfo_prefixed_keys("source", $svol),
         );
@@ -1087,7 +1088,7 @@ sub btrfs_subvolume_delete($@)
                    );
   action($opts{type} // "delete",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         duration => (time - $starttime),
+         duration => ($dryrun ? undef : (time - $starttime)),
          vinfo_prefixed_keys("target", $_),
         ) foreach (@$targets);
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
@@ -1140,7 +1141,7 @@ sub btrfs_send_receive($$$$)
   my $ret = run_cmd(@cmd_pipe);
   action("send-receive",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         duration => (time - $starttime),
+         duration => ($dryrun ? undef : (time - $starttime)),
          vinfo_prefixed_keys("target", $vol_received),
          vinfo_prefixed_keys("source", $snapshot),
          vinfo_prefixed_keys("parent", $parent),
@@ -1253,7 +1254,7 @@ sub btrfs_send_to_file($$$$;@)
   }
   action("send-to-raw",
          status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         duration => (time - $starttime),
+         duration => ($dryrun ? undef : (time - $starttime)),
          vinfo_prefixed_keys("target", $vol_received),
          vinfo_prefixed_keys("source", $snapshot),
          vinfo_prefixed_keys("parent", $parent),
@@ -1873,7 +1874,7 @@ sub print_formatted(@)
         print $tlog_fh join(' ', @$keys) . "\n";
       }
       foreach my $row (@$data) {
-        print $tlog_fh join(' ', map { ($row->{$_} // "-") } @$keys) . "\n";
+        print $tlog_fh join(' ', map { ((defined($row->{$_}) && ($_ eq "message")) ? '# ' : '') . ($row->{$_} // "-") } @$keys) . "\n";
       }
     }
   }
@@ -3103,8 +3104,9 @@ MAIN:
     my $time_elapsed = time - $start_time;
     INFO "Completed within: ${time_elapsed}s  (" . localtime(time) . ")";
     action("finished",
+           status => $err_count ? "partial" : "success",
            duration => $time_elapsed,
-           message => $err_count ? "At least one backup task aborted" : "No errors"
+           message => $err_count ? "At least one backup task aborted" : undef,
           );
     close_transaction_log();
 
