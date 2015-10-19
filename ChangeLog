@@ -13,6 +13,7 @@ btrbk-current
     (experimental).
   * Added configuration option "timestamp_format short|long".
   * Added transaction log (configuration option "transaction_log").
+  * Replaced "info" command with "usage", with tabular output.
   * Bugfix: correctly handle "incremental no" option.
   * Bugfix: return exit status 10 instead of 0 if one or more backup
     tasks aborted.

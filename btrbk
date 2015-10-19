@@ -142,9 +142,15 @@ my %table_formats = (
                    raw   => [ qw( type source_host source_path snapshot_path snapshot_name status target_host target_path source_rsh ) ],
                  },
 
-  schedule    => { table => [ qw( action target_host target_subvol scheme reason ) ],
-                   long  => [ qw( action host root_path name scheme reason ) ],
+  schedule    => { table => [ qw( action host subvol scheme reason ) ],
+                   long  => [ qw( action host root_path subvol_path scheme reason ) ],
                    raw   => [ qw( topic action url host path dow d m w) ],
+                 },
+
+  usage       => { table => [ qw( host path size used free ) ],
+                   long  => [ qw( type host path size device_allocated device_unallocated device_missing used free free_min data_ratio metadata_ratio used global_reserve global_reserve_used ) ],
+                   raw   => [ qw( type host path size device_allocated device_unallocated device_missing used free free_min data_ratio metadata_ratio used global_reserve global_reserve_used ) ],
+                   RALIGN => { size=>1, device_allocated=>1, device_unallocated=>1, device_missing=>1, used=>1, free=>1, free_min=>1, data_ratio=>1, metadata_ratio=>1, used=>1, global_reserve=>1, global_reserve_used=>1 },
                  },
 
   action_log  => { table => [ qw(           type status          target_host target_subvol source_host source_subvol parent_subvol         ) ],
@@ -207,7 +213,7 @@ sub HELP_MESSAGE
   print STDERR "   resolve snapshots [filter...]  shows snapshots and corresponding targets\n";
   print STDERR "   resolve targets   [filter...]  shows targets and corresponding snapshots\n";
   print STDERR "   resolve latest    [filter...]  shows latest snapshots/targets\n";
-  print STDERR "   info   [filter...]  print useful filesystem information\n";
+  print STDERR "   usage  [filter...]  print filesystem usage\n";
   print STDERR "   origin <subvol>     print origin information for subvolume\n";
   print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
   print STDERR "\n";
@@ -468,16 +474,19 @@ sub vinfo_set_detail($$)
 # returns hash: ( $prefix_{url,path,host,name,subvol_path,rsh} => value, ... )
 sub vinfo_prefixed_keys($$)
 {
-  my $prefix = shift || die;
+  my $prefix = shift // die;
   my $vinfo = shift;
   return () unless($vinfo);
   my %ret;
-  foreach (qw( URL PATH HOST NAME SUBVOL_PATH )) {
-    $ret{$prefix . '_' . lc($_)} = $vinfo->{$_};
+  if($prefix) {
+    $ret{$prefix} = $vinfo->{PRINT};
+    $prefix .= '_';
   }
-  $ret{$prefix . "_subvol"} = $vinfo->{PATH};
-  $ret{$prefix} = $vinfo->{PRINT};
-  $ret{$prefix . "_rsh"} = ($vinfo->{RSH} ? join(" ", @{$vinfo->{RSH}}) : undef),
+  foreach (qw( URL PATH HOST NAME SUBVOL_PATH )) {
+    $ret{$prefix . lc($_)} = $vinfo->{$_};
+  }
+  $ret{$prefix . "subvol"} = $vinfo->{PATH};
+  $ret{$prefix . "rsh"} = ($vinfo->{RSH} ? join(" ", @{$vinfo->{RSH}}) : undef),
   return %ret;
 }
 
@@ -818,10 +827,53 @@ sub btrfs_filesystem_usage($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
-  return run_cmd( cmd => [ qw(btrfs filesystem usage), $path ],
-                  rsh => $vol->{RSH},
-                  non_destructive => 1
-                 );
+  my $ret = run_cmd( cmd => [ qw(btrfs filesystem usage), $path ],
+                     rsh => $vol->{RSH},
+                     non_destructive => 1
+                    );
+  return undef unless(defined($ret));
+
+  my %detail;
+  foreach (split("\n", $ret)) {
+    if(/^\s+Device size:\s+(\S+)/) {
+      $detail{size} = $1;
+    }
+    elsif(/^\s+Device allocated:\s+(\S+)/) {
+      $detail{device_allocated} = $1;
+    }
+    elsif(/^\s+Device unallocated:\s+(\S+)/) {
+      $detail{device_unallocated} = $1;
+    }
+    elsif(/^\s+Device missing:\s+(\S+)/) {
+      $detail{device_missing} = $1;
+    }
+    elsif(/^\s+Used:\s+(\S+)/) {
+      $detail{used} = $1;
+    }
+    elsif(/^\s+Free \(estimated\):\s+(\S+)\s+\(min: (\S+)\)/) {
+      $detail{free} = $1;
+      $detail{free_min} = $2;
+    }
+    elsif(/^\s+Data ratio:\s+(\S+)/) {
+      $detail{data_ratio} = $1;
+    }
+    elsif(/^\s+Metadata ratio:\s+(\S+)/) {
+      $detail{metadata_ratio} = $1;
+    }
+    elsif(/^\s+Used:\s+(\S+)/) {
+      $detail{used} = $1;
+    }
+    elsif(/^\s+Global reserve:\s+(\S+)\s+\(used: (\S+)\)/) {
+      $detail{global_reserve} = $1;
+      $detail{global_reserve_used} = $2;
+    }
+    else {
+      TRACE "Failed to parse filesystem usage line \"$_\" for: $vol->{PRINT}";
+    }
+    DEBUG "Parsed " . scalar(keys %detail) . " filesystem usage detail items: $vol->{PRINT}";
+    TRACE(Data::Dumper->Dump([$vol], ["btrfs_subvolume_detail($vol->{URL})"]));
+  }
+  return \%detail;
 }
 
 
@@ -1854,6 +1906,8 @@ sub print_formatted(@)
   my $title = $args{title};
   my $format = $args{output_format} || $output_format || $default_format;
   my $keys = $table_formats{$format_key}->{$format};
+  my $ralign = $table_formats{$format_key}->{RALIGN} // {};
+  my $table_spacing = 2;
 
   unless($keys) {
     WARN "Unsupported output format \"$format\", defaulting to \"$default_format\" format.";
@@ -1905,21 +1959,33 @@ sub print_formatted(@)
     }
 
     # print keys (headings)
-    my $fill = '';
+    my $fill = 0;
     foreach (@$keys) {
-      print $fill . $_;
-      $fill = ' ' x (2 + $maxlen{$_} - length($_));
+      print ' ' x $fill;
+      $fill = $maxlen{$_} - length($_);
+      if($ralign->{$_}) {
+        print ' ' x $fill;
+        $fill = 0;
+      }
+      print $_;
+      $fill += $table_spacing;
     }
     print "\n";
-    print join("  ", map { '-' x ($maxlen{$_}) } @$keys) . "\n";
+    print join(' ' x $table_spacing, map { '-' x ($maxlen{$_}) } @$keys) . "\n";
 
     # print values
     foreach my $row (@$data) {
-      my $fill = '';
+      my $fill = 0;
       foreach (@$keys) {
         my $val = $row->{$_};
-        print $fill . $val;
-        $fill = ' ' x (2 + $maxlen{$_} - length($val));
+        print ' ' x $fill;
+        $fill = $maxlen{$_} - length($val);
+        if($ralign->{$_}) {
+          print ' ' x $fill;
+          $fill = 0;
+        }
+        print $val;
+        $fill += $table_spacing;
       }
       print "\n";
     }
@@ -1997,7 +2063,7 @@ MAIN:
     WARN 'found option "--progress", but "pv" is not present: (please install "pv")';
     $show_progress = 0;
   }
-  my ($action_run, $action_info, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list);
+  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list);
   my @filter_args;
   my $args_allow_group = 0;
   my ($args_expected_min, $args_expected_max) = (0, 0);
@@ -2009,8 +2075,8 @@ MAIN:
     $args_allow_group = 1;
     @filter_args = @ARGV;
   }
-  elsif ($command eq "info") {
-    $action_info = 1;
+  elsif ($command eq "usage") {
+    $action_usage = 1;
     $args_expected_min = 0;
     $args_expected_max = 9999;
     $args_allow_group = 1;
@@ -2250,7 +2316,7 @@ MAIN:
   #
   # filter subvolumes matching command line arguments
   #
-  if(($action_run || $action_resolve || $action_info || $action_list || $action_config_print) && scalar(@filter_args))
+  if(($action_run || $action_resolve || $action_usage || $action_list || $action_config_print) && scalar(@filter_args))
   {
     my %match;
     foreach my $config_vol (@{$config->{VOLUME}}) {
@@ -2324,29 +2390,22 @@ MAIN:
   }
 
 
-  if($action_info)
+  if($action_usage)
   {
     #
     # print filesystem information
     #
-    print "================================================================================\n";
-    print "Filesystem information ($version_info)\n\n";
-    print "    Date:   " . localtime($start_time) . "\n";
-    print "    Config: $config->{SRC_FILE}\n";
-    print "================================================================================\n";
-
+    my @data;
     my %processed;
-    foreach my $config_vol (@{$config->{VOLUME}})
-    {
+    foreach my $config_vol (@{$config->{VOLUME}}) {
       next if($config_vol->{ABORTED});
       my $sroot = vinfo($config_vol->{url}, $config_vol);
-      unless($processed{$sroot->{URL}})
-      {
-        print "\n--------------------------------------------------------------------------------\n";
-        print "Source volume: $sroot->{PRINT}\n";
-        print "--------------------------------------------------------------------------------\n";
-        print (btrfs_filesystem_usage($sroot) // "");
-        print "\n";
+      unless($processed{$sroot->{URL}}) {
+        my $usage = btrfs_filesystem_usage($sroot) // {};
+        push @data, { %$usage,
+                      type => "source",
+                      vinfo_prefixed_keys("", $sroot),
+                    };
         $processed{$sroot->{URL}} = 1;
       }
     }
@@ -2356,22 +2415,20 @@ MAIN:
       my $sroot = vinfo($config_vol->{url}, $config_vol);
       foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
         next if($config_subvol->{ABORTED});
-        foreach my $config_target (@{$config_subvol->{TARGET}})
-        {
+        foreach my $config_target (@{$config_subvol->{TARGET}}) {
           my $droot = vinfo($config_target->{url}, $config_target);
-          unless($processed{$droot->{URL}})
-          {
-            print "\n--------------------------------------------------------------------------------\n";
-            print "Target volume: $droot->{PRINT}\n";
-            print "               ^--- $sroot->{PRINT}\n";
-            print "--------------------------------------------------------------------------------\n";
-            print (btrfs_filesystem_usage($droot) // "");
-            print "\n";
+          unless($processed{$droot->{URL}}) {
+            my $usage = btrfs_filesystem_usage($droot) // {};
+            push @data, { %$usage,
+                          type => "target",
+                          vinfo_prefixed_keys("", $droot),
+                        };
             $processed{$droot->{URL}} = 1;
           }
         }
       }
     }
+    print_formatted("usage", \@data);
     exit exit_status($config);
   }
 
@@ -3238,13 +3295,7 @@ MAIN:
       # print scheduling results
       #
       if($loglevel >= 2) {
-        my @data = map { $_->{url} = $_->{value}->{URL};
-                         $_->{host} = $_->{value}->{HOST};
-                         $_->{path} = $_->{value}->{PATH};
-                         $_->{name} = $_->{value}->{SUBVOL_PATH};
-                         $_->{target} = $_->{value}->{PRINT};
-                         $_;
-                       } @$schedule_results;
+        my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
         my @data_backup = map { $_->{topic} eq "backup" ? $_ : () } @data;
         my @data_snapshot = map { $_->{topic} eq "snapshot" ? $_ : () } @data;
 
