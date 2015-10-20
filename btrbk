@@ -2842,8 +2842,6 @@ MAIN:
             next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
             foreach my $target_vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } values %{vinfo_subvol_list($droot)}) {
-              my $filename_info = parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, ($config_target->{target_type} eq "raw"));
-              next unless($filename_info);  # ignore non-btrbk files
               my $parent_snapshot;
               foreach (get_snapshot_children($sroot, $svol)) {
                 if($_->{uuid} eq $target_vol->{received_uuid}) {
@@ -3050,7 +3048,10 @@ MAIN:
             foreach my $child (sort { $a->{cgen} <=> $b->{cgen} } get_snapshot_children($sroot, $svol))
             {
               my $filename_info = parse_filename($child->{SUBVOL_PATH}, $snapdir . $snapshot_basename);
-              next unless($filename_info);  # ignore non-btrbk files
+              unless($filename_info) {
+                DEBUG "Receive target does not match btrbk filename scheme, skipping: $child->{PRINT}";
+                next;
+              }
 
               if(scalar get_receive_targets($droot, $child)) {
                 DEBUG "Found matching receive target, skipping: $child->{PRINT}";
@@ -3077,7 +3078,10 @@ MAIN:
               # these are needed for correct results of schedule()
               foreach my $vol (values %{vinfo_subvol_list($droot)}) {
                 my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, ($config_target->{target_type} eq "raw"));
-                next unless($filename_info);  # ignore non-btrbk files
+                unless($filename_info) {
+                  DEBUG "Resume candidate does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+                  next;
+                }
                 push(@schedule, { value      => undef,
                                   btrbk_date => $filename_info->{btrbk_date},
                                   preserve   => $vol->{FORCE_PRESERVE},
@@ -3199,7 +3203,10 @@ MAIN:
             my @schedule;
             foreach my $vol (values %{vinfo_subvol_list($droot)}) {
               my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, ($config_target->{target_type} eq "raw"));
-              next unless($filename_info);  # ignore non-btrbk files
+              unless($filename_info) {
+                DEBUG "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+                next;
+              }
 
               # NOTE: checking received_uuid does not make much sense, as this received_uuid is propagated to snapshots
               # if($vol->{received_uuid} && ($vol->{received_uuid} eq '-')) {
@@ -3249,7 +3256,10 @@ MAIN:
           my @schedule;
           foreach my $vol (values %{vinfo_subvol_list($sroot)}) {
             my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapdir . $snapshot_basename);
-            next unless($filename_info);  # ignore non-btrbk files
+            unless($filename_info) {
+              DEBUG "Snapshot does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+              next;
+            }
             push(@schedule, { value      => $vol,
                               name       => $vol->{PRINT},  # only for logging
                               btrbk_date => $filename_info->{btrbk_date}
