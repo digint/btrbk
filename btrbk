@@ -153,7 +153,7 @@ my %table_formats = (
                    RALIGN => { size=>1, device_allocated=>1, device_unallocated=>1, device_missing=>1, used=>1, free=>1, free_min=>1, data_ratio=>1, metadata_ratio=>1, used=>1, global_reserve=>1, global_reserve_used=>1 },
                  },
 
-  action_log  => { table => [ qw(           type status          target_host target_subvol source_host source_subvol parent_subvol         ) ],
+  transaction => { table => [ qw(           type status          target_host target_subvol source_host source_subvol parent_subvol         ) ],
                    long  => [ qw( localtime type status duration target_host target_subvol source_host source_subvol parent_subvol message ) ],
                    raw   => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
                    tlog  => [ qw( localtime type status duration target_url source_url parent_url message ) ],
@@ -165,14 +165,14 @@ my %vinfo_cache;        # map URL to vinfo
 my %uuid_info;          # map UUID to btr_tree node
 my %uuid_fs_map;        # map UUID to URL
 
-my @action_log;
-
 my $dryrun;
 my $loglevel = 1;
 my $show_progress = 0;
 my $err = "";
 my $output_format;
 my $tlog_fh;
+my $current_transaction;
+my @transaction_log;
 
 
 $SIG{__DIE__} = sub {
@@ -249,7 +249,7 @@ sub init_transaction_log($)
   if(open($tlog_fh, ">> $file"))
   {
      # print headers and startup message
-    print_formatted("action_log", [ ], output_format => "tlog", outfile => $tlog_fh);
+    print_formatted("transaction", [ ], output_format => "tlog", outfile => $tlog_fh);
     INFO "Using transaction log: $file";
   } else {
     $tlog_fh = undef;
@@ -269,12 +269,38 @@ sub action($@)
 {
   my $type = shift // die;
   my $h = { @_ };
-  my $time = time;
+  my $time = $h->{time} // time;
   $h->{type} = $type;
   $h->{time} = $time;
   $h->{localtime} = strftime("%FT%T%z", localtime($time));
-  print_formatted("action_log", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh);
-  push @action_log, $h;
+  print_formatted("transaction", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh);
+  push @transaction_log, $h;
+  return $h;
+}
+
+sub start_transaction($@)
+{
+  my $type = shift // die;
+  my $time = time;
+  die("start_transaction() while transaction is running") if($current_transaction);
+  my @actions = (ref($_[0]) eq "HASH") ? @_ : { @_ };  # single action is not hashref
+  $current_transaction = [];
+  foreach (@actions) {
+    push @$current_transaction, action($type, %$_, status => "starting", time => $time);
+  }
+}
+
+sub end_transaction($$)
+{
+  my $type = shift // die;
+  my $status = shift // die;
+  my $time = time;
+  die("end_transaction() while no transaction is running") unless($current_transaction);
+  foreach (@$current_transaction) {
+    die("end_transaction() has different type") unless($_->{type} eq $type);
+    action($type, %$_, status => $status, duration => ($dryrun ? undef : ($time - $_->{time})));
+  }
+  $current_transaction = undef;
 }
 
 
@@ -1103,16 +1129,14 @@ sub btrfs_subvolume_snapshot($$)
   DEBUG "[btrfs]   source: $src_path";
   DEBUG "[btrfs]   target: $target_path";
   INFO ">>> $target_vol->{PRINT}";
-  my $starttime = time;
+  start_transaction("snapshot",
+                    vinfo_prefixed_keys("target", $target_vol),
+                    vinfo_prefixed_keys("source", $svol),
+                   );
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume snapshot), '-r', $src_path, $target_path ],
                     rsh => $svol->{RSH},
                    );
-  action("snapshot",
-         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         duration => ($dryrun ? undef : (time - $starttime)),
-         vinfo_prefixed_keys("target", $target_vol),
-         vinfo_prefixed_keys("source", $svol),
-        );
+  end_transaction("snapshot", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
   ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
   return defined($ret) ? $target_path : undef;
 }
@@ -1138,15 +1162,13 @@ sub btrfs_subvolume_delete($@)
   my @options;
   @options = ("--commit-$commit") if($commit);
   my @target_paths = map( { $_->{PATH} } @$targets);
-  my $starttime = time;
+  start_transaction($opts{type} // "delete",
+                    map( { { vinfo_prefixed_keys("target", $_) }; } @$targets)
+                   );
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume delete), @options, @target_paths ],
                     rsh => $rsh,
                    );
-  action($opts{type} // "delete",
-         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         duration => ($dryrun ? undef : (time - $starttime)),
-         vinfo_prefixed_keys("target", $_),
-        ) foreach (@$targets);
+  end_transaction($opts{type} // "delete", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
   return defined($ret) ? scalar(@$targets) : undef;
 }
@@ -1193,15 +1215,13 @@ sub btrfs_send_receive($$$$)
     rsh => $target->{RSH},
     name => "btrfs receive",
   };
-  my $starttime = time;
+  start_transaction("send-receive",
+                    vinfo_prefixed_keys("target", $vol_received),
+                    vinfo_prefixed_keys("source", $snapshot),
+                    vinfo_prefixed_keys("parent", $parent),
+                   );
   my $ret = run_cmd(@cmd_pipe);
-  action("send-receive",
-         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         duration => ($dryrun ? undef : (time - $starttime)),
-         vinfo_prefixed_keys("target", $vol_received),
-         vinfo_prefixed_keys("source", $snapshot),
-         vinfo_prefixed_keys("parent", $parent),
-        );
+  end_transaction("send-receive", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
 
   unless(defined($ret)) {
     ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
@@ -1296,7 +1316,11 @@ sub btrfs_send_to_file($$$$;@)
   DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
   DEBUG "[btrfs]   target: $target->{PRINT}";
 
-  my $starttime = time;
+  start_transaction("send-to-raw",
+                    vinfo_prefixed_keys("target", $vol_received),
+                    vinfo_prefixed_keys("source", $snapshot),
+                    vinfo_prefixed_keys("parent", $parent),
+                   );
   my $ret = run_cmd(@cmd_pipe);
   if(defined($ret)) {
     # Test target file for "exists and size > 0" after writing,
@@ -1308,13 +1332,7 @@ sub btrfs_send_to_file($$$$;@)
       name => "test",
     });
   }
-  action("send-to-raw",
-         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-         duration => ($dryrun ? undef : (time - $starttime)),
-         vinfo_prefixed_keys("target", $vol_received),
-         vinfo_prefixed_keys("source", $snapshot),
-         vinfo_prefixed_keys("parent", $parent),
-        );
+  end_transaction("send-to-raw", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
   unless(defined($ret)) {
     ERROR "Failed to send btrfs subvolume to raw file: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}";
     return undef;
@@ -3406,8 +3424,9 @@ MAIN:
       }
       else
       {
-        # print action log
-        print_formatted("action_log", \@action_log, title => "TRANSACTION LOG");
+        # print action log (without transaction start messages)
+        my @data = grep { $_->{status} ne "starting" } @transaction_log;
+        print_formatted("transaction", \@data, title => "TRANSACTION LOG");
       }
     }
 
