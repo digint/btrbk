@@ -2754,12 +2754,13 @@ MAIN:
 
   if($action_resolve)
   {
-    if($action_resolve eq "snapshots") {
+    my @data;
+    my %droot_compat;
+    if($action_resolve eq "snapshots")
+    {
       #
       # print all snapshots and their receive targets
       #
-      my @data;
-      my %droot_compat;
       foreach my $config_vol (@{$config->{VOLUME}}) {
         next if($config_vol->{ABORTED});
         my $sroot = $config_vol->{sroot} || die;
@@ -2791,17 +2792,12 @@ MAIN:
           }
         }
       }
-      if(keys %droot_compat) {
-        WARN "Received subvolumes (backups) are guessed by subvolume name for targets (btrfs_progs_compat=yes)";
-        WARN " - target: $_" foreach(sort keys %droot_compat);
-      }
-      print_formatted("resolved", \@data);
     }
-    elsif($action_resolve eq "targets") {
+    elsif($action_resolve eq "targets")
+    {
       #
       # print all targets and their corresponding source snapshots
       #
-      my @data;
       foreach my $config_vol (@{$config->{VOLUME}}) {
         next if($config_vol->{ABORTED});
         my $sroot = $config_vol->{sroot} || die;
@@ -2812,12 +2808,20 @@ MAIN:
           foreach my $config_target (@{$config_subvol->{TARGET}}) {
             next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
+            $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach my $target_vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } values %{vinfo_subvol_list($droot)}) {
               my $parent_snapshot;
               foreach (get_snapshot_children($sroot, $svol)) {
-                if($_->{uuid} eq $target_vol->{received_uuid}) {
-                  $parent_snapshot = $_;
-                  last;
+                if($droot->{BTRFS_PROGS_COMPAT}) {
+                  if($_->{NAME} eq $target_vol->{NAME}) {
+                    $parent_snapshot = $_;
+                    last;
+                  }
+                } else {
+                  if($_->{uuid} eq $target_vol->{received_uuid}) {
+                    $parent_snapshot = $_;
+                    last;
+                  }
                 }
               }
               if($parent_snapshot) {
@@ -2829,23 +2833,28 @@ MAIN:
                             };
               }
               else {
-                push @data, { type => "received",
-                              vinfo_prefixed_keys("target", $target_vol),
-                              vinfo_prefixed_keys("source", $svol),
-                            };
+                # don't display all subvolumes in $droot, only the ones matching snapshot_name
+                if(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, ($config_target->{target_type} eq "raw"))) {
+                  push @data, { type => "received",
+                                status => "orphaned",
+                                vinfo_prefixed_keys("target", $target_vol),
+                                vinfo_prefixed_keys("source", $svol),
+                              };
+                }
+                else {
+                  DEBUG "ignoring subvolume with non-matching snapshot_name";
+                }
               }
             }
           }
         }
       }
-      print_formatted("resolved", \@data);
     }
     elsif($action_resolve eq "latest")
     {
       #
       # print latest common
       #
-      my @data;
       foreach my $config_vol (@{$config->{VOLUME}}) {
         next if($config_vol->{ABORTED});
         my $sroot = $config_vol->{sroot} || die;
@@ -2877,11 +2886,17 @@ MAIN:
           }
         }
       }
-      print_formatted("resolved", \@data);
     }
     else {
       die;
     }
+
+    if(keys %droot_compat) {
+      WARN "Received subvolumes (backups) are guessed by subvolume name for targets (btrfs_progs_compat=yes):";
+      WARN " - target: $_" foreach(sort keys %droot_compat);
+    }
+    print_formatted("resolved", \@data);
+
     exit exit_status($config);
   }
 
@@ -3020,7 +3035,7 @@ MAIN:
             {
               my $filename_info = parse_filename($child->{SUBVOL_PATH}, $snapdir . $snapshot_basename);
               unless($filename_info) {
-                DEBUG "Receive target does not match btrbk filename scheme, skipping: $child->{PRINT}";
+                DEBUG "Resume candidate does not match btrbk filename scheme, skipping: $child->{PRINT}";
                 next;
               }
 
@@ -3050,7 +3065,7 @@ MAIN:
               foreach my $vol (values %{vinfo_subvol_list($droot)}) {
                 my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, ($config_target->{target_type} eq "raw"));
                 unless($filename_info) {
-                  DEBUG "Resume candidate does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+                  TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                   next;
                 }
                 push(@schedule, { value      => undef,
@@ -3175,7 +3190,7 @@ MAIN:
             foreach my $vol (values %{vinfo_subvol_list($droot)}) {
               my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, ($config_target->{target_type} eq "raw"));
               unless($filename_info) {
-                DEBUG "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+                TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                 next;
               }
 
@@ -3228,7 +3243,7 @@ MAIN:
           foreach my $vol (values %{vinfo_subvol_list($sroot)}) {
             my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapdir . $snapshot_basename);
             unless($filename_info) {
-              DEBUG "Snapshot does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+              TRACE "Snapshot does not match btrbk filename scheme, skipping: $vol->{PRINT}";
               next;
             }
             push(@schedule, { value      => $vol,
