@@ -273,7 +273,7 @@ sub action($@)
   $h->{type} = $type;
   $h->{time} = $time;
   $h->{localtime} = strftime("%FT%T%z", localtime($time));
-  print_formatted("transaction", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh);
+  print_formatted("transaction", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh) if($tlog_fh);
   push @transaction_log, $h;
   return $h;
 }
@@ -1940,6 +1940,7 @@ sub print_formatted(@)
   my $format = $args{output_format} || $output_format || $default_format;
   my $keys = $table_formats{$format_key}->{$format};
   my $ralign = $table_formats{$format_key}->{RALIGN} // {};
+  my $fh = $args{outfile} // *STDOUT;
   my $table_spacing = 2;
 
   unless($keys) {
@@ -1948,25 +1949,23 @@ sub print_formatted(@)
     $format = $default_format;
   }
 
-  print "$title\n" if($title);
+  print $fh "$title\n" if($title);
   if($format eq "raw")
   {
     # output: key0="value0" key1="value1" ...
     foreach my $row (@$data) {
-      print "format=\"$format_key\" ";
-      print join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
+      print $fh "format=\"$format_key\" ";
+      print $fh join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
     }
   }
   elsif($format eq "tlog")
   {
     # output: value0 value1, ...
-    if($tlog_fh) {
-      unless($args{no_header}) {
-        print $tlog_fh join(' ', @$keys) . "\n";
-      }
-      foreach my $row (@$data) {
-        print $tlog_fh join(' ', map { ((defined($row->{$_}) && ($_ eq "message")) ? '# ' : '') . ($row->{$_} // "-") } @$keys) . "\n";
-      }
+    unless($args{no_header}) {
+      print $fh join(' ', @$keys) . "\n";
+    }
+    foreach my $row (@$data) {
+      print $fh join(' ', map { ((defined($row->{$_}) && ($_ eq "message")) ? '# ' : '') . ($row->{$_} // "-") } @$keys) . "\n";
     }
   }
   else
@@ -1994,33 +1993,33 @@ sub print_formatted(@)
     # print keys (headings)
     my $fill = 0;
     foreach (@$keys) {
-      print ' ' x $fill;
+      print $fh ' ' x $fill;
       $fill = $maxlen{$_} - length($_);
       if($ralign->{$_}) {
-        print ' ' x $fill;
+        print $fh ' ' x $fill;
         $fill = 0;
       }
-      print $_;
+      print $fh $_;
       $fill += $table_spacing;
     }
-    print "\n";
-    print join(' ' x $table_spacing, map { '-' x ($maxlen{$_}) } @$keys) . "\n";
+    print $fh "\n";
+    print $fh join(' ' x $table_spacing, map { '-' x ($maxlen{$_}) } @$keys) . "\n";
 
     # print values
     foreach my $row (@$data) {
       my $fill = 0;
       foreach (@$keys) {
         my $val = $row->{$_};
-        print ' ' x $fill;
+        print $fh ' ' x $fill;
         $fill = $maxlen{$_} - length($val);
         if($ralign->{$_}) {
-          print ' ' x $fill;
+          print $fh ' ' x $fill;
           $fill = 0;
         }
-        print $val;
+        print $fh $val;
         $fill += $table_spacing;
       }
-      print "\n";
+      print $fh "\n";
     }
   }
 }
