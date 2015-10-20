@@ -2758,79 +2758,50 @@ MAIN:
       #
       # print all snapshots and their receive targets
       #
-      my @tree_out;
-      my @raw_out;
-      foreach my $config_vol (@{$config->{VOLUME}})
-      {
+      my @data;
+      my %droot_compat;
+      foreach my $config_vol (@{$config->{VOLUME}}) {
         next if($config_vol->{ABORTED});
-        my %droot_compat;
         my $sroot = $config_vol->{sroot} || die;
-        push @tree_out, "$sroot->{PRINT}";
-        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-        {
+        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
           next if($config_subvol->{ABORTED});
           my $svol = $config_subvol->{svol} || die;
           my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
-          push @tree_out, "|-- $svol->{PRINT}";
-          foreach my $snapshot (sort { $a->{cgen} cmp $b->{cgen} } get_snapshot_children($sroot, $svol))
-          {
+          foreach my $snapshot (sort { $a->{cgen} cmp $b->{cgen} } get_snapshot_children($sroot, $svol)) {
             my $raw_data = { type => "snapshot",
+                             status => ($snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
                              vinfo_prefixed_keys("source", $svol),
                              vinfo_prefixed_keys("snapshot", $snapshot),
                              snapshot_name => $snapshot_name,
                            };
-            if($snapshot->{cgen} == $svol->{gen}) {
-              push @tree_out, "|   ^== $snapshot->{PATH}";
-              $raw_data->{status} = "up-to-date";
-            } else {
-              push @tree_out, "|   ^-- $snapshot->{PATH}";
-            }
-            push @raw_out, $raw_data;
-            foreach my $config_target (@{$config_subvol->{TARGET}})
-            {
+            my $found = 0;
+            foreach my $config_target (@{$config_subvol->{TARGET}}) {
               next if($config_target->{ABORTED});
               my $droot = $config_target->{droot} || die;
               $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
               foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
-                push @tree_out, "|   |   >>> $_->{PRINT}";
-                push @raw_out, { %$raw_data,
-                                 type => "received",
-                                 vinfo_prefixed_keys("target", $_),
-                               };
+                push @data, { %$raw_data,
+                              type => "received",
+                              vinfo_prefixed_keys("target", $_),
+                            };
+                $found = 1;
               }
+              push @data, $raw_data unless($found);
             }
           }
         }
-        if(keys %droot_compat) {
-          push @tree_out, "\nNOTE: Received subvolumes (backups) are guessed by subvolume name for targets:";
-          push @tree_out, "      - " . join("\n      - ", (sort keys %droot_compat));
-        }
-        push @tree_out, "";
       }
-
-      $output_format ||= "tree";
-      if($output_format eq "tree") {
-        print_header(title => "Backup Tree",
-                     config => $config,
-                     time => $start_time,
-                     legend => [
-                       "^--  snapshot",
-                       "^==  snapshot (up-to-date)",
-                       ">>>  received subvolume (backup)",
-                      ]
-                    );
-        print join("\n", @tree_out);
+      if(keys %droot_compat) {
+        WARN "Received subvolumes (backups) are guessed by subvolume name for targets (btrfs_progs_compat=yes)";
+        WARN " - target: $_" foreach(sort keys %droot_compat);
       }
-      else {
-        print_formatted("resolved", \@raw_out);
-      }
+      print_formatted("resolved", \@data);
     }
-    elsif($action_resolve eq "targets")
-    {
+    elsif($action_resolve eq "targets") {
       #
       # print all targets and their corresponding source snapshots
       #
-      my @raw_targets;
+      my @data;
       foreach my $config_vol (@{$config->{VOLUME}}) {
         next if($config_vol->{ABORTED});
         my $sroot = $config_vol->{sroot} || die;
@@ -2850,31 +2821,31 @@ MAIN:
                 }
               }
               if($parent_snapshot) {
-                push @raw_targets, { type => "received",
-                                     vinfo_prefixed_keys("target", $target_vol),
-                                     vinfo_prefixed_keys("snapshot", $parent_snapshot),
-                                     vinfo_prefixed_keys("source", $svol),
-                                     status => ($parent_snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
-                                   };
+                push @data, { type => "received",
+                              vinfo_prefixed_keys("target", $target_vol),
+                              vinfo_prefixed_keys("snapshot", $parent_snapshot),
+                              vinfo_prefixed_keys("source", $svol),
+                              status => ($parent_snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
+                            };
               }
               else {
-                push @raw_targets, { type => "received",
-                                     vinfo_prefixed_keys("target", $target_vol),
-                                     vinfo_prefixed_keys("source", $svol),
-                                  };
+                push @data, { type => "received",
+                              vinfo_prefixed_keys("target", $target_vol),
+                              vinfo_prefixed_keys("source", $svol),
+                            };
               }
             }
           }
         }
       }
-      print_formatted("resolved", \@raw_targets);
+      print_formatted("resolved", \@data);
     }
     elsif($action_resolve eq "latest")
     {
       #
       # print latest common
       #
-      my @raw_latest;
+      my @data;
       foreach my $config_vol (@{$config->{VOLUME}}) {
         next if($config_vol->{ABORTED});
         my $sroot = $config_vol->{sroot} || die;
@@ -2887,7 +2858,7 @@ MAIN:
             my $droot = $config_target->{droot} || die;
             my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
             if ($latest_common_src && $latest_common_target) {
-              push @raw_latest, { type => "latest_common",
+              push @data, { type => "latest_common",
                                   status => ($latest_common_src->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
                                   vinfo_prefixed_keys("source", $svol),
                                   vinfo_prefixed_keys("snapshot", $latest_common_src),
@@ -2898,7 +2869,7 @@ MAIN:
           }
           unless($found) {
             my $latest_snapshot = get_latest_snapshot_child($sroot, $svol);
-            push @raw_latest, { type => "latest_snapshot",
+            push @data, { type => "latest_snapshot",
                                 status => ($latest_snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
                                 vinfo_prefixed_keys("source", $svol),
                                 vinfo_prefixed_keys("snapshot", $latest_snapshot), # all unset if no $latest_snapshot
@@ -2906,7 +2877,7 @@ MAIN:
           }
         }
       }
-      print_formatted("resolved", \@raw_latest);
+      print_formatted("resolved", \@data);
     }
     else {
       die;
