@@ -331,7 +331,6 @@ sub run_cmd(@)
     $cmd .= $pipe . $_->{cmd_text};
     $pipe = ' | ';
     if($_->{catch_stderr}) {
-      $cmd .= ' 2>&1';
       $catch_stderr = 1;
       $filter_stderr = $_->{filter_stderr};
     }
@@ -343,6 +342,14 @@ sub run_cmd(@)
     return "";
   }
   DEBUG "### $cmd";
+
+  if($catch_stderr) {
+    if(scalar(@commands) == 1) {
+      $cmd .= ' 2>&1';
+    } else {
+      $cmd = '{ ' . $cmd . ' ; } 2>&1';
+    }
+  }
 
   my $ret = "";
   $ret = `$cmd`;
@@ -1220,8 +1227,8 @@ sub btrfs_send_receive($$$$)
   my @send_options;
   my @receive_options;
   push(@send_options, '-p', $parent_path) if($parent_path);
-  push(@send_options, '-v') if($loglevel >= 3);
-  push(@receive_options, '-v') if($loglevel >= 3);
+  # push(@send_options, '-v') if($loglevel >= 3);
+  # push(@receive_options, '-v') if($loglevel >= 3);
 
   my @cmd_pipe;
   push @cmd_pipe, {
@@ -1236,16 +1243,41 @@ sub btrfs_send_receive($$$$)
     cmd => [ qw(btrfs receive), @receive_options, $target_path . '/' ],
     rsh => $target->{RSH},
     name => "btrfs receive",
+    catch_stderr => 1, # hack for shell-based run_cmd()
+    filter_stderr => sub { $err = $_; $_ = undef }
   };
+
+  my $send_receive_error = 0;
   start_transaction("send-receive",
                     vinfo_prefixed_keys("target", $vol_received),
                     vinfo_prefixed_keys("source", $snapshot),
                     vinfo_prefixed_keys("parent", $parent),
                    );
   my $ret = run_cmd(@cmd_pipe);
-  end_transaction("send-receive", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
-
   unless(defined($ret)) {
+    $send_receive_error = 1;
+    $ret = $err;  # print the errors below
+  }
+  if(defined($ret)) {
+    # NOTE: if "btrfs send" fails, "btrfs receive" returns 0! so we need to parse the output...
+    foreach(split("\n", $ret)) {
+      if(/^ERROR: /) {
+        ERROR $';
+        $send_receive_error = 1;
+      }
+      elsif(/^WARNING: /) {
+        WARN "[btrfs send/receive] (send=$snapshot_path, receive=$target_path) $'";
+      }
+      else {
+        WARN "[btrfs send/receive] (send=$snapshot_path, receive=$target_path) $_" if($send_receive_error);
+      }
+    }
+  }
+
+  end_transaction("send-receive", ($dryrun ? "DRYRUN" : ($send_receive_error ? "ERROR" : "success")));
+
+
+  if($send_receive_error) {
     ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
 
     # NOTE: btrfs-progs v3.19.1 does not delete garbled received subvolume,

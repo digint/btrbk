@@ -17,6 +17,7 @@ btrbk-current
   * Bugfix: correctly handle "incremental no" option.
   * Bugfix: return exit status 10 instead of 0 if one or more backup
     tasks aborted.
+  * Better error handling for send/receive commands (close: #33).
   * Hardened ssh_filter_btrbk.sh script: fine-grained access control,
     restrict-path option, sudo option (close: #45).
 
