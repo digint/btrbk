@@ -619,6 +619,163 @@ sub check_file($$;$$)
 }
 
 
+sub parse_config_line($$$$$)
+{
+  my ($file, $root, $cur, $key, $value) = @_;
+
+  if($key eq "volume")
+  {
+    $cur = $root;
+    TRACE "config: context forced to: $cur->{CONTEXT}";
+
+    # be very strict about file options, for security sake
+    return undef unless(check_file($value, { absolute => 1, ssh => 1 }, $key, $file));
+    $value =~ s/\/+$// unless($value =~ /^\/+$/);   # remove trailing slash
+    $value =~ s/^\/+/\//; # sanitize leading slash
+    TRACE "config: adding volume \"$value\" to root context";
+    my $volume = { CONTEXT => "volume",
+                   PARENT => $cur,
+                   url => $value,
+                  };
+    $cur->{VOLUME} //= [];
+    push(@{$cur->{VOLUME}}, $volume);
+    $cur = $volume;
+  }
+  elsif($key eq "subvolume")
+  {
+    while($cur->{CONTEXT} ne "volume") {
+      if(($cur->{CONTEXT} eq "root") || (not $cur->{PARENT})) {
+        ERROR "Subvolume keyword outside volume context, in \"$file\" line $.";
+        return undef;
+      }
+      $cur = $cur->{PARENT} || die;
+      TRACE "config: context changed to: $cur->{CONTEXT}";
+    }
+    # be very strict about file options, for security sake
+    return undef unless(check_file($value, { relative => 1 }, $key, $file));
+    $value =~ s/\/+$//;    # remove trailing slash
+    $value =~ s/^\/+//;    # remove leading slash
+
+    TRACE "config: adding subvolume \"$value\" to volume context: $cur->{url}";
+    my $snapshot_name = $value;
+    $snapshot_name =~ s/^.*\///; # snapshot_name defaults to subvolume name
+    my $subvolume = { CONTEXT => "subvolume",
+                      PARENT => $cur,
+                      rel_path => $value,
+                      url => $cur->{url} . '/' . $value,
+                      snapshot_name => $snapshot_name,
+                     };
+    $cur->{SUBVOLUME} //= [];
+    push(@{$cur->{SUBVOLUME}}, $subvolume);
+    $cur = $subvolume;
+  }
+  elsif($key eq "target")
+  {
+    if($cur->{CONTEXT} eq "target") {
+      $cur = $cur->{PARENT} || die;
+      TRACE "config: context changed to: $cur->{CONTEXT}";
+    }
+    if($cur->{CONTEXT} ne "subvolume") {
+      ERROR "Target keyword outside subvolume context, in \"$file\" line $.";
+      return undef;
+    }
+    if($value =~ /^(\S+)\s+(\S+)$/)
+    {
+      my ($target_type, $droot) = ($1, $2);
+      unless(grep(/^$target_type$/, @config_target_types)) {
+        ERROR "Unknown target type \"$target_type\" in \"$file\" line $.";
+        return undef;
+      }
+      # be very strict about file options, for security sake
+      return undef unless(check_file($droot, { absolute => 1, ssh => 1 }, $key, $file));
+
+      $droot =~ s/\/+$//;   # remove trailing slash
+      $droot =~ s/^\/+/\//; # sanitize leading slash
+      TRACE "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{url}";
+      my $target = { CONTEXT => "target",
+                     PARENT => $cur,
+                     target_type => $target_type,
+                     url => $droot,
+                   };
+      $cur->{TARGET} //= [];
+      push(@{$cur->{TARGET}}, $target);
+      $cur = $target;
+    }
+    else
+    {
+      ERROR "Ambiguous target configuration, in \"$file\" line $.";
+      return undef;
+    }
+  }
+  elsif(grep(/^$key$/, keys %config_options))  # accept only keys listed in %config_options
+  {
+    if(grep(/^$value$/, @{$config_options{$key}->{accept}})) {
+      TRACE "option \"$key=$value\" found in accept list";
+    }
+    elsif($config_options{$key}->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
+      TRACE "option \"$key=$value\" is numeric, accepted";
+    }
+    elsif($config_options{$key}->{accept_file})
+    {
+      # be very strict about file options, for security sake
+      return undef unless(check_file($value, $config_options{$key}->{accept_file}, $key, $file));
+
+      TRACE "option \"$key=$value\" is a valid file, accepted";
+      $value =~ s/\/+$//;   # remove trailing slash
+      $value =~ s/^\/+/\//; # sanitize leading slash
+    }
+    elsif($config_options{$key}->{accept_regexp}) {
+      my $match = $config_options{$key}->{accept_regexp};
+      if($value =~ m/$match/) {
+        TRACE "option \"$key=$value\" matched regexp, accepted";
+      }
+      else {
+        ERROR "Value \"$value\" failed input validation for option \"$key\" in \"$file\" line $.";
+        return undef;
+      }
+    }
+    else
+    {
+      ERROR "Unsupported value \"$value\" for option \"$key\" in \"$file\" line $.";
+      return undef;
+    }
+
+    if($config_options{$key}->{split}) {
+      $value = [ split($config_options{$key}->{split}, $value) ];
+      TRACE "splitted option \"$key\": " . join(',', @$value);
+    }
+
+    if($config_options{$key}->{context} && !grep(/^$cur->{CONTEXT}$/, @{$config_options{$key}->{context}})) {
+      ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$config_options{$key}->{context}})) . " context, in \"$file\" line $.";
+      return undef;
+    }
+
+    if($config_options{$key}->{deprecated}) {
+      WARN "Found deprecated option \"$key $value\" in \"$file\" line $.: " .
+           ($config_options{$key}->{deprecated}->{$value}->{warn} // $config_options{$key}->{deprecated}->{DEFAULT}->{warn});
+      my $replace_key   = $config_options{$key}->{deprecated}->{$value}->{replace_key};
+      my $replace_value = $config_options{$key}->{deprecated}->{$value}->{replace_value};
+      if(defined($replace_key)) {
+        $key = $replace_key;
+        $value = $replace_value;
+        WARN "Using \"$key $value\"";
+      }
+    }
+
+    TRACE "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
+    $value = undef if($value eq "no");  # we don't want to check for "no" all the time
+    $cur->{$key} = $value;
+  }
+  else
+  {
+    ERROR "Unknown option \"$key\" in \"$file\" line $.";
+    return undef;
+  }
+
+  return $cur;
+}
+
+
 sub parse_config(@)
 {
   my @config_files = @_;
@@ -652,169 +809,27 @@ sub parse_config(@)
     TRACE "config: parsing line $. with context=$cur->{CONTEXT}: \"$_\"";
     if(/^(\s*)([a-zA-Z_]+)\s+(.*)$/)
     {
+      # NOTE: we do not perform checks on indentation!
       my ($indent, $key, $value) = (length($1), lc($2), $3);
       $value =~ s/\s*$//;
-      # NOTE: we do not perform checks on indentation!
-
-      if($key eq "volume")
-      {
-        $cur = $root;
-        TRACE "config: context forced to: $cur->{CONTEXT}";
-
-        # be very strict about file options, for security sake
-        return undef unless(check_file($value, { absolute => 1, ssh => 1 }, $key, $file));
-        $value =~ s/\/+$// unless($value =~ /^\/+$/);   # remove trailing slash
-        $value =~ s/^\/+/\//; # sanitize leading slash
-        TRACE "config: adding volume \"$value\" to root context";
-        my $volume = { CONTEXT => "volume",
-                       PARENT => $cur,
-                       url => $value,
-                      };
-        $cur->{VOLUME} //= [];
-        push(@{$cur->{VOLUME}}, $volume);
-        $cur = $volume;
+      $cur = parse_config_line($file, $root, $cur, $key, $value);
+      unless(defined($cur)) {
+        # error, bail out
+        $root = undef;
+        last;
       }
-      elsif($key eq "subvolume")
-      {
-        while($cur->{CONTEXT} ne "volume") {
-          if(($cur->{CONTEXT} eq "root") || (not $cur->{PARENT})) {
-            ERROR "Subvolume keyword outside volume context, in \"$file\" line $.";
-            return undef;
-          }
-          $cur = $cur->{PARENT} || die;
-          TRACE "config: context changed to: $cur->{CONTEXT}";
-        }
-        # be very strict about file options, for security sake
-        return undef unless(check_file($value, { relative => 1 }, $key, $file));
-        $value =~ s/\/+$//;    # remove trailing slash
-        $value =~ s/^\/+//;    # remove leading slash
-
-        TRACE "config: adding subvolume \"$value\" to volume context: $cur->{url}";
-        my $snapshot_name = $value;
-        $snapshot_name =~ s/^.*\///; # snapshot_name defaults to subvolume name
-        my $subvolume = { CONTEXT => "subvolume",
-                          PARENT => $cur,
-                          rel_path => $value,
-                          url => $cur->{url} . '/' . $value,
-                          snapshot_name => $snapshot_name,
-                         };
-        $cur->{SUBVOLUME} //= [];
-        push(@{$cur->{SUBVOLUME}}, $subvolume);
-        $cur = $subvolume;
-      }
-      elsif($key eq "target")
-      {
-        if($cur->{CONTEXT} eq "target") {
-          $cur = $cur->{PARENT} || die;
-          TRACE "config: context changed to: $cur->{CONTEXT}";
-        }
-        if($cur->{CONTEXT} ne "subvolume") {
-          ERROR "Target keyword outside subvolume context, in \"$file\" line $.";
-          return undef;
-        }
-        if($value =~ /^(\S+)\s+(\S+)$/)
-        {
-          my ($target_type, $droot) = ($1, $2);
-          unless(grep(/^$target_type$/, @config_target_types)) {
-            ERROR "Unknown target type \"$target_type\" in \"$file\" line $.";
-            return undef;
-          }
-          # be very strict about file options, for security sake
-          return undef unless(check_file($droot, { absolute => 1, ssh => 1 }, $key, $file));
-
-          $droot =~ s/\/+$//;   # remove trailing slash
-          $droot =~ s/^\/+/\//; # sanitize leading slash
-          TRACE "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{url}";
-          my $target = { CONTEXT => "target",
-                         PARENT => $cur,
-                         target_type => $target_type,
-                         url => $droot,
-                       };
-          $cur->{TARGET} //= [];
-          push(@{$cur->{TARGET}}, $target);
-          $cur = $target;
-        }
-        else
-        {
-          ERROR "Ambiguous target configuration, in \"$file\" line $.";
-          return undef;
-        }
-      }
-      elsif(grep(/^$key$/, keys %config_options))  # accept only keys listed in %config_options
-      {
-        if(grep(/^$value$/, @{$config_options{$key}->{accept}})) {
-          TRACE "option \"$key=$value\" found in accept list";
-        }
-        elsif($config_options{$key}->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
-          TRACE "option \"$key=$value\" is numeric, accepted";
-        }
-        elsif($config_options{$key}->{accept_file})
-        {
-          # be very strict about file options, for security sake
-          return undef unless(check_file($value, $config_options{$key}->{accept_file}, $key, $file));
-
-          TRACE "option \"$key=$value\" is a valid file, accepted";
-          $value =~ s/\/+$//;   # remove trailing slash
-          $value =~ s/^\/+/\//; # sanitize leading slash
-        }
-        elsif($config_options{$key}->{accept_regexp}) {
-          my $match = $config_options{$key}->{accept_regexp};
-          if($value =~ m/$match/) {
-            TRACE "option \"$key=$value\" matched regexp, accepted";
-          }
-          else {
-            ERROR "Value \"$value\" failed input validation for option \"$key\" in \"$file\" line $.";
-            return undef;
-          }
-        }
-        else
-        {
-          ERROR "Unsupported value \"$value\" for option \"$key\" in \"$file\" line $.";
-          return undef;
-        }
-
-        if($config_options{$key}->{split}) {
-          $value = [ split($config_options{$key}->{split}, $value) ];
-          TRACE "splitted option \"$key\": " . join(',', @$value);
-        }
-
-        if($config_options{$key}->{context} && !grep(/^$cur->{CONTEXT}$/, @{$config_options{$key}->{context}})) {
-          ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$config_options{$key}->{context}})) . " context, in \"$file\" line $.";
-          return undef;
-        }
-
-        if($config_options{$key}->{deprecated}) {
-          WARN "Found deprecated option \"$key $value\" in \"$file\" line $.: " .
-               ($config_options{$key}->{deprecated}->{$value}->{warn} // $config_options{$key}->{deprecated}->{DEFAULT}->{warn});
-          my $replace_key   = $config_options{$key}->{deprecated}->{$value}->{replace_key};
-          my $replace_value = $config_options{$key}->{deprecated}->{$value}->{replace_value};
-          if(defined($replace_key)) {
-            $key = $replace_key;
-            $value = $replace_value;
-            WARN "Using \"$key $value\"";
-          }
-        }
-
-        TRACE "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
-        $value = undef if($value eq "no");  # we don't want to check for "no" all the time
-        $cur->{$key} = $value;
-      }
-      else
-      {
-        ERROR "Unknown option \"$key\" in \"$file\" line $.";
-        return undef;
-      }
-
       TRACE "line processed: new context=$cur->{CONTEXT}";
     }
     else
     {
       ERROR "Parse error in \"$file\" line $.";
-      return undef;
+      $root = undef;
+      last;
     }
   }
+  close FILE || ERROR "Failed to close configuration file: $!";
 
-  TRACE(Data::Dumper->Dump([$root], ["config{$file}"]));
+  TRACE(Data::Dumper->Dump([$root], ["config{$file}"])) if($root);
   return $root;
 }
 
