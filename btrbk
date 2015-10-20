@@ -182,6 +182,13 @@ $SIG{__DIE__} = sub {
   Carp::confess @_;
 };
 
+$SIG{INT} = sub {
+  print STDERR "\nERROR: Cought SIGINT, dumping transaction log:\n";
+  action("signal", status => "SIGINT");
+  print_formatted("transaction", \@transaction_log, output_format => "tlog", outfile => *STDERR);
+  exit 1;
+};
+
 sub VERSION_MESSAGE
 {
   print STDERR $version_info . "\n\n";
