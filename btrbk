@@ -3363,13 +3363,17 @@ MAIN:
       #
       if($loglevel >= 2) {
         my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
-        my @data_backup = map { $_->{topic} eq "backup" ? $_ : () } @data;
         my @data_snapshot = map { $_->{topic} eq "snapshot" ? $_ : () } @data;
+        my @data_backup = map { $_->{topic} eq "backup" ? $_ : () } @data;
 
-        print_formatted("schedule", \@data_snapshot, title => "SNAPSHOT SCHEDULE");
-        print "\n";
-        print_formatted("schedule", \@data_backup, title => "BACKUP SCHEDULE");
-        print "\n";
+        if(scalar(@data_snapshot)) {
+          print_formatted("schedule", \@data_snapshot, title => "SNAPSHOT SCHEDULE");
+          print "\n";
+        }
+        if(scalar(@data_backup)) {
+          print_formatted("schedule", \@data_backup, title => "BACKUP SCHEDULE");
+          print "\n";
+        }
       }
 
 
