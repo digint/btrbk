@@ -2840,26 +2840,26 @@ MAIN:
           my $svol = $config_subvol->{svol} || die;
           my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
           foreach my $snapshot (sort { $a->{cgen} cmp $b->{cgen} } get_snapshot_children($sroot, $svol)) {
-            my $raw_data = { type => "snapshot",
-                             status => ($snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
-                             vinfo_prefixed_keys("source", $svol),
-                             vinfo_prefixed_keys("snapshot", $snapshot),
-                             snapshot_name => $snapshot_name,
-                           };
+            my $snapshot_data = { type => "snapshot",
+                                  status => ($snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
+                                  vinfo_prefixed_keys("source", $svol),
+                                  vinfo_prefixed_keys("snapshot", $snapshot),
+                                  snapshot_name => $snapshot_name,
+                                };
             my $found = 0;
             foreach my $config_target (@{$config_subvol->{TARGET}}) {
               next if($config_target->{ABORTED});
               my $droot = $config_target->{droot} || die;
               $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
               foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
-                push @data, { %$raw_data,
+                push @data, { %$snapshot_data,
                               type => "received",
                               vinfo_prefixed_keys("target", $_),
                             };
                 $found = 1;
               }
-              push @data, $raw_data unless($found);
             }
+            push @data, $snapshot_data unless($found);
           }
         }
       }
@@ -2876,13 +2876,14 @@ MAIN:
           next if($config_subvol->{ABORTED});
           my $svol = $config_subvol->{svol} || die;
           my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
+          my @snapshot_children = get_snapshot_children($sroot, $svol);
           foreach my $config_target (@{$config_subvol->{TARGET}}) {
             next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach my $target_vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } values %{vinfo_subvol_list($droot)}) {
               my $parent_snapshot;
-              foreach (get_snapshot_children($sroot, $svol)) {
+              foreach (@snapshot_children) {
                 if($droot->{BTRFS_PROGS_COMPAT}) {
                   if($_->{NAME} eq $target_vol->{NAME}) {
                     $parent_snapshot = $_;
@@ -2939,21 +2940,21 @@ MAIN:
             my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
             if ($latest_common_src && $latest_common_target) {
               push @data, { type => "latest_common",
-                                  status => ($latest_common_src->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
-                                  vinfo_prefixed_keys("source", $svol),
-                                  vinfo_prefixed_keys("snapshot", $latest_common_src),
-                                  vinfo_prefixed_keys("target", $latest_common_target),
-                                };
+                            status => ($latest_common_src->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
+                            vinfo_prefixed_keys("source", $svol),
+                            vinfo_prefixed_keys("snapshot", $latest_common_src),
+                            vinfo_prefixed_keys("target", $latest_common_target),
+                          };
               $found = 1;
             }
           }
           unless($found) {
             my $latest_snapshot = get_latest_snapshot_child($sroot, $svol);
             push @data, { type => "latest_snapshot",
-                                status => ($latest_snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
-                                vinfo_prefixed_keys("source", $svol),
-                                vinfo_prefixed_keys("snapshot", $latest_snapshot), # all unset if no $latest_snapshot
-                              };
+                          status => ($latest_snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
+                          vinfo_prefixed_keys("source", $svol),
+                          vinfo_prefixed_keys("snapshot", $latest_snapshot), # all unset if no $latest_snapshot
+                        };
           }
         }
       }
