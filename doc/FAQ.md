@@ -37,7 +37,7 @@ valid mount-points, you can loop through the configuration and mount
 the volumes like this:
 
     #!/bin/sh
-    btrbk config list volume --format=raw | while read line; do
+    btrbk list volume --format=raw | while read line; do
         eval $line
         $volume_rsh mount $volume_path
     done

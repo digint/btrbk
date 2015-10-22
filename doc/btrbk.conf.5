@@ -105,6 +105,13 @@ be able to delete old backups.
 .RE
 .SH OPTIONS
 .PP
+\fBtransaction_log\fR  <file>
+.RS 4
+If set, all transactions (snapshot create, subvolume send-receive,
+subvolume delete) as well as abort messages are logged to <file>, in a
+space-separated table format.
+.RE
+.PP
 \fBtimestamp_format\fR  short|long
 .RS 4
 Timestamp format used as postfix for new snapshot subvolume names.
@@ -256,13 +263,6 @@ Enable compatibility mode for btrfs-progs < 3.17 (\fIbtrfs
 determined by subvolume names instead of \fIreceived_uuid\fR, which
 can lead to false guesses if the snapshot or target subvolumes are
 manipulated by hand (moved, deleted).
-.RE
-.PP
-\fBtransaction_log\fR  <file>
-.RS 4
-If set, all transactions (snapshot create, subvolume send-receive,
-subvolume delete) as well as abort messages are logged to <file>, in a
-space-separated table format.
 .RE
 .PP
 Lines that contain a hash character (#) in the first column are

@@ -9,7 +9,9 @@ btrbk \- backup tool for btrfs volumes
 .nf
 \fBbtrbk\fR [\-h|\-\-help] [\-\-version] [\-c|\-\-config <file>]
       [\-p|\-\-preserve] [\-r|\-\-resume\-only]
-      [\-v|\-\-verbose] [\-q|\-\-quiet] [\-l|\-\-loglevel <level>] [\-\-progress]
+      [\-v|\-\-verbose] [\-q|\-\-quiet] [\-l|\-\-loglevel <level>]
+      [\-t|\-\-table] [\-\-format <output\-format>]
+      [\-\-progress]
       <command> [<args>]
 .fi
 .SH DESCRIPTION
@@ -64,7 +66,8 @@ set to \[lq]yes\[rq] in the configuration file.
 .PP
 \-v, \-\-verbose
 .RS 4
-Verbose output. Identical to: \-l info.
+Verbose output. Sets "\-l info", and prints detailed scheduler
+information on "run" and "dryrun" commands.
 .RE
 .PP
 \-q, \-\-quiet
@@ -142,23 +145,39 @@ would be executed.
 .RE
 .PP
 .B list
-[filter...]
+<subcommand> [filter...]
 .RS 4
-Print the source/snapshot/target relations of the configured
-subvolumes in a tabular form. Optionally filtered by [filter...]
-arguments (see \fIFILTER STATEMENTS\fR below). Accepts predefined
-filters \fIvolume\fR, \fIsource\fR and \fItarget\fR. Use the
-\fI\-\-format\fR command line option to switch between different
-output formats.
-.RE
+Print information defined by <subcommand> in a tabular form. Optionally
+filtered by [filter...] arguments (see \fIFILTER STATEMENTS\fR
+below).
 .PP
-.B tree
-[filter...]
-.RS 4
-Print the snapshots and their corresponding backup subvolumes as a
-tree. Optionally filtered by [filter...] arguments (see \fIFILTER
-STATEMENTS\fR below). Use the \fI\-\-format\fR command line option to
-switch between different output formats.
+Available subcommands:
+.TP 11
+.B snapshots
+All snapshots (and corresponding backups).
+.PD 0
+.TP 11
+.B backups
+All backups (and corresponding snapshots).
+.TP 11
+.B latest
+Most recent snapshots and backups.
+.TP 11
+.B config
+Configured source/snapshot/target relations.
+.TP 11
+.B source
+Configured source/snapshot relations.
+.TP 11
+.B volume
+Configured volume sections.
+.TP 11
+.B target
+Configured targets.
+.PD
+.PP
+Use the \fI\-\-format\fR command line option to switch between
+different output formats.
 .RE
 .PP
 .B usage
@@ -193,7 +212,8 @@ Filter arguments are accepted in form:
 .PP
 [hostname:]<volume-directory>
 .RS 4
-Matches all subvolumes and targets of a \fIvolume\fR configuration section.
+Matches all subvolumes and targets of a \fIvolume\fR configuration
+section.
 .RE
 .PP
 [hostname:]<volume-directory>/<subvolume-name>

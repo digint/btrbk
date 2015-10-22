@@ -120,8 +120,8 @@ my %config_options = (
 my @config_target_types = qw(send-receive raw);
 
 my %table_formats = (
-  list_volume => { table => [ qw( volume_host volume_subvol ) ],
-                   long  => [ qw( volume_host volume_subvol ) ],
+  list_volume => { table => [ qw( volume_host volume_path ) ],
+                   long  => [ qw( volume_host volume_path ) ],
                    raw   => [ qw( volume_url volume_host volume_path volume_rsh ) ],
                  },
   list_source => { table => [ qw( source_host source_subvol snapshot_path snapshot_name ) ],
@@ -196,7 +196,7 @@ sub VERSION_MESSAGE
 
 sub HELP_MESSAGE
 {
-  print STDERR "usage: btrbk [options] <command>\n";
+  print STDERR "usage: btrbk [options] <command> [filter...]\n";
   print STDERR "\n";
   print STDERR "options:\n";
   #            "--------------------------------------------------------------------------------"; # 80
@@ -214,18 +214,23 @@ sub HELP_MESSAGE
   print STDERR "       --progress        show progress bar on send-receive operation\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   run    [filter...]  perform backup operations as defined in the config file\n";
-  print STDERR "   dryrun [filter...]  don't run btrfs commands; show what would be executed\n";
-  print STDERR "   list   [filter...]  print source/snapshot/target relations\n";
-  print STDERR "   resolve snapshots [filter...]  shows snapshots and corresponding targets\n";
-  print STDERR "   resolve targets   [filter...]  shows targets and corresponding snapshots\n";
-  print STDERR "   resolve latest    [filter...]  shows latest snapshots/targets\n";
-  print STDERR "   usage  [filter...]  print filesystem usage\n";
+  print STDERR "   run                 perform backup operations as defined in the config file\n";
+  print STDERR "   dryrun              don't run btrfs commands; show what would be executed\n";
+  print STDERR "   list <subcommand>   available subcommands are:\n";
+  print STDERR "      backups          all backups and corresponding snapshots\n";
+  print STDERR "      snapshots        all snapshots and corresponding backups\n";
+  print STDERR "      latest           most recent snapshots and backups\n";
+  print STDERR "      config           configured source/snapshot/target relations\n";
+  print STDERR "      source           configured source/snapshot relations\n";
+  print STDERR "      volume           configured volume sections\n";
+  print STDERR "      target           configured targets\n";
+  print STDERR "   usage               print filesystem usage\n";
   print STDERR "   origin <subvol>     print origin information for subvolume\n";
   print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
+
 
 sub TRACE { my $t = shift; print STDERR "... $t\n" if($loglevel >= 4);  }
 sub DEBUG { my $t = shift; print STDERR "$t\n" if($loglevel >= 3);  }
@@ -2136,89 +2141,60 @@ MAIN:
   }
   my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list);
   my @filter_args;
-  my $args_allow_group = 0;
-  my ($args_expected_min, $args_expected_max) = (0, 0);
+  my $args_allow_group = 1;
+  my $args_expected_min = 0;
+  my $args_expected_max = 9999;
   if(($command eq "run") || ($command eq "dryrun")) {
     $action_run = 1;
     $dryrun = 1 if($command eq "dryrun");
-    $args_expected_min = 0;
-    $args_expected_max = 9999;
     $args_allow_group = 1;
     @filter_args = @ARGV;
   }
   elsif ($command eq "usage") {
     $action_usage = 1;
-    $args_expected_min = 0;
-    $args_expected_max = 9999;
-    $args_allow_group = 1;
     @filter_args = @ARGV;
-  }
-  elsif ($command eq "resolve") {
-    my $subcommand = shift @ARGV // "";
-    if($subcommand eq "snapshots") {
-      $action_resolve = $subcommand;
-      $args_expected_min = 0;
-      $args_expected_max = 9999;
-      $args_allow_group = 1;
-      @filter_args = @ARGV;
-    }
-    elsif($subcommand eq "latest") {
-      $action_resolve = $subcommand;
-      $args_expected_min = 0;
-      $args_expected_max = 9999;
-      $args_allow_group = 1;
-      @filter_args = @ARGV;
-    }
-    elsif($subcommand eq "targets") {
-      $action_resolve = $subcommand;
-      $args_expected_min = 0;
-      $args_expected_max = 9999;
-      $args_allow_group = 1;
-      @filter_args = @ARGV;
-    }
-    else {
-      ERROR "Unknown subcommand for \"resolve\" command: $subcommand";
-      HELP_MESSAGE(0);
-      exit 2;
-    }
   }
   elsif ($command eq "diff") {
     $action_diff = 1;
     $args_expected_min = $args_expected_max = 2;
+    $args_allow_group = 0;
     @filter_args = @ARGV;
   }
   elsif ($command eq "origin") {
     $action_origin = 1;
     $args_expected_min = $args_expected_max = 1;
+    $args_allow_group = 0;
     @filter_args = @ARGV;
   }
   elsif($command eq "list") {
-    my $subcommand = shift @ARGV;
-    $action_list = "target-all";
-    if(defined($subcommand)) {
-      if(($subcommand eq "volume") ||
-         ($subcommand eq "source") ||
-         ($subcommand eq "target"))
-      {
-        $action_list = $subcommand;
-      }
-      else {
-        unshift @ARGV, $subcommand;
-      }
+    my $subcommand = shift @ARGV // "";
+    if(($subcommand eq "config") ||
+       ($subcommand eq "volume") ||
+       ($subcommand eq "source") ||
+       ($subcommand eq "target"))
+    {
+      $action_list = $subcommand;
     }
-    $args_expected_min = 0;
-    $args_expected_max = 9999;
-    $args_allow_group = 1;
+    elsif(($subcommand eq "snapshots") ||
+          ($subcommand eq "backups") ||
+          ($subcommand eq "latest"))
+    {
+      $action_resolve = $subcommand;
+    }
+    else {
+      $action_list = "config";
+      unshift @ARGV, $subcommand if($subcommand ne "");
+    }
     @filter_args = @ARGV;
   }
   elsif ($command eq "config") {
     my $subcommand = shift @ARGV // "";
+    @filter_args = @ARGV;
     if(($subcommand eq "print") || ($subcommand eq "print-all")) {
       $action_config_print = $subcommand;
-      $args_expected_min = 0;
-      $args_expected_max = 9999;
-      $args_allow_group = 1;
-      @filter_args = @ARGV;
+    }
+    elsif($subcommand eq "list") {
+      $action_list = "config";
     }
     else {
       ERROR "Unknown subcommand for \"config\" command: $subcommand";
@@ -2864,7 +2840,7 @@ MAIN:
         }
       }
     }
-    elsif($action_resolve eq "targets")
+    elsif($action_resolve eq "backups")
     {
       #
       # print all targets and their corresponding source snapshots

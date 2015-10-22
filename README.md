@@ -364,7 +364,7 @@ Example: Restore a Snapshot
 
 First, pick a snapshot to be restored:
 
-    btrbk tree
+    btrbk list snapshots
 
 From the list, pick the snapshot you want to restore. Let's say it's
 `/mnt/btr_pool/_btrbk_snap/data.20150101`.
@@ -388,7 +388,7 @@ Example: Restore a Backup
 
 First, pick a backup to be restored:
 
-    btrbk tree
+    btrbk list backups
 
 From the list, pick the backup you want to restore. Let's say it's
 `/mnt/btr_backup/data.20150101`.

@@ -1,9 +1,11 @@
 btrbk-current
 
+  * Added transaction log (configuration option "transaction_log").
   * Added configuration option "group".
-  * Allow filtering subcommands by group as well as targets.
+  * Allow filtering of all commands by group as well as targets.
+  * Added "list backups|snapshots|latest|config|source|volume|target"
+    commands (while removing "tree" command).
   * Added "config print" command.
-  * Added "list" command (experimental).
   * Added "--format=table|long|raw" and "-t,--table" command line
     options, producing tabular and raw (machine-readable) output for
     "(dry)run", "tree" and "list" commands.
@@ -12,7 +14,6 @@ btrbk-current
   * Added "target raw", with GnuPG and compression support
     (experimental).
   * Added configuration option "timestamp_format short|long".
-  * Added transaction log (configuration option "transaction_log").
   * Replaced "info" command with "usage", with tabular output.
   * Bugfix: correctly handle "incremental no" option.
   * Bugfix: return exit status 10 instead of 0 if one or more backup

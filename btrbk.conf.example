@@ -9,6 +9,9 @@
 #
 
 
+# Enable transaction log
+transaction_log            /var/log/btrbk.log
+
 # Directory in which the btrfs snapshots are created. Relative to
 # <volume-directory> of the volume section.
 # If not set, the snapshots are created in <volume-directory>.
@@ -63,9 +66,6 @@ snapshot_dir               _btrbk_snap
 # Set this to "yes" to enable btrfs-progs < 3.17 compatibility.
 # Set this either globally or in a specific "target" section.
 #btrfs_progs_compat         no
-
-# Enable transaction log
-#transaction_log            /var/log/btrbk_transaction.log
 
 
 #
