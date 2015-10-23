@@ -57,52 +57,6 @@ Note that btrfs is very picky on file names (mainly for security
 reasons), only the characters [0-9] [a-z] [A-Z] and "._+-@" are
 allowed.
 .RE
-.SH TARGET TYPES
-.PP
-\fBsend-receive\fR
-.RS 4
-Backup to a btrfs filesystem, using "btrfs send/receive". The
-\fI<target-directory>\fR must be an absolute path and point to a btrfs
-volume (or subvolume). See btrfs-send(8), btrfs-receive(8).
-.RE
-.PP
-\fBraw\fR  \fI*experimental*\fR
-.RS 4
-Backup to a raw (filesystem independent) file from the output of
-btrfs-send(8), with optional compression and encryption.
-.PP
-Additional options for raw target:
-.PP
-.RS 4
-raw_target_compress  gzip|bzip2|xz|no
-.PD 0
-.PP
-raw_target_encrypt  gpg|no
-.PP
-gpg_keyring  <file>
-.PP
-gpg_recipient  <name>
-.RE
-.PD
-.PP
-The target file name is:
-.PP
-.RS 4
-<snapshot-name>--<received_uuid>[@<parent_uuid>].btrfs[.gz|.bz2|.xz][.gpg]
-.RE
-.PP
-It is recommended to set "incremental no" for raw backups, for the
-following reasons:
-.IP \[bu] 2
-The target preserve mechanism is disabled for raw \fIincremental\fR
-backups, since deleting of any intermediate backup would destroy the
-consistency of all subsequent backups (btrbk will never delete any
-backup in a raw incremental chain).
-.IP \[bu]
-No rotation of incremental backups: if \fIincremental\fR is set, a
-full backup must be triggered manually from time to time in order to
-be able to delete old backups.
-.RE
 .SH OPTIONS
 .PP
 \fBtransaction_log\fR  <file>
@@ -267,6 +221,60 @@ manipulated by hand (moved, deleted).
 .PP
 Lines that contain a hash character (#) in the first column are
 treated as comments.
+.SH TARGET TYPES
+.PP
+\fBsend-receive\fR
+.RS 4
+Backup to a btrfs filesystem, using "btrfs send/receive". This is the
+recommended (standard) target type. The \fI<target-directory>\fR must
+be an absolute path and point to a btrfs volume (or subvolume). See
+btrfs-send(8), btrfs-receive(8).
+.RE
+.PP
+\fBraw\fR  \fI*experimental*\fR
+.RS 4
+Backup to a raw (filesystem independent) file from the output of
+btrfs-send(8), with optional compression and encryption.
+.PP
+Note that the target preserve mechanism is currently disabled for raw
+backups (btrbk does not delete any raw files)!
+.PP
+Additional options for raw targets:
+.PP
+.RS 4
+raw_target_compress  gzip|bzip2|xz|no
+.PD 0
+.PP
+raw_target_encrypt  gpg|no
+.PP
+gpg_keyring  <file>
+.PP
+gpg_recipient  <name>
+.RE
+.PD
+.PP
+Target file name syntax:
+.PP
+.RS 4
+<snapshot-name>--<received_uuid>[@<parent_uuid>].btrfs[.gz|.bz2|.xz][.gpg]
+.RE
+.PP
+The <parent_uuid> is only set on \fIincremental\fR backups, and points
+to the <received_uuid> of the previous backup in a incremental backup
+chain. For \fIincremental\fR backups ("incremental yes"), please note
+that:
+.IP \[bu] 2
+As soon as a single \fIincremental\fR backup file is lost or
+corrupted, all later incremental backups become invalid, as there is
+no common parent for the subsequent incremental images anymore. This
+might be a good compromise for a vacation backup plan, but for the
+long term make sure that a non-incremental backup is triggered from
+time to time.
+.IP \[bu]
+There is currently no support for rotation of incremental backups: if
+\fIincremental\fR is set, a full backup must be triggered manually
+from time to time in order to be able to delete old backups.
+.RE
 .SH AVAILABILITY
 Please refer to the btrbk project page
 \fBhttp://www.digint.ch/btrbk/\fR for further

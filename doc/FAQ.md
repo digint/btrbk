@@ -42,10 +42,10 @@ the volumes like this:
         $volume_rsh mount $volume_path
     done
 
-Note that the `btrbk config list` command accepts filters (see
-[btrbk(1)], FILTER STATEMENTS), which means you can e.g. add "group
-automount" tags in your configuration and dump only the volumes of
-this group: `btrbk config dump volume automount`.
+Note that the `btrbk list` command accepts filters (see [btrbk(1)],
+FILTER STATEMENTS), which means you can e.g. add "group automount"
+tags in your configuration and dump only the volumes of this group:
+`btrbk list volume automount`.
 
   [btrbk(1)]: http://www.digint.ch/btrbk/doc/btrbk.html
 

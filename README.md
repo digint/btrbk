@@ -268,7 +268,12 @@ Example: encrypted backup to non-btrfs target
 If your backup server does not support btrfs, you can send your
 subvolumes to a raw file.
 
-Note: this is an _experimental_ feature!
+This is an _experimental_ feature: btrbk supports "raw" targets,
+meaning that similar to the "send-receive" target the btrfs subvolume
+is being sent using `btrfs send` (mirroring filesystem level data),
+but instead of instantly being received (`btrfs receive`) by the
+target filesystem, it is being redirected to a file, optionally
+compressed and piped through GnuPG.
 
 /etc/btrbk/btrbk.conf:
 
@@ -279,16 +284,20 @@ Note: this is an _experimental_ feature!
 
     volume /mnt/btr_pool
       subvolume home
-        target raw ssh://myserver.mydomain.com/backup
+        target raw ssh://cloud.example.com/backup
           ssh_user     btrbk
-          incremental  no
+          # incremental  no
 
-This will create a GnuPG encrypted, compressed file
-`/backup/home.YYYYMMDD.btrfs_<received_uuid>.xz.gpg` on the target
-host.
+This will create a GnuPG encrypted, compressed files on the target
+host:
 
-While incremental backups are also supported for raw targets, this is
-not recommended (see [btrbk.conf(5)] for details).
+- `/backup/home.YYYYMMDD.btrfs_<received_uuid>.xz.gpg` for
+   non-incremental images,
+- `/backup/home.YYYYMMDD.btrfs_<received_uuid>@<parent_uuid>.xz.gpg`
+  for subsequent incremenal images.
+
+I you are using raw _incremental_ backups, please make sure you
+understand the implications (see [btrbk.conf(5)], TARGET TYPES).
 
 
 Setting up SSH
