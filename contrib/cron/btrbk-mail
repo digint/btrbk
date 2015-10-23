@@ -44,6 +44,7 @@ loglevel=2
 
 #####  end config section  #####
 
+mail_body=""
 
 die()
 {
@@ -83,12 +84,20 @@ for key in $rsync_enable; do
     [ -n "${rsync_key[$key]}" ] || die "rsync_key is not set for \"$key\""
     [ -n "${rsync_opt[$key]}" ] || die "rsync_opt is not set for \"$key\""
 
+    rsync_header="### rsync ${rsync_opt[$key]} ${rsync_src[$key]} ${rsync_dst[$key]}"
+
     if [ -d ${rsync_dst[$key]} ]; then
-	/bin/echo "### rsync ${rsync_opt[$key]} ${rsync_src[$key]} ${rsync_dst[$key]}" >> ${rsync_log[$key]}
-	/usr/bin/rsync ${rsync_opt[$key]} --log-file=${rsync_log[$key]} -e "/usr/bin/ssh -i ${rsync_key[$key]}" ${rsync_src[$key]} ${rsync_dst[$key]}
-	[ $? = 0 ] || log_error "rsync failed: $key"
+	/bin/echo "$rsync_header" >> ${rsync_log[$key]}
+	ret=$(/usr/bin/rsync ${rsync_opt[$key]} --info=STATS --log-file=${rsync_log[$key]} -e "/usr/bin/ssh -i ${rsync_key[$key]}" ${rsync_src[$key]} ${rsync_dst[$key]})
+	if [ $? != 0 ]; then
+	    log_error "rsync failed: $key"
+	    ret+="\nERROR: rsync failed with exit code $?\n"
+	fi
+	mail_body+="$rsync_header$ret\n\n"
     else
-	log_error "rsync destination directory not found for \"$key\", skipping: ${rsync_dst[$key]}"
+	ret="rsync destination directory not found for \"$key\", skipping: ${rsync_dst[$key]}"
+	mail_body+="$rsync_header\n$ret\n\n"
+	log_error "$ret"
     fi
 done
 
@@ -108,15 +117,17 @@ case $exitcode in
 	;;
 esac
 
-# filter "At subvol ..." messages from "btrfs send" and "btrfs receive" (see issue #33).
-ret=$(/bin/echo "$ret" | grep -v '^At subvol ')
+mail_body+=$ret
 
-if [ "${skip_empty_mail:-no}" = "yes" ] && [ -z "$ret" ] && [ $exitcode -eq 0 ]; then
+if [ "${skip_empty_mail:-no}" = "yes" ] && [ -z "$mail_body" ] && [ $exitcode -eq 0 ]; then
     : # skip email sending if skip_empty_mail=yes
 else
     # send email
-    /bin/echo "$ret" | /bin/mail -s "$mail_subject_prefix - $status" $mailto
-    [ $? = 0 ] || die "failed to send btrbk mail to \"$mailto\""
+    /bin/echo -e "$mail_body" | /bin/mail -s "$mail_subject_prefix - $status" $mailto
+    if [ $? != 0 ]; then
+	log_error "failed to send btrbk mail to \"$mailto\", dumping mail body:"
+	/bin/echo -e "$mail_body" 1>&2
+    fi
 fi
 
 
