@@ -19,6 +19,8 @@ Key Features:
 - Backups to multiple destinations
 - Transfer via ssh
 - Resume of backups (if backup target was not reachable for a while)
+- Encrypted backups to non-btrfs destinations
+- Transaction log
 - Display file changes between two backups
 
 btrbk is intended to be run as a cron job.
@@ -63,7 +65,7 @@ Grab the digint portage overlay from:
 
 ### Debian Based Distros
 
-btrbk is in `stretch (testing) (utils)`: https://packages.debian.org/stretch/btrbk
+btrbk is in `sid (unstable) (utils)`: https://packages.debian.org/sid/btrbk
 
 Packages are also available via NeuroDebian: http://neuro.debian.net/pkgs/btrbk.html
 
@@ -260,6 +262,36 @@ If the server runs btrbk with this config, the latest snapshot (which
 is *always* transferred), 10 weeklies and all monthlies are received
 from 192.168.0.42. The source filesystem is never altered because of
 `snapshot_preserve_daily all`.
+
+
+Example: backup from non-btrfs source
+-------------------------------------
+
+First create a btrfs subvolume on the backup server:
+
+    # btrfs subvolume create /mnt/btr_backup/myhost_sync
+
+In your daily cron script, prior to running btrbk, sync your source to
+`myhost_sync`, something like:
+
+    rsync -a --delete -e ssh myhost.mydomain.com://data/ /mnt/btr_backup/myhost_sync/
+
+Then run btrbk, with myhost_sync configured *without any targets* as
+follows:
+
+    volume /mnt/btr_backup
+      subvolume myhost_sync
+        snapshot_name    myhost
+
+        snapshot_preserve_daily    14
+        snapshot_preserve_weekly   20
+        snapshot_preserve_monthly  all
+
+This will produce daily snapshots `/mnt/btr_backup/myhost.20150101`,
+with retention as defined with the snapshot_preserve_* options.
+
+Note that the provided script: "contrib/cron/btrbk-mail" has support
+for this!
 
 
 Example: encrypted backup to non-btrfs target
