@@ -71,6 +71,7 @@ my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
+  # NOTE: files "." and "no" map to <undef>
   timestamp_format          => { default => "short",  accept => [ "short", "long" ], context => [ "root", "volume", "subvolume" ] },
   snapshot_dir              => { default => undef,    accept_file => { relative => 1 } },
   snapshot_name             => { default => undef,    accept_file => { name_only => 1 }, context => [ "subvolume" ] },   # NOTE: defaults to the subvolume name (hardcoded)
@@ -641,6 +642,11 @@ sub check_file($$;$$)
     ERROR "Ambiguous file for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
     return undef;
   }
+  # check directory traversal
+  if(($file =~ /^\.\.$/) || ($file =~ /^\.\.\//) || ($file =~ /\/\.\.\//) || ($file =~ /\/\.\.$/)) {
+    ERROR "Illegal directory traversal for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+    return undef;
+  }
   return 1;
 }
 
@@ -675,6 +681,7 @@ sub check_config_option($$$;$)
     TRACE "option \"$key=$value\" is a valid file, accepted";
     $value =~ s/\/+$//;   # remove trailing slash
     $value =~ s/^\/+/\//; # sanitize leading slash
+    $value = "no" if($value eq ".");  # maps to undef later
   }
   elsif($opt->{accept_regexp}) {
     my $match = $opt->{accept_regexp};
@@ -3386,8 +3393,8 @@ MAIN:
       #
       if($loglevel >= 2) {
         my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
-        my @data_snapshot = map { $_->{topic} eq "snapshot" ? $_ : () } @data;
-        my @data_backup = map { $_->{topic} eq "backup" ? $_ : () } @data;
+        my @data_snapshot = grep { $_->{topic} eq "snapshot" } @data;
+        my @data_backup   = grep { $_->{topic} eq "backup"   } @data;
 
         if(scalar(@data_snapshot)) {
           print_formatted("schedule", \@data_snapshot, title => "SNAPSHOT SCHEDULE");
