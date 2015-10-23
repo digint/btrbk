@@ -1672,7 +1672,7 @@ sub parse_filename($$;$)
     die unless($+{YYYY} && $+{MM} && $+{DD});
     return { btrbk_date    => [ $+{YYYY}, $+{MM}, $+{DD}, ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ],
              received_uuid => $+{received_uuid} // die,
-             parent_uuid   => $+{parent_uuid} // '-',
+             REMOTE_PARENT_UUID => $+{parent_uuid} // '-',
              ENCRYPT       => $+{encrypt} // "",
              COMPRESS      => $+{compress} // "",
             };
@@ -2712,7 +2712,7 @@ MAIN:
           }
 
           my %subvol_list;
-          my %parent_uuid_list;
+          my %child_uuid_list;
           foreach my $file (split("\n", $ret))
           {
             unless($file =~ /^$file_match$/) {
@@ -2729,16 +2729,22 @@ MAIN:
               next;
             }
 
-            # Fake btrfs subvolume information (received_uuid, parent_uuid) from filename info.
+            # Set btrfs subvolume information (received_uuid, parent_uuid) from filename info.
             #
-            # NOTE: parent_uuid in $filename_info is the "parent of the source subvolume", NOT the
-            # "parent of the received subvolume". We fake the real parent_uuid with the one from
-            # the filename here.
+            # NOTE: REMOTE_PARENT_UUID in $filename_info is the "parent of the source subvolume", NOT the
+            # "parent of the received subvolume".
             my $subvol = vinfo_child($droot, $file);
+            $filename_info->{uuid} = "FAKE_UUID:" . $subvol->{URL};
+            $filename_info->{parent_uuid} = '-'; # correct value gets inserted below
             vinfo_set_detail($subvol, $filename_info);
+            $uuid_info{$subvol->{uuid}} = $subvol;
+            $uuid_fs_map{$subvol->{uuid}}->{$subvol->{URL}} = $subvol;
 
             $subvol_list{$file} = $subvol;
-            $parent_uuid_list{$filename_info->{parent_uuid}} = $subvol if($filename_info->{parent_uuid} ne '-');
+            if($filename_info->{REMOTE_PARENT_UUID} ne '-') {
+              $child_uuid_list{$filename_info->{REMOTE_PARENT_UUID}} //= [];
+              push @{$child_uuid_list{$filename_info->{REMOTE_PARENT_UUID}}}, $subvol;
+            }
           }
           if($config_target->{ABORTED}) {
             WARN "Skipping target \"$droot->{PRINT}\": $config_target->{ABORTED}";
@@ -2746,21 +2752,23 @@ MAIN:
           }
           DEBUG "Found " . scalar(keys %subvol_list) . " raw subvolume backups of: $svol->{PRINT}";
           $droot->{SUBVOL_LIST} = \%subvol_list;
-          $droot->{REAL_URL} = $droot->{URL}; # ignore links here
+          $droot->{REAL_URL} = $droot->{URL}; # ignore symlinks here
 
           # Make sure that incremental backup chains are never broken:
           foreach my $subvol (values %subvol_list)
           {
             # If restoring a backup from raw btrfs images (using "incremental yes|strict"):
             # "btrfs send -p parent source > svol.btrfs", the backups
-            # on the target will get corrupted (unusable!)  as soon as
+            # on the target will get corrupted (unusable!) as soon as
             # an any files in the chain gets deleted.
             #
             # We need to make sure btrbk will NEVER delete those:
             # - svol.<timestamp>--<received_uuid_0>.btrfs                        : root (full) image
             # - svol.<timestamp>--<received_uuid-n>[@<received_uuid_n-1>].btrfs  : incremental image
 
-            if(my $child = $parent_uuid_list{$subvol->{received_uuid}}) {
+            foreach my $child (@{$child_uuid_list{$subvol->{received_uuid}}}) {
+              $child->{parent_uuid} = $subvol->{uuid};
+
               DEBUG "Found parent/child partners, forcing preserve of: \"$subvol->{PRINT}\", \"$child->{PRINT}\"";
               $subvol->{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
               $child->{FORCE_PRESERVE} ||= "preserve forced: child of another raw target";
