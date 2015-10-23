@@ -173,6 +173,7 @@ my $output_format;
 my $tlog_fh;
 my $current_transaction;
 my @transaction_log;
+my %config_override;
 
 
 $SIG{__DIE__} = sub {
@@ -542,6 +543,12 @@ sub config_key($$;@)
   my $key = shift || die;
   my %opts = @_;
   TRACE "config_key: context=$node->{CONTEXT}, key=$key";
+
+  if(exists($config_override{$key})) {
+    TRACE "config_key: forced key=$key to value=" . ($config_override{$key} // "<undef>");
+    return $config_override{$key};
+  }
+
   while(not exists($node->{$key})) {
     # note: while all config keys exist in root context (at least with default values),
     #       we also allow fake configs (CONTEXT="cmdline") which have no PARENT.
@@ -638,6 +645,79 @@ sub check_file($$;$$)
 }
 
 
+sub check_config_option($$$;$)
+{
+  my $key = shift;
+  my $value = shift;
+  my $context = shift;
+  my $config_file = shift;  # only for error text
+  my $config_file_statement = $config_file ? " in \"$config_file\" line $." : "";
+
+  my $opt = $config_options{$key};
+
+  # accept only keys listed in %config_options
+  unless($opt) {
+    ERROR "Unknown option \"$key\"" . $config_file_statement;
+    return undef;
+  }
+
+  if(grep(/^$value$/, @{$opt->{accept}})) {
+    TRACE "option \"$key=$value\" found in accept list";
+  }
+  elsif($opt->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
+    TRACE "option \"$key=$value\" is numeric, accepted";
+  }
+  elsif($opt->{accept_file})
+  {
+    # be very strict about file options, for security sake
+    return undef unless(check_file($value, $opt->{accept_file}, $key, $config_file));
+
+    TRACE "option \"$key=$value\" is a valid file, accepted";
+    $value =~ s/\/+$//;   # remove trailing slash
+    $value =~ s/^\/+/\//; # sanitize leading slash
+  }
+  elsif($opt->{accept_regexp}) {
+    my $match = $opt->{accept_regexp};
+    if($value =~ m/$match/) {
+      TRACE "option \"$key=$value\" matched regexp, accepted";
+    }
+    else {
+      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
+      return undef;
+    }
+  }
+  else
+  {
+    ERROR "Unsupported value \"$value\" for option \"$key\"" . $config_file_statement;
+    return undef;
+  }
+
+  if($opt->{split}) {
+    $value = [ split($opt->{split}, $value) ];
+    TRACE "splitted option \"$key\": " . join(',', @$value);
+  }
+
+  if($opt->{context} && !grep(/^$context$/, @{$opt->{context}})) {
+    ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$opt->{context}})) . " context" . $config_file_statement;
+    return undef;
+  }
+
+  if($opt->{deprecated}) {
+    WARN "Found deprecated option \"$key $value\"" . $config_file_statement . ": " .
+           ($opt->{deprecated}->{$value}->{warn} // $opt->{deprecated}->{DEFAULT}->{warn});
+    my $replace_key   = $opt->{deprecated}->{$value}->{replace_key};
+    my $replace_value = $opt->{deprecated}->{$value}->{replace_value};
+    if(defined($replace_key)) {
+      $key = $replace_key;
+      $value = $replace_value;
+      WARN "Using \"$key $value\"";
+    }
+  }
+
+  return $value;
+}
+
+
 sub parse_config_line($$$$$)
 {
   my ($file, $root, $cur, $key, $value) = @_;
@@ -726,69 +806,14 @@ sub parse_config_line($$$$$)
       return undef;
     }
   }
-  elsif(grep(/^$key$/, keys %config_options))  # accept only keys listed in %config_options
+  else
   {
-    if(grep(/^$value$/, @{$config_options{$key}->{accept}})) {
-      TRACE "option \"$key=$value\" found in accept list";
-    }
-    elsif($config_options{$key}->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
-      TRACE "option \"$key=$value\" is numeric, accepted";
-    }
-    elsif($config_options{$key}->{accept_file})
-    {
-      # be very strict about file options, for security sake
-      return undef unless(check_file($value, $config_options{$key}->{accept_file}, $key, $file));
-
-      TRACE "option \"$key=$value\" is a valid file, accepted";
-      $value =~ s/\/+$//;   # remove trailing slash
-      $value =~ s/^\/+/\//; # sanitize leading slash
-    }
-    elsif($config_options{$key}->{accept_regexp}) {
-      my $match = $config_options{$key}->{accept_regexp};
-      if($value =~ m/$match/) {
-        TRACE "option \"$key=$value\" matched regexp, accepted";
-      }
-      else {
-        ERROR "Value \"$value\" failed input validation for option \"$key\" in \"$file\" line $.";
-        return undef;
-      }
-    }
-    else
-    {
-      ERROR "Unsupported value \"$value\" for option \"$key\" in \"$file\" line $.";
-      return undef;
-    }
-
-    if($config_options{$key}->{split}) {
-      $value = [ split($config_options{$key}->{split}, $value) ];
-      TRACE "splitted option \"$key\": " . join(',', @$value);
-    }
-
-    if($config_options{$key}->{context} && !grep(/^$cur->{CONTEXT}$/, @{$config_options{$key}->{context}})) {
-      ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$config_options{$key}->{context}})) . " context, in \"$file\" line $.";
-      return undef;
-    }
-
-    if($config_options{$key}->{deprecated}) {
-      WARN "Found deprecated option \"$key $value\" in \"$file\" line $.: " .
-           ($config_options{$key}->{deprecated}->{$value}->{warn} // $config_options{$key}->{deprecated}->{DEFAULT}->{warn});
-      my $replace_key   = $config_options{$key}->{deprecated}->{$value}->{replace_key};
-      my $replace_value = $config_options{$key}->{deprecated}->{$value}->{replace_value};
-      if(defined($replace_key)) {
-        $key = $replace_key;
-        $value = $replace_value;
-        WARN "Using \"$key $value\"";
-      }
-    }
+    $value = check_config_option($key, $value, $cur->{CONTEXT}, $file);
+    return undef unless(defined($value));
 
     TRACE "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
     $value = undef if($value eq "no");  # we don't want to check for "no" all the time
     $cur->{$key} = $value;
-  }
-  else
-  {
-    ERROR "Unknown option \"$key\" in \"$file\" line $.";
-    return undef;
   }
 
   return $cur;
@@ -2112,6 +2137,7 @@ MAIN:
     'progress'      => \$show_progress,
     'table|t'       => sub { $output_format = "table" },
     'format=s'      => \$output_format,
+    # 'override=s'    => \%config_override,  # e.g. --override=incremental=no
    ))
   {
     VERSION_MESSAGE();
@@ -2233,6 +2259,14 @@ MAIN:
       HELP_MESSAGE(0);
       exit 2;
     }
+  }
+  foreach my $key (keys %config_override) {
+    my $value = check_config_option($key, $config_override{$key}, "root");
+    unless(defined($value)) {
+      HELP_MESSAGE(0);
+      exit 2;
+    }
+    $config_override{$key} = $value;
   }
 
 
