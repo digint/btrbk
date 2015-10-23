@@ -2773,6 +2773,10 @@ MAIN:
               $subvol->{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
               $child->{FORCE_PRESERVE} ||= "preserve forced: child of another raw target";
             }
+
+            # For now, always preserve all raw files.
+            # TODO: remove this line as soon as incremental rotation is implemented.
+            $subvol->{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
           }
 
           # TRACE(Data::Dumper->Dump([\%subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
