@@ -26,17 +26,22 @@ install-systemd:
 install-share:
 	@echo 'installing auxiliary scripts...'
 	install -Dm755 ssh_filter_btrbk.sh "$(DESTDIR)$(SCRIPTDIR)/ssh_filter_btrbk.sh"
+	install -Dm755 contrib/cron/btrbk-mail "$(DESTDIR)$(SCRIPTDIR)/btrbk-mail"
 
 install-man:
 	@echo 'installing manpages...'
 	install -Dm644 doc/btrbk.1 "$(DESTDIR)$(MAN1DIR)/btrbk.1"
+	install -Dm644 doc/ssh_filter_btrbk.1 "$(DESTDIR)$(MAN1DIR)/ssh_filter_btrbk.1"
 	install -Dm644 doc/btrbk.conf.5 "$(DESTDIR)$(MAN5DIR)/btrbk.conf.5"
 	gzip -9 "$(DESTDIR)$(MAN1DIR)/btrbk.1"
+	gzip -9 "$(DESTDIR)$(MAN1DIR)/ssh_filter_btrbk.1"
 	gzip -9 "$(DESTDIR)$(MAN5DIR)/btrbk.conf.5"
 
 install-doc:
 	@echo 'installing documentation...'
 	install -Dm644 README.md "$(DESTDIR)$(DOCDIR)/README.md"
+	install -Dm644 doc/FAQ.md "$(DESTDIR)$(DOCDIR)/FAQ.md"
 	gzip -9 "$(DESTDIR)$(DOCDIR)/README.md"
+	gzip -9 "$(DESTDIR)$(DOCDIR)/FAQ.md"
 
 install: install-bin install-systemd install-share install-man install-doc
