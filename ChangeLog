@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.21.0
 
   * Added transaction log (configuration option "transaction_log").
   * Added configuration option "group".
