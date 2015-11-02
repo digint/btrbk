@@ -1,4 +1,4 @@
-.TH "btrbk.conf" "5" "2015-10-25" "btrbk v0.21.0" ""
+.TH "btrbk.conf" "5" "2015-11-02" "btrbk v0.21.0" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -69,11 +69,12 @@ space-separated table format.
 \fBtimestamp_format\fR  short|long
 .RS 4
 Timestamp format used as postfix for new snapshot subvolume names.
-defaults to \[lq]short\[rq].
-.IP \[bu] 2
-\fIshort\fR: YYYYMMDD[_N] (e.g. "20150825", "20150825_1")
-.IP \[bu]
-\fIlong\fR:  YYYYMMDD<T>hhmm[_N] (e.g. "20150825T1531")
+Defaults to \[lq]short\[rq].
+.PP
+.IP \fBshort\fR
+YYYYMMDD[_N]  (e.g. "20150825", "20150825_1")
+.IP \fBlong\fR
+YYYYMMDD<T>hhmm[_N]  (e.g. "20150825T1531")
 .PP
 Note that a postfix "_N" is only appended to the timestamp if a
 snapshot/backup already exists with the timestamp of current
@@ -261,16 +262,17 @@ Target file name syntax:
 .PP
 The <parent_uuid> is only set on \fIincremental\fR backups, and points
 to the <received_uuid> of the previous backup in a incremental backup
-chain. For \fIincremental\fR backups ("incremental yes"), please note
-that:
-.IP \[bu] 2
+chain.
+.PP
+For \fIincremental\fR backups ("incremental yes"), please note that:
+.IP 1. 4
 As soon as a single \fIincremental\fR backup file is lost or
 corrupted, all later incremental backups become invalid, as there is
 no common parent for the subsequent incremental images anymore. This
 might be a good compromise for a vacation backup plan, but for the
 long term make sure that a non-incremental backup is triggered from
 time to time.
-.IP \[bu]
+.IP 2. 4
 There is currently no support for rotation of incremental backups: if
 \fIincremental\fR is set, a full backup must be triggered manually
 from time to time in order to be able to delete old backups.
