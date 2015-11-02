@@ -65,7 +65,7 @@ Grab the digint portage overlay from:
 
 ### Debian Based Distros
 
-btrbk is in `sid (unstable) (utils)`: https://packages.debian.org/sid/btrbk
+btrbk is in `stretch (testing) (utils)`: https://packages.debian.org/stretch/btrbk
 
 Packages are also available via NeuroDebian: http://neuro.debian.net/pkgs/btrbk.html
 
