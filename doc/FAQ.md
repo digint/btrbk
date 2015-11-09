@@ -188,3 +188,58 @@ something like:
 
     # cd /mnt/btr_pool
     # rm -rf bin sbin usr lib var ...
+
+
+What is the most efficient way to clone btrfs storage?
+------------------------------------------------------
+
+It is very common (and avisable!) to keep backups on a separate
+location. In some situations, is is also required to transport the
+data physically, either to the datacenter or to your safe in the
+basement.
+
+### Answer 1: Use external storage as "stream-fifo"
+
+This example uses a USB disk as "stream-fifo" for transferring
+(cloning) of btrfs subvolumes:
+
+1. For all source subvolumes (in order of generation):
+
+    `btrfs send /source/subvolX -p PARENT > /usbdisk/streamN`
+
+2. At the target location, restore the streams (in order of
+   generation):
+
+    `cat /usbdisk/streamN | btrfs receive /target`
+
+This approach has the advantage that you don't need to reformat your
+USB disk. This works fine, but be aware that you may run into trouble
+if a single stream gets corrupted, making all subsequent streams
+unusable.
+
+### Answer 2: Clone btrfs subvolumes
+
+A more robust approach is to use the USB disk as secondary backup.
+This has the advantage that possible errors can already be detected by
+btrfs on the source side:
+
+1. Initialize USB disk:
+
+    `mkfs.btrfs /dev/usbX`
+
+2. For all source subvolumes (in order of generation):
+
+    `btrfs send /source/subvolX -p PARENT | btrfs receive /usbdisk/`
+
+3. At the target location (in order of generation):
+
+    `btrfs send /usbdisk/subvolX -p PARENT | btrfs receive /target`
+
+If you simply want to have a clone of the source disk, skip step 3 and
+store your USB disk in a safe. You will be able to use it for
+restoring backups later, or *as a replacement for your backup disks*.
+
+**Note that kernels >=4.1 have a bug when re-sending subvolumes**,
+make sure you run a patched kernel or step 3 will fail. Read
+[this thread on gmane](http://thread.gmane.org/gmane.comp.file-systems.btrfs/48798)
+(the patch provided is confirmed working on kernels 4.2.x and 4.3).
