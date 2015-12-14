@@ -1,3 +1,8 @@
+btrbk-current
+
+  * Bugfix: fix sprintf used by config option "timestamp_format long"
+    when using perl-5.22.0 (close: #57)
+
 btrbk-0.21.0
 
   * Added transaction log (configuration option "transaction_log").

@@ -48,7 +48,7 @@ use Getopt::Long qw(GetOptions);
 use POSIX qw(strftime);
 use Data::Dumper;
 
-our $VERSION       = "0.21.0";
+our $VERSION       = "0.21.1-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -3064,7 +3064,7 @@ MAIN:
           # find unique snapshot name
           my $timestamp = ((config_key($config_subvol, "timestamp_format") eq "short") ?
                            sprintf("%04d%02d%02d", @today) :
-                           sprintf("%04d%02d%02dT%02d%02d", @today_and_now));
+                           sprintf("%04d%02d%02dT%02d%02d", @today_and_now[0..4]));
           my @unconfirmed_target_name;
           my @lookup = keys %{vinfo_subvol_list($sroot)};
           @lookup = grep s/^\Q$snapdir\E// , @lookup;
