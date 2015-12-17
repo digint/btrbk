@@ -1,7 +1,8 @@
 btrbk-current
 
+  * Bugfix: fix monthly schedule if older than 10 weeks (close: #59).
   * Bugfix: fix sprintf used by config option "timestamp_format long"
-    when using perl-5.22.0 (close: #57)
+    when using perl-5.22.0 (close: #57).
 
 btrbk-0.21.0
 

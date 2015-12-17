@@ -1895,14 +1895,14 @@ sub schedule(@)
     }
     $first_in_delta_weeks{$href->{delta_weeks}} //= $href;
   }
-  foreach (reverse sort keys %first_in_delta_weeks) {
+  foreach (sort {$b <=> $a} keys %first_in_delta_weeks) {
     my $href = $first_in_delta_weeks{$_} || die;
     if($preserve_weekly && (($preserve_weekly eq "all") || ($href->{delta_weeks} <= $preserve_weekly))) {
       $href->{preserve} ||= "preserved weekly: $href->{delta_weeks} weeks ago, " . ($href->{err_days} ? "+$href->{err_days} days after " : "on ") . "$preserve_day_of_week";
     }
     $last_weekly_in_delta_months{$href->{delta_months}} = $href;
   }
-  foreach (reverse sort keys %last_weekly_in_delta_months) {
+  foreach (sort {$b <=> $a} keys %last_weekly_in_delta_months) {
     my $href = $last_weekly_in_delta_months{$_} || die;
     if($preserve_monthly && (($preserve_monthly eq "all") || ($href->{delta_months} <= $preserve_monthly))) {
       $href->{preserve} ||= "preserved monthly: " . ($href->{err_days} ? "$href->{err_days} days after " : "") . "last $preserve_day_of_week of month $href->{month} (age: $href->{delta_months} months)";
