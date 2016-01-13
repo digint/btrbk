@@ -1114,6 +1114,28 @@ sub btrfs_subvolume_detail($)
 }
 
 
+sub btrfs_subvolume_list_readonly_flag($)
+{
+  my $vol = shift || die;
+  my $path = $vol->{PATH} // die;
+
+  my $ret = run_cmd(cmd => [ qw(btrfs subvolume list), '-a', '-r', $path ],
+                    rsh => $vol->{RSH},
+                    non_destructive => 1,
+                   );
+  return undef unless(defined($ret));
+
+  my %ro;
+  foreach (split(/\n/, $ret))
+  {
+    die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen [0-9]+ top level [0-9]+ path /);
+    $ro{$1} = 1;
+  }
+  DEBUG "Parsed " . scalar(keys %ro) . " readonly subvolumes for filesystem at: $vol->{PRINT}";
+  return \%ro;
+}
+
+
 sub btrfs_subvolume_list($;@)
 {
   my $vol = shift || die;
@@ -1185,6 +1207,15 @@ sub btrfs_subvolume_list($;@)
     push @nodes, \%node;
   }
   DEBUG "Parsed " . scalar(@nodes) . " total subvolumes for filesystem at: $vol->{PRINT}";
+
+  # fetch readonly flag
+  # NOTE: the only way to get "readonly" flag is via a second call to "btrfs subvol list" with the "-r" option (as of btrfs-progs v4.3.1)
+  my $ro = btrfs_subvolume_list_readonly_flag($vol);
+  return undef unless(defined($ro));
+  foreach (@nodes) {
+    $_->{readonly} = $ro->{$_->{id}} // 0;
+  }
+
   return \@nodes;
 }
 
@@ -1795,6 +1826,7 @@ sub get_snapshot_children($$)
 
   my $sroot_subvols = vinfo_subvol_list($sroot);
   foreach (values %$sroot_subvols) {
+    next unless($_->{readonly});
     next unless($_->{parent_uuid} eq $svol->{uuid});
     TRACE "get_snapshot_children: found: $_->{PRINT}";
     push(@ret, $_);
@@ -1816,6 +1848,7 @@ sub get_receive_targets($$)
     # guess matches by subvolume name (node->received_uuid is not available if BTRFS_PROGS_COMPAT is set)
     DEBUG "Fallback to compatibility mode (get_receive_targets)";
     foreach my $target (values %$droot_subvols) {
+      next unless($_->{readonly});
       if($target->{NAME} eq $src_vol->{NAME}) {
         TRACE "get_receive_targets: by-name: Found receive target: $target->{SUBVOL_PATH}";
         push(@ret, $target);
@@ -1828,6 +1861,7 @@ sub get_receive_targets($$)
     my $uuid = $src_vol->{uuid};
     die("subvolume info not present: $uuid") unless($uuid_info{$uuid});
     foreach (values %$droot_subvols) {
+      next unless($_->{readonly});
       next unless($_->{received_uuid} eq $uuid);
       TRACE "get_receive_targets: by-uuid: Found receive target: $_->{SUBVOL_PATH}";
       push(@ret, $_);
@@ -2874,6 +2908,7 @@ MAIN:
             my $subvol = vinfo_child($droot, $file);
             $filename_info->{uuid} = "FAKE_UUID:" . $subvol->{URL};
             $filename_info->{parent_uuid} = '-'; # correct value gets inserted below
+            $filename_info->{readonly} = 1; # fake subvolume readonly flag
             vinfo_set_detail($subvol, $filename_info);
             $uuid_info{$subvol->{uuid}} = $subvol;
             $uuid_fs_map{$subvol->{uuid}}->{$subvol->{URL}} = $subvol;
