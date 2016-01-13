@@ -2912,6 +2912,7 @@ MAIN:
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             foreach my $target_vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } values %{vinfo_subvol_list($droot)}) {
               my $parent_snapshot;
+              my $incomplete_backup;
               foreach (@snapshot_children) {
                 if($droot->{BTRFS_PROGS_COMPAT}) {
                   if($_->{NAME} eq $target_vol->{NAME}) {
@@ -2919,6 +2920,13 @@ MAIN:
                     last;
                   }
                 } else {
+                  if($target_vol->{received_uuid} eq '-') {
+                    # incomplete received (garbled) subvolumes have no received_uuid (as of btrfs-progs v4.3.1).
+                    # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
+                    $parent_snapshot = undef;
+                    $incomplete_backup = 1;
+                    last;
+                  }
                   if($_->{uuid} eq $target_vol->{received_uuid}) {
                     $parent_snapshot = $_;
                     last;
@@ -2937,7 +2945,7 @@ MAIN:
                 # don't display all subvolumes in $droot, only the ones matching snapshot_name
                 if(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, ($config_target->{target_type} eq "raw"))) {
                   push @data, { type => "received",
-                                status => "orphaned",
+                                status => ($incomplete_backup ? "incomplete" : "orphaned"),
                                 vinfo_prefixed_keys("target", $target_vol),
                                 vinfo_prefixed_keys("source", $svol),
                               };
