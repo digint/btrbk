@@ -4,6 +4,7 @@ btrbk-current
   * Bugfix: fix sprintf used by config option "timestamp_format long"
     when using perl-5.22.0 (close: #57).
   * Added "clean" command (close: #61).
+  * Added "-n, --dry-run" option.
 
 btrbk-0.21.0
 

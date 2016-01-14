@@ -205,6 +205,7 @@ sub HELP_MESSAGE
   print STDERR "   -h, --help            display this help message\n";
   print STDERR "       --version         display version information\n";
   print STDERR "   -c, --config=FILE     specify configuration file\n";
+  print STDERR "   -n, --dry-run         perform a trial run with no changes made\n";
   print STDERR "   -p, --preserve        preserve all backups (do not delete any old targets)\n";
   print STDERR "   -r, --resume-only     resume only (do not create new snapshots, only resume\n";
   print STDERR "                         missing backups)\n";
@@ -2137,6 +2138,7 @@ MAIN:
     'help|h'        => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
     'version'       => sub { VERSION_MESSAGE(); exit 0; },
     'config|c=s'    => \$config_cmdline,
+    'dry-run|n'     => \$dryrun,
     'preserve|p'    => \$preserve_backups,
     'resume-only|r' => \$resume_only,
     'quiet|q'       => \$quiet,

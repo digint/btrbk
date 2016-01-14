@@ -8,7 +8,7 @@ btrbk \- backup tool for btrfs volumes
 .SH SYNOPSIS
 .nf
 \fBbtrbk\fR [\-h|\-\-help] [\-\-version] [\-c|\-\-config <file>]
-      [\-p|\-\-preserve] [\-r|\-\-resume\-only]
+      [\-n|\-\-dry\-run] [\-p|\-\-preserve] [\-r|\-\-resume\-only]
       [\-v|\-\-verbose] [\-q|\-\-quiet] [\-l|\-\-loglevel <level>]
       [\-t|\-\-table] [\-\-format <output\-format>]
       [\-\-progress]
@@ -44,6 +44,14 @@ Prints the synopsis and a list of the commands.
 \-\-version
 .RS 4
 Prints the btrbk version.
+.RE
+.PP
+\-n, \-\-dry\-run
+.RS 4
+Don't run anything that would alter the filesystem, just show the
+snapshots and backup subvolumes that would be created/deleted by the
+\fBrun\fR and \fBclean\fR commands. Use in conjunction with \fI\-l
+debug\fR to see the btrfs commands that would be executed.
 .RE
 .PP
 \-c, \-\-config <file>
@@ -138,10 +146,10 @@ different output formats.
 .B dryrun
 [filter...]
 .RS 4
-Don't run btrfs commands, just show the snapshots and backup
-subvolumes that would be created/deleted by the \fBrun\fR command. Use
-in conjunction with \fI\-l debug\fR to see the btrfs commands that
-would be executed.
+Don't run any btrfs commands that would alter the filesystem, just
+show the snapshots and backup subvolumes that would be created/deleted
+by the \fBrun\fR command. Use in conjunction with \fI\-l debug\fR to
+see the btrfs commands that would be executed.
 .RE
 .PP
 .B list
