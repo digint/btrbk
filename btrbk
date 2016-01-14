@@ -3162,7 +3162,7 @@ MAIN:
                 push(@schedule, { value      => $child,
                                   btrbk_date => $filename_info->{btrbk_date},
                                   preserve   => $child->{FORCE_PRESERVE},
-                                 }),
+                                 });
               }
             }
 
