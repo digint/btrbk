@@ -180,6 +180,15 @@ Use the \fI\-\-format\fR command line option to switch between
 different output formats.
 .RE
 .PP
+.B clean
+[filter...]
+.RS 4
+Delete incomplete (garbled) backups. Incomplete backups can be left
+behind on network errors or kill signals while a send/receive
+operation is ongoing, and are identified by the "received_uuid" flag
+not being set on a target (backup) subvolume.
+.RE
+.PP
 .B usage
 [filter...]
 .RS 4

@@ -226,6 +226,7 @@ sub HELP_MESSAGE
   print STDERR "      source           configured source/snapshot relations\n";
   print STDERR "      volume           configured volume sections\n";
   print STDERR "      target           configured targets\n";
+  print STDERR "   clean               delete incomplete (garbled) backups\n";
   print STDERR "   usage               print filesystem usage\n";
   print STDERR "   origin <subvol>     print origin information for subvolume\n";
   print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
@@ -1585,7 +1586,7 @@ sub macro_send_receive($@)
   # check for existing target subvolume
   if(my $err_vol = vinfo_subvol($target, $snapshot->{NAME})) {
     ABORTED($config_target, "Target subvolume \"$err_vol->{PRINT}\" already exists");
-    $config_target->{UNRECOVERABLE} = "Please delete stray subvolume: $err_vol->{PRINT}";
+    $config_target->{UNRECOVERABLE} = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
     ERROR $config_target->{ABORTED} . ", aborting send/receive of: $snapshot->{PRINT}";
     ERROR $config_target->{UNRECOVERABLE};
     $info{ERROR} = 1;
@@ -2172,7 +2173,7 @@ MAIN:
     WARN 'found option "--progress", but "pv" is not present: (please install "pv")';
     $show_progress = 0;
   }
-  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list);
+  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean);
   my @filter_args;
   my $args_allow_group = 1;
   my $args_expected_min = 0;
@@ -2181,6 +2182,10 @@ MAIN:
     $action_run = 1;
     $dryrun = 1 if($command eq "dryrun");
     $args_allow_group = 1;
+    @filter_args = @ARGV;
+  }
+  elsif ($command eq "clean") {
+    $action_clean = 1;
     @filter_args = @ARGV;
   }
   elsif ($command eq "usage") {
@@ -2395,7 +2400,7 @@ MAIN:
   #
   # open transaction log
   #
-  if($action_run && (not $dryrun) && config_key($config, "transaction_log")) {
+  if(($action_run || $action_clean) && (not $dryrun) && config_key($config, "transaction_log")) {
     init_transaction_log(config_key($config, "transaction_log"));
   }
   action("startup", status => "v$VERSION", message => "$version_info");
@@ -3007,6 +3012,99 @@ MAIN:
     print_formatted("resolved", \@data);
 
     exit exit_status($config);
+  }
+
+
+  if($action_clean)
+  {
+    #
+    # identify and delete incomplete backups
+    #
+    my @out;
+    foreach my $config_vol (@{$config->{VOLUME}})
+    {
+      next if($config_vol->{ABORTED});
+      my $sroot = $config_vol->{sroot} || die;
+      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+      {
+        next if($config_subvol->{ABORTED});
+        my $svol = $config_subvol->{svol} || die;
+        my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
+        foreach my $config_target (@{$config_subvol->{TARGET}})
+        {
+          next if($config_target->{ABORTED});
+          my $droot = $config_target->{droot} || die;
+          if($droot->{BTRFS_PROGS_COMPAT}) {
+            WARN "btrfs_progs_compat is set, skipping cleanup of target: $droot->{PRINT}";
+            next;
+          }
+
+          INFO "Cleaning incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
+          push @out, "$droot->{PRINT}/$snapshot_name.*";
+          my @delete;
+          foreach my $target_vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } values %{vinfo_subvol_list($droot)}) {
+            # incomplete received (garbled) subvolumes have no received_uuid (as of btrfs-progs v4.3.1).
+            # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
+            if(($target_vol->{received_uuid} eq '-') && parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name)) {
+              DEBUG "Found incomplete target subvolume: $target_vol->{PRINT}";
+              push(@delete, $target_vol);
+              push @out, "--- $target_vol->{PRINT}";
+            }
+          }
+          my $ret = btrfs_subvolume_delete(\@delete, commit => config_key($config_target, "btrfs_commit_delete"), type => "delete_garbled");
+          if(defined($ret)) {
+            INFO "Deleted $ret incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
+            $config_target->{SUBVOL_DELETED} = \@delete;
+          }
+          else {
+            ABORTED($config_target, "Failed to delete incomplete target subvolume");
+            push @out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
+          }
+          push(@out, "<no_action>") unless(scalar(@delete));
+          push(@out, "");
+        }
+      }
+    }
+
+    my $exit_status = exit_status($config);
+    my $time_elapsed = time - $start_time;
+    INFO "Completed within: ${time_elapsed}s  (" . localtime(time) . ")";
+    action("finished",
+           status => $exit_status ? "partial" : "success",
+           duration => $time_elapsed,
+           message => $exit_status ? "At least one delete operation failed" : undef,
+          );
+    close_transaction_log();
+
+    #
+    # print summary
+    #
+    unless($quiet)
+    {
+      $output_format ||= "custom";
+      if($output_format eq "custom")
+      {
+        print_header(title => "Cleanup Summary",
+                     config => $config,
+                     time => $start_time,
+                     legend => [
+                       "---  deleted subvolume (incomplete backup)",
+                      ],
+                    );
+        print join("\n", @out);
+        if($dryrun) {
+          print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
+        }
+      }
+      else
+      {
+        # print action log (without transaction start messages)
+        my @data = grep { $_->{status} ne "starting" } @transaction_log;
+        print_formatted("transaction", \@data, title => "TRANSACTION LOG");
+      }
+    }
+
+    exit $exit_status;
   }
 
 
