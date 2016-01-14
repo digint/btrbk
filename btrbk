@@ -72,50 +72,52 @@ my %config_options = (
   # NOTE: the parser always maps "no" to undef
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   # NOTE: files "." and "no" map to <undef>
-  timestamp_format          => { default => "short",  accept => [ "short", "long" ], context => [ "root", "volume", "subvolume" ] },
-  snapshot_dir              => { default => undef,    accept_file => { relative => 1 } },
-  snapshot_name             => { default => undef,    accept_file => { name_only => 1 }, context => [ "subvolume" ] },   # NOTE: defaults to the subvolume name (hardcoded)
-  snapshot_create           => { default => "always", accept => [ "no", "always", "ondemand", "onchange" ] },
-  incremental               => { default => "yes",    accept => [ "yes", "no", "strict" ] },
-  resume_missing            => { default => "yes",    accept => [ "yes", "no" ] },
-  preserve_day_of_week      => { default => "sunday", accept => [ (keys %day_of_week_map) ] },
-  snapshot_preserve_daily   => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
-  snapshot_preserve_weekly  => { default => 0,        accept => [ "all" ], accept_numeric => 1  },
-  snapshot_preserve_monthly => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
-  target_preserve_daily     => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
-  target_preserve_weekly    => { default => 0,        accept => [ "all" ], accept_numeric => 1  },
-  target_preserve_monthly   => { default => "all",    accept => [ "all" ], accept_numeric => 1  },
-  btrfs_commit_delete       => { default => undef,    accept => [ "after", "each", "no" ] },
-  ssh_identity              => { default => undef,    accept_file => { absolute => 1 } },
-  ssh_user                  => { default => "root",   accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
-  ssh_port                  => { default => "default", accept => [ "default" ], accept_numeric => 1 },
-  ssh_compression           => { default => undef,    accept => [ "yes", "no" ] },
-  ssh_cipher_spec           => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
-  transaction_log           => { default => undef,    accept_file => { absolute => 1 } },
+  timestamp_format            => { default => "short",   accept => [ "short", "long" ], context => [ "root", "volume", "subvolume" ] },
+  snapshot_dir                => { default => undef,     accept_file => { relative => 1 } },
+  snapshot_name               => { default => undef,     accept_file => { name_only => 1 }, context => [ "subvolume" ] },   # NOTE: defaults to the subvolume name (hardcoded)
+  snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ] },
+  incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
+  resume_missing              => { default => "yes",     accept => [ "yes", "no" ] },
+  preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
+  snapshot_preserve_daily     => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
+  snapshot_preserve_weekly    => { default => 0,         accept => [ "all" ], accept_numeric => 1  },
+  snapshot_preserve_monthly   => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
+  target_preserve_daily       => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
+  target_preserve_weekly      => { default => 0,         accept => [ "all" ], accept_numeric => 1  },
+  target_preserve_monthly     => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
+  btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
+  ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
+  ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
+  ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1 },
+  ssh_compression             => { default => undef,     accept => [ "yes", "no" ] },
+  ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
+  transaction_log             => { default => undef,     accept_file => { absolute => 1 } },
 
-  raw_target_compress       => { default => undef,    accept => [ "no", "gzip", "bzip2", "xz" ] },
-  raw_target_encrypt        => { default => undef,    accept => [ "no", "gpg" ] },
-  gpg_keyring               => { default => undef,    accept_file => { absolute => 1 } },
-  gpg_recipient             => { default => undef,    accept_regexp => qr/^[0-9a-zA-Z_@\+\-\.]+$/ },
+  raw_target_compress         => { default => undef,     accept => [ "no", "gzip", "bzip2", "xz" ] },
+  raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
+  raw_target_compress_threads => { default => "default", accept => [ "default" ], accept_numeric => 1 },
+  raw_target_encrypt          => { default => undef,     accept => [ "no", "gpg" ] },
+  gpg_keyring                 => { default => undef,     accept_file => { absolute => 1 } },
+  gpg_recipient               => { default => undef,     accept_regexp => qr/^[0-9a-zA-Z_@\+\-\.]+$/ },
 
-  btrfs_progs_compat        => { default => undef,    accept => [ "yes", "no" ] },
-  group                     => { default => undef,    accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
+  btrfs_progs_compat          => { default => undef,     accept => [ "yes", "no" ] },
+  group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
 
   # deprecated options
-  snapshot_create_always    => { default => undef, accept => [ "yes", "no" ],
-                                 deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
-                                                          replace_key   => "snapshot_create",
-                                                          replace_value => "always",
-                                                         },
-                                                 no  => { warn => "Please use \"snapshot_create no\" or \"snapshot_create ondemand\"",
-                                                          replace_key   => "snapshot_create",
-                                                          replace_value => "ondemand",
-                                                         }
-                                                },
-                               },
-  receive_log               => { default => undef, accept => [ "sidecar", "no" ], accept_file => { absolute => 1 },
-                                 deprecated => { DEFAULT => { warn => "ignoring" } },
-                               }
+  snapshot_create_always      => { default => undef, accept => [ "yes", "no" ],
+                                   deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
+                                                            replace_key   => "snapshot_create",
+                                                            replace_value => "always",
+                                                           },
+                                                   no  => { warn => "Please use \"snapshot_create no\" or \"snapshot_create ondemand\"",
+                                                            replace_key   => "snapshot_create",
+                                                            replace_value => "ondemand",
+                                                           }
+                                                  },
+                                 },
+  receive_log                 => { default => undef, accept => [ "sidecar", "no" ], accept_file => { absolute => 1 },
+                                   deprecated => { DEFAULT => { warn => "ignoring" } },
+                                 }
  );
 
 my @config_target_types = qw(send-receive raw);
@@ -1358,9 +1360,9 @@ sub btrfs_send_to_file($$$$;@)
   $target_filename .= '@' . $parent_uuid if($parent_uuid);
   $target_filename .= ".btrfs";
 
-  my %compress = ( gzip  => { pipe => { cmd => [ 'gzip'  ], name => 'gzip'  }, postfix => '.gz'  },
-                   bzip2 => { pipe => { cmd => [ 'bzip2' ], name => 'bzip2' }, postfix => '.bz2' },
-                   xz    => { pipe => { cmd => [ 'xz'    ], name => 'xz'    }, postfix => '.xz'  },
+  my %compress = ( gzip  => { name => 'gzip' , cmd => [ 'gzip'  ], postfix => '.gz',  level_min => 1, level_max => 9 },
+                   bzip2 => { name => 'bzip2', cmd => [ 'bzip2' ], postfix => '.bz2', level_min => 1, level_max => 9 },
+                   xz    => { name => 'xz'   , cmd => [ 'xz'    ], postfix => '.xz',  level_min => 0, level_max => 9, threads => '--threads=' },
                   );
 
   my @send_options;
@@ -1379,7 +1381,31 @@ sub btrfs_send_to_file($$$$;@)
   if($opts{compress}) {
     die unless($compress{$opts{compress}});
     $target_filename .= $compress{$opts{compress}}->{postfix};
-    push @cmd_pipe, $compress{$opts{compress}}->{pipe};
+    my $compress_cmd = $compress{$opts{compress}}->{cmd};
+    if(defined($opts{compress_level}) && ($opts{compress_level} ne "default")) {
+      my $compress_level = $opts{compress_level};
+      if($compress_level < $compress{$opts{compress}}->{level_min}) {
+        WARN "Compression level (raw_target_compress_level) capped to minimum for '$opts{compress}': $compress{$opts{compress}}->{level_min}";
+        $compress_level = $compress{$opts{compress}}->{level_min};
+      }
+      if($compress_level > $compress{$opts{compress}}->{level_max}) {
+        WARN "Compression level (raw_target_compress_level) capped to maximum for '$opts{compress}': $compress{$opts{compress}}->{level_max}";
+        $compress_level = $compress{$opts{compress}}->{level_max};
+      }
+      push @$compress_cmd, '-' . $compress_level;
+    }
+    if(defined($opts{compress_threads}) && ($opts{compress_threads} ne "default")) {
+      my $thread_opt = $compress{$opts{compress}}->{threads};
+      if($thread_opt) {
+        push @$compress_cmd, $thread_opt . $opts{compress_threads};
+      }
+      else {
+        WARN "Threading (raw_target_compress_threads) is not supported for '$opts{compress}', ignoring";
+      }
+    }
+    push @cmd_pipe, { cmd => $compress_cmd,
+                      name => $compress{$opts{compress}}->{name}
+                     };
   }
   if($opts{encrypt}) {
     die unless($opts{encrypt}->{type} eq "gpg");
@@ -1635,7 +1661,6 @@ sub macro_send_receive($@)
       }
     }
 
-    my $compress = config_key($config_target, "raw_target_compress");
     my $encrypt = undef;
     my $encrypt_type = config_key($config_target, "raw_target_encrypt");
     if($encrypt_type) {
@@ -1645,7 +1670,12 @@ sub macro_send_receive($@)
                    recipient => config_key($config_target, "gpg_recipient"),
                  }
     }
-    $ret = btrfs_send_to_file($snapshot, $target, $parent, \$vol_received, compress => $compress, encrypt => $encrypt);
+    $ret = btrfs_send_to_file($snapshot, $target, $parent, \$vol_received,
+                              compress         => config_key($config_target, "raw_target_compress"),
+                              compress_level   => config_key($config_target, "raw_target_compress_level"),
+                              compress_threads => config_key($config_target, "raw_target_compress_threads"),
+                              encrypt          => $encrypt
+                             );
     ABORTED($config_target, "Failed to send subvolume to raw file") unless($ret);
   }
   else

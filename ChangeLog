@@ -5,6 +5,8 @@ btrbk-current
     when using perl-5.22.0 (close: #57).
   * Added "clean" command (close: #61).
   * Added "-n, --dry-run" option.
+  * Added configuration options "raw_target_compress_level",
+    "raw_target_compress_threads" (close: #60).
 
 btrbk-0.21.0
 
