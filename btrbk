@@ -2411,7 +2411,7 @@ MAIN:
   #
   # filter subvolumes matching command line arguments
   #
-  if(($action_run || $action_resolve || $action_usage || $action_list || $action_config_print) && scalar(@filter_args))
+  if(($action_run || $action_clean || $action_resolve || $action_usage || $action_list || $action_config_print) && scalar(@filter_args))
   {
     my %match;
     foreach my $config_vol (@{$config->{VOLUME}}) {
