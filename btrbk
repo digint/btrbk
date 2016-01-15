@@ -221,6 +221,7 @@ sub HELP_MESSAGE
   print STDERR "commands:\n";
   print STDERR "   run                 perform backup operations as defined in the config file\n";
   print STDERR "   dryrun              don't run btrfs commands; show what would be executed\n";
+  print STDERR "   stats               print snapshot/backup statistics\n";
   print STDERR "   list <subcommand>   available subcommands are:\n";
   print STDERR "      backups          all backups and corresponding snapshots\n";
   print STDERR "      snapshots        all snapshots and corresponding backups\n";
@@ -2038,6 +2039,21 @@ sub print_header(@)
 }
 
 
+sub print_table($;$)
+{
+  my $data = shift;
+  my $spacing = shift // "  ";
+  my $maxlen = 0;
+  foreach (@$data) {
+    next unless defined($_);
+    $maxlen = length($_->[0]) if($maxlen < length($_->[0]));
+  }
+  foreach (@$data) {
+    print $_->[0] . ((' ' x ($maxlen - length($_->[0]))) . $spacing) . $_->[1] . "\n";
+  }
+}
+
+
 sub print_formatted(@)
 {
   my $format_key = shift || die;
@@ -2255,6 +2271,10 @@ MAIN:
       $action_list = "config";
       unshift @ARGV, $subcommand if($subcommand ne "");
     }
+    @filter_args = @ARGV;
+  }
+  elsif($command eq "stats") {
+    $action_resolve = "stats";
     @filter_args = @ARGV;
   }
   elsif ($command eq "config") {
@@ -2892,6 +2912,11 @@ MAIN:
   if($action_resolve)
   {
     my @data;
+    my @stats_data;
+    my $stats_snapshots_total = 0;
+    my $stats_backups_total = 0;
+    my $stats_backups_total_incomplete = 0;
+    my $stats_backups_total_orphaned = 0;
     my %droot_compat;
     if($action_resolve eq "snapshots")
     {
@@ -2930,7 +2955,7 @@ MAIN:
         }
       }
     }
-    elsif($action_resolve eq "backups")
+    elsif(($action_resolve eq "backups") || ($action_resolve eq "stats"))
     {
       #
       # print all targets and their corresponding source snapshots
@@ -2943,10 +2968,15 @@ MAIN:
           my $svol = $config_subvol->{svol} || die;
           my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
           my @snapshot_children = get_snapshot_children($sroot, $svol);
+          $stats_snapshots_total += scalar(@snapshot_children);
+          push @stats_data, [ $svol->{PRINT}, sprintf("%3u snapshots", scalar(@snapshot_children)) ];
           foreach my $config_target (@{$config_subvol->{TARGET}}) {
             next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
+            my $stats_received = 0;
+            my $stats_orphaned = 0;
+            my $stats_incomplete = 0;
             foreach my $target_vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } values %{vinfo_subvol_list($droot)}) {
               my $parent_snapshot;
               my $incomplete_backup;
@@ -2971,6 +3001,7 @@ MAIN:
                 }
               }
               if($parent_snapshot) {
+                $stats_received++;
                 push @data, { type => "received",
                               vinfo_prefixed_keys("target", $target_vol),
                               vinfo_prefixed_keys("snapshot", $parent_snapshot),
@@ -2981,6 +3012,7 @@ MAIN:
               else {
                 # don't display all subvolumes in $droot, only the ones matching snapshot_name
                 if(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, ($config_target->{target_type} eq "raw"))) {
+                  if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
                   push @data, { type => "received",
                                 status => ($incomplete_backup ? "incomplete" : "orphaned"),
                                 vinfo_prefixed_keys("target", $target_vol),
@@ -2992,6 +3024,16 @@ MAIN:
                 }
               }
             }
+            my $stats_total = $stats_received + $stats_incomplete + $stats_orphaned;
+            $stats_backups_total            += $stats_total;
+            $stats_backups_total_incomplete += $stats_incomplete;
+            $stats_backups_total_orphaned   += $stats_orphaned;
+            my @stats_detail;
+            push @stats_detail, "$stats_orphaned orphaned"     if($stats_orphaned);
+            push @stats_detail, "$stats_incomplete incomplete" if($stats_incomplete);
+            my $stats_detail_print = join(', ', @stats_detail);
+            $stats_detail_print = " ($stats_detail_print)" if($stats_detail_print);
+            push @stats_data, [ "^-- $droot->{PRINT}", sprintf("%3u backups$stats_detail_print", $stats_total) ];
           }
         }
       }
@@ -3041,7 +3083,28 @@ MAIN:
       WARN "Received subvolumes (backups) are guessed by subvolume name for targets (btrfs_progs_compat=yes):";
       WARN " - target: $_" foreach(sort keys %droot_compat);
     }
-    print_formatted("resolved", \@data);
+    if($action_resolve eq "stats") {
+      print_header(title => "Statistics",
+                   config => $config,
+                   time => $start_time,
+                  );
+
+      print_table(\@stats_data, "  ");
+      print "\n";
+      my $stats_filter = $config->{CMDLINE_FILTER_LIST} ? join("; ", @{$config->{CMDLINE_FILTER_LIST}}) : "";
+      my @stats_total_detail;
+      push @stats_total_detail, "$stats_backups_total_orphaned orphaned"     if($stats_backups_total_orphaned);
+      push @stats_total_detail, "$stats_backups_total_incomplete incomplete" if($stats_backups_total_incomplete);
+      my $stats_total_detail_print = join(', ', @stats_total_detail);
+      $stats_total_detail_print = " ($stats_total_detail_print)" if($stats_total_detail_print);
+      print "Total" . ($stats_filter ? " ($stats_filter)" : "") . ":\n";
+      my $maxlen = ($stats_snapshots_total > $stats_backups_total) ? length($stats_snapshots_total) : length($stats_backups_total);
+      printf("%" . $maxlen . "u snapshots\n", $stats_snapshots_total);
+      printf("%" . $maxlen . "u backups$stats_total_detail_print\n",   $stats_backups_total);
+    }
+    else {
+      print_formatted("resolved", \@data);
+    }
 
     exit exit_status($config);
   }

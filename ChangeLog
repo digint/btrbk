@@ -7,6 +7,7 @@ btrbk-current
   * Added "-n, --dry-run" option.
   * Added configuration options "raw_target_compress_level",
     "raw_target_compress_threads" (close: #60).
+  * Added "stats" command (close: #54).
 
 btrbk-0.21.0
 
