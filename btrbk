@@ -2045,7 +2045,6 @@ sub print_table($;$)
   my $spacing = shift // "  ";
   my $maxlen = 0;
   foreach (@$data) {
-    next unless defined($_);
     $maxlen = length($_->[0]) if($maxlen < length($_->[0]));
   }
   foreach (@$data) {
