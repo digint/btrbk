@@ -82,6 +82,12 @@ btrbk is in `testing`, install with:
 
   [btrbk source tarball]: http://www.digint.ch/download/btrbk/releases/
   [btrbk debian package]: http://www.digint.ch/download/btrbk/packages/debian/
+  
+### Alpine Linux
+
+btrbk is in `testing` & can be installed with:
+
+`apk add btrbk`
 
 
 Synopsis
