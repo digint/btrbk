@@ -8,6 +8,8 @@ btrbk-current
   * Added configuration options "raw_target_compress_level",
     "raw_target_compress_threads" (close: #60).
   * Added "stats" command (close: #54).
+  * Print "$hostname:$path" instead of "{$hostname}$path" in summary
+    and logs.
 
 btrbk-0.21.0
 

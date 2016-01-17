@@ -418,7 +418,7 @@ sub vinfo($$)
       %info,
       HOST         => $host,
       PATH         => $path,
-      PRINT        => "{$host}$path",
+      PRINT        => "$host:$path",
       RSH_TYPE     => "ssh",
       SSH_USER     => $ssh_user,
       SSH_IDENTITY => $ssh_identity,
@@ -2312,9 +2312,6 @@ MAIN:
       $_ = $1; # untaint argument
     }
     elsif(/^(?<host>$ip_addr_match|$host_name_match):\/(?<file>$file_match)$/) {  # convert "my.host.com:/my/path" to ssh url
-      $_ = "ssh://$+{host}/$+{file}";
-    }
-    elsif(/^\{(?<host>$ip_addr_match|$host_name_match)\}\/(?<file>$file_match)$/) {  # convert "{my.host.com}/my/path" to ssh url
       $_ = "ssh://$+{host}/$+{file}";
     }
     else {
