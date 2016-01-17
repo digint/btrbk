@@ -2967,8 +2967,16 @@ MAIN:
           my $svol = $config_subvol->{svol} || die;
           my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
           my @snapshot_children = get_snapshot_children($sroot, $svol);
-          $stats_snapshots_total += scalar(@snapshot_children);
-          push @stats_data, [ $svol->{PRINT}, sprintf("%3u snapshots", scalar(@snapshot_children)) ];
+          my $stats_snapshot_uptodate = "";
+          foreach my $snapshot (@snapshot_children) {
+            if($snapshot->{cgen} == $svol->{gen}) {
+              $stats_snapshot_uptodate = " (up-to-date)";
+              last;
+            }
+          }
+          push @stats_data, [ $svol->{PRINT}, sprintf("%4u snapshots$stats_snapshot_uptodate", scalar(@snapshot_children)) ];
+          $stats_snapshots_total += scalar(@snapshot_children);  # NOTE: this adds ALL snaphot children under $sroot (not only the ones created by btrbk!)
+
           foreach my $config_target (@{$config_subvol->{TARGET}}) {
             next if($config_target->{ABORTED});
             my $droot = $config_target->{droot} || die;
@@ -3031,8 +3039,8 @@ MAIN:
             push @stats_detail, "$stats_orphaned orphaned"     if($stats_orphaned);
             push @stats_detail, "$stats_incomplete incomplete" if($stats_incomplete);
             my $stats_detail_print = join(', ', @stats_detail);
-            $stats_detail_print = " ($stats_detail_print)" if($stats_detail_print);
-            push @stats_data, [ "^-- $droot->{PRINT}", sprintf("%3u backups$stats_detail_print", $stats_total) ];
+            $stats_detail_print = "   ($stats_detail_print)" if($stats_detail_print);
+            push @stats_data, [ "^-- $droot->{PRINT}/$snapshot_name.*", sprintf("%4u backups$stats_detail_print", $stats_total) ];
           }
         }
       }
