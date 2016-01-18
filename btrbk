@@ -1285,7 +1285,6 @@ sub btrfs_send_receive($$$$)
     cmd => [ qw(btrfs receive), @receive_options, $target_path . '/' ],
     rsh => $target->{RSH},
     name => "btrfs receive",
-    catch_stderr => 1, # hack for shell-based run_cmd()
     filter_stderr => sub { $err = $_; $_ = undef }
   };
 
