@@ -1279,7 +1279,7 @@ sub btrfs_send_receive($$$$)
     name => "btrfs send",
   };
   push @cmd_pipe, {
-    cmd => [ '/usr/bin/pv' ],
+    cmd => [ '/usr/bin/pv', '-traeb' ],
   } if($show_progress);
   push @cmd_pipe, {
     cmd => [ qw(btrfs receive), @receive_options, $target_path . '/' ],
