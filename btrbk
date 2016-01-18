@@ -1293,7 +1293,7 @@ sub btrfs_send_receive($$$$)
     catch_stderr => 1, # hack for shell-based run_cmd()
   };
   push @cmd_pipe, {
-    cmd => [ '/usr/bin/pv' ],
+    cmd => [ '/usr/bin/pv', '-trab' ],
   } if($show_progress);
   push @cmd_pipe, {
     cmd => [ qw(btrfs receive), @receive_options, $target_path . '/' ],
@@ -1391,7 +1391,7 @@ sub btrfs_send_to_file($$$$;@)
     name => "btrfs send",
   };
   push @cmd_pipe, {
-    cmd => [ '/usr/bin/pv' ],
+    cmd => [ '/usr/bin/pv', '-trab' ],
   } if($show_progress);
   if($opts{compress}) {
     die unless($compress{$opts{compress}});
