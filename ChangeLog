@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.22.0
 
   * Bugfix: fix monthly schedule if older than 10 weeks (close: #59).
   * Bugfix: fix sprintf used by config option "timestamp_format long"
