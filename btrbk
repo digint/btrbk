@@ -325,44 +325,57 @@ sub end_transaction($$)
 
 sub run_cmd(@)
 {
+  # shell-based implementation.
+  # this needs some redirection magic for filter_stderr to work.
+  # NOTE: multiple filters are not supported!
+
   my @commands = (ref($_[0]) eq "HASH") ? @_ : { @_ };
+  die unless(scalar(@commands));
   $err = "";
 
-  my $cmd = "";
-  my $name = "";
   my $destructive = 0;
-  my $pipe = "";
   my $catch_stderr = 0;
   my $filter_stderr = undef;
   foreach (@commands) {
     $_->{rsh} //= [];
     $_->{cmd} = [ @{$_->{rsh}}, @{$_->{cmd}} ];
     $_->{cmd_text} = join(' ', map { s/\n/\\n/g; "'$_'" } @{$_->{cmd}});  # ugly escape of \n, do we need to escape others?
-    $name = $_->{name} // $_->{cmd_text};
-    $_->{_buf} = '';
-    $cmd .= $pipe . $_->{cmd_text};
-    $pipe = ' | ';
-    if($_->{catch_stderr}) {
-      $catch_stderr = 1;
-      $filter_stderr = $_->{filter_stderr};
-    }
+    $catch_stderr = 1 if($_->{catch_stderr});
+    $filter_stderr = $_->{filter_stderr} if($_->{filter_stderr});  # NOTE: last filter wins!
     $destructive = 1 unless($_->{non_destructive});
   }
+  my $cmd_print = join(' | ', map { $_->{cmd_text} } @commands);
 
-  if($dryrun && $destructive) {
-    DEBUG "### (dryrun) $cmd";
-    return "";
-  }
-  DEBUG "### $cmd";
-
+  my $cmd = $cmd_print;
   if($catch_stderr) {
     if(scalar(@commands) == 1) {
+      # no pipes, simply redirect stderr to stdout
       $cmd .= ' 2>&1';
-    } else {
-      $cmd = '{ ' . $cmd . ' ; } 2>&1';
+    }
+    else
+    {
+      # pipe chain is more complicated, result is something like this:
+      #    { btrfs send <src> 2>&3 | pv | btrfs receive <dst> 2>&3 ; } 3>&1
+      $cmd = "{ ";
+      my $pipe = "";
+      foreach (@commands) {
+        $cmd .= $pipe . $_->{cmd_text};
+        $cmd .= ' 2>&3' if($_->{catch_stderr});
+        $pipe = ' | ';
+      }
+      $cmd .= ' ; } 3>&1';
     }
   }
 
+  # hide redirection magic from debug output
+  if($dryrun && $destructive) {
+    DEBUG "### (dryrun) $cmd_print";
+    return "";
+  }
+  DEBUG "### $cmd_print";
+
+  # execute command and parse output
+  TRACE "Executing command: $cmd";
   my $ret = "";
   $ret = `$cmd`;
   chomp($ret);
@@ -375,7 +388,7 @@ sub run_cmd(@)
     if($catch_stderr) {
       $_ = $ret;
       &{$filter_stderr} ($cmd) if($filter_stderr);
-      ERROR "[$cmd] $_" if($_);
+      ERROR "[$cmd_print] $_" if($_);
     }
     return undef;
   }
@@ -1277,6 +1290,7 @@ sub btrfs_send_receive($$$$)
     cmd => [ qw(btrfs send), @send_options, $snapshot_path ],
     rsh => $snapshot->{RSH},
     name => "btrfs send",
+    catch_stderr => 1, # hack for shell-based run_cmd()
   };
   push @cmd_pipe, {
     cmd => [ '/usr/bin/pv' ],
