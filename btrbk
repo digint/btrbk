@@ -1293,13 +1293,12 @@ sub btrfs_send_receive($$$$)
     catch_stderr => 1, # hack for shell-based run_cmd()
   };
   push @cmd_pipe, {
-    cmd => [ '/usr/bin/pv' ],
+    cmd => [ '/usr/bin/pv', '-traeb' ],
   } if($show_progress);
   push @cmd_pipe, {
     cmd => [ qw(btrfs receive), @receive_options, $target_path . '/' ],
     rsh => $target->{RSH},
     name => "btrfs receive",
-    catch_stderr => 1, # hack for shell-based run_cmd()
     filter_stderr => sub { $err = $_; $_ = undef }
   };
 
