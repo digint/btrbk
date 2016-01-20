@@ -1042,6 +1042,8 @@ sub btrfs_subvolume_detail($)
   }
   elsif($ret =~ /^$real_path/) {
     TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
+    my @required_keys = qw(name uuid parent_uuid id gen cgen top_level);
+    push(@required_keys, "received_uuid") unless($vol->{BTRFS_PROGS_COMPAT});
     my %trans = (
       "Name"                  => "name",
       "uuid"                  => "uuid",
@@ -1072,6 +1074,16 @@ sub btrfs_subvolume_detail($)
     }
     DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
     TRACE(Data::Dumper->Dump([$vol], ["btrfs_subvolume_detail($vol->{URL})"]));
+    foreach(@required_keys) {
+      unless(defined($detail{$_})) {
+        ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
+        return undef;
+      }
+    }
+  }
+  else {
+    ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
+    return undef;
   }
   return \%detail;
 }
@@ -1103,10 +1115,14 @@ sub btrfs_subvolume_list($;@)
     # the output between ID and top level. The parent?s ID may be used at
     # mount time via the subvolrootid= option.
 
-    # NOTE: btrfs-progs prior to v1.17 do not support the -R flag
+    # NOTE: btrfs-progs prior to v3.17 do not support the -R flag
     my %node;
     if($btrfs_progs_compat) {
-      die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
+      unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/) {
+        ERROR "Failed to parse subvolume list (unsupported btrfs-progs) for: $vol->{PRINT}";
+        DEBUG "Offending line: $_";
+        return undef;
+      }
       %node = (
         id            => $1,
         gen           => $2,
@@ -1118,7 +1134,11 @@ sub btrfs_subvolume_list($;@)
         path          => $7  # btrfs path, NOT filesystem path
      );
     } else {
-      die("Failed to parse line: \"$_\"") unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) received_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/);
+      unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) received_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/) {
+        ERROR "Failed to parse subvolume list (unsupported btrfs-progs) for: $vol->{PRINT}";
+        DEBUG "Offending line: $_";
+        return undef;
+      }
       %node = (
       id            => $1,
       gen           => $2,
