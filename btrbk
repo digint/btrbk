@@ -48,7 +48,7 @@ use Getopt::Long qw(GetOptions);
 use POSIX qw(strftime);
 use Data::Dumper;
 
-our $VERSION       = "0.22.0";
+our $VERSION       = "0.22.1-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -1033,7 +1033,9 @@ sub btrfs_subvolume_detail($)
   }
   my %detail = ( REAL_PATH  => $real_path );
 
-  if($ret =~ /^\Q$real_path\E is btrfs root/) {
+  if($ret =~ /^\Q$real_path\E is (btrfs root|toplevel subvolume)/) {
+    # btrfs-progs <  4.4 prints: "<subvol> is btrfs root"
+    # btrfs-progs >= 4.4 prints: "<subvol> is toplevel subvolume"
     DEBUG "found btrfs root: $vol->{PRINT}";
     $detail{id}      = 5;
     $detail{is_root} = 1;
