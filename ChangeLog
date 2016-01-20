@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.22.1
 
   * Support for btrfs-progs v4.4 (close: #66).
 
