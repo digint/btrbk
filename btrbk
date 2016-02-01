@@ -48,7 +48,7 @@ use Getopt::Long qw(GetOptions);
 use POSIX qw(strftime);
 use Data::Dumper;
 
-our $VERSION       = "0.22.1";
+our $VERSION       = "0.22.2-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -987,6 +987,8 @@ sub btrfs_filesystem_usage($)
 }
 
 
+# returns hashref with keys: (name uuid parent_uuid id gen cgen top_level)
+# for btrfs-progs >= 4.1, also returns key: "received_uuid"
 sub btrfs_subvolume_detail($)
 {
   my $vol = shift || die;
@@ -1042,8 +1044,9 @@ sub btrfs_subvolume_detail($)
   }
   elsif($ret =~ /^$real_path/) {
     TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
+    # NOTE: received_uuid is not required here, as btrfs-progs < 4.1 does not give us that information.
+    #       no worries, we get this from btrfs_subvolume_list() for all subvols.
     my @required_keys = qw(name uuid parent_uuid id gen cgen top_level);
-    push(@required_keys, "received_uuid") unless($vol->{BTRFS_PROGS_COMPAT});
     my %trans = (
       "Name"                  => "name",
       "uuid"                  => "uuid",
