@@ -980,9 +980,9 @@ sub btrfs_filesystem_usage($)
     else {
       TRACE "Failed to parse filesystem usage line \"$_\" for: $vol->{PRINT}";
     }
-    DEBUG "Parsed " . scalar(keys %detail) . " filesystem usage detail items: $vol->{PRINT}";
-    TRACE(Data::Dumper->Dump([$vol], ["btrfs_subvolume_detail($vol->{URL})"]));
   }
+  DEBUG "Parsed " . scalar(keys %detail) . " filesystem usage detail items: $vol->{PRINT}";
+  TRACE(Data::Dumper->Dump([\%detail], ["btrfs_filesystem_usage($vol->{URL})"]));
   return \%detail;
 }
 
