@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.22.2
 
   * Bugfix: fix checks on "btrfs sub show" output, which resulted in
     breakage on btrfs-progs < 4.1 (close: #68).
