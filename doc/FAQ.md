@@ -239,7 +239,8 @@ If you simply want to have a clone of the source disk, skip step 3 and
 store your USB disk in a safe. You will be able to use it for
 restoring backups later, or *as a replacement for your backup disks*.
 
-**Note that kernels >=4.1 have a bug when re-sending subvolumes**,
-make sure you run a patched kernel or step 3 will fail. Read
+**Note that kernels >=4.1 and <4.4 have a bug when re-sending
+subvolumes**, make sure you run a recent/patched kernel or step 3 will
+fail. Read
 [this thread on gmane](http://thread.gmane.org/gmane.comp.file-systems.btrfs/48798)
-(the patch provided is confirmed working on kernels 4.2.x and 4.3).
+(the patch provided is confirmed working on kernels 4.2.x and 4.3.x).
