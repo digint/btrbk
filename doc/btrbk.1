@@ -1,4 +1,4 @@
-.TH "btrbk" "1" "2016-02-02" "btrbk v0.22.2" ""
+.TH "btrbk" "1" "2016-02-03" "btrbk v0.22.2" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -176,7 +176,8 @@ All snapshots (and corresponding backups).
 All backups (and corresponding snapshots).
 .TP 11
 .B latest
-Most recent snapshots and backups.
+Most recent common snapshot/backup pair, or most recent snapshot if no
+common found.
 .TP 11
 .B config
 Configured source/snapshot/target relations.
