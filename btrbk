@@ -48,7 +48,7 @@ use Getopt::Long qw(GetOptions);
 use POSIX qw(strftime);
 use Data::Dumper;
 
-our $VERSION       = "0.22.2";
+our $VERSION       = "0.23.0-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
 
@@ -82,9 +82,11 @@ my %config_options = (
   snapshot_preserve_daily     => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
   snapshot_preserve_weekly    => { default => 0,         accept => [ "all" ], accept_numeric => 1  },
   snapshot_preserve_monthly   => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
+  snapshot_preserve_yearly    => { default => "0",       accept => [ "all" ], accept_numeric => 1  },
   target_preserve_daily       => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
   target_preserve_weekly      => { default => 0,         accept => [ "all" ], accept_numeric => 1  },
   target_preserve_monthly     => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
+  target_preserve_yearly      => { default => "0",       accept => [ "all" ], accept_numeric => 1  },
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
@@ -1916,6 +1918,7 @@ sub schedule(@)
   my $preserve_daily       = $args{preserve_daily}       // die;
   my $preserve_weekly      = $args{preserve_weekly}      // die;
   my $preserve_monthly     = $args{preserve_monthly}     // die;
+  my $preserve_yearly      = $args{preserve_yearly}      // die;
   my $preserve_latest      = $args{preserve_latest}      || 0;
   my $results_list         = $args{results};
   my $result_hints         = $args{result_hints} // {};
@@ -1923,6 +1926,7 @@ sub schedule(@)
   DEBUG "Filter scheme: preserving all within $preserve_daily days";
   DEBUG "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
   DEBUG "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
+  DEBUG "Filter scheme: preserving last monthly of year, for $preserve_yearly years";
 
   # sort the schedule, ascending by date
   my @sorted_schedule = sort { ($a->{btrbk_date}->[0] <=> $b->{btrbk_date}->[0]) ||
@@ -1949,7 +1953,9 @@ sub schedule(@)
       $href->{delta_weeks}  = $delta_days_to_eow / 7;
       $href->{err_days}     = 6 - ( $delta_days_to_eow % 7 );
       $href->{delta_months} = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
+      $href->{delta_years}  = $today[0] - $date[0];
       $href->{month}        = "$date[0]-$date[1]";
+      $href->{year}         = "$date[0]";
     }
   }
 
@@ -1961,6 +1967,7 @@ sub schedule(@)
   # filter daily, weekly, monthly
   my %first_in_delta_weeks;
   my %last_weekly_in_delta_months;
+  my %last_monthly_in_delta_years;
   foreach my $href (@sorted_schedule) {
     if($preserve_daily && (($preserve_daily eq "all") || ($href->{delta_days} <= $preserve_daily))) {
       $href->{preserve} ||= "preserved daily: $href->{delta_days} days ago";
@@ -1979,6 +1986,13 @@ sub schedule(@)
     if($preserve_monthly && (($preserve_monthly eq "all") || ($href->{delta_months} <= $preserve_monthly))) {
       $href->{preserve} ||= "preserved monthly: " . ($href->{err_days} ? "$href->{err_days} days after " : "") . "last $preserve_day_of_week of month $href->{month} (age: $href->{delta_months} months)";
     }
+    $last_monthly_in_delta_years{$href->{delta_years}} = $href;
+  }
+  foreach (sort {$b <=> $a} keys %last_monthly_in_delta_years) {
+    my $href = $last_monthly_in_delta_years{$_} || die;
+    if($preserve_yearly && (($preserve_yearly eq "all") || ($href->{delta_years} <= $preserve_yearly))) {
+      $href->{preserve} ||= "preserved yearly: " . ($href->{err_days} ? "$href->{err_days} days after " : "") . "last $preserve_day_of_week of year $href->{year} (age: $href->{delta_years} years)";
+    }
   }
 
   # assemble results
@@ -1987,6 +2001,7 @@ sub schedule(@)
   my %preserve_matrix = ( d   => $preserve_daily,
                           w   => $preserve_weekly,
                           m   => $preserve_monthly,
+                          y   => $preserve_yearly,
                           dow => $preserve_day_of_week,
                          );
   my %result_base = ( %preserve_matrix,
@@ -2026,6 +2041,7 @@ sub format_preserve_matrix(@)
   my $d   = $args{d}   // config_key($args{config}, "$args{prefix}_preserve_daily");
   my $w   = $args{w}   // config_key($args{config}, "$args{prefix}_preserve_weekly");
   my $m   = $args{m}   // config_key($args{config}, "$args{prefix}_preserve_monthly");
+  my $y   = $args{y}   // config_key($args{config}, "$args{prefix}_preserve_yearly");
   my $format = $args{format} // "long";
   $d =~ s/^all$/-1/;
   $w =~ s/^all$/-1/;
@@ -3425,6 +3441,7 @@ MAIN:
                 preserve_daily       => config_key($config_target, "target_preserve_daily"),
                 preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
                 preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+                preserve_yearly      => config_key($config_target, "target_preserve_yearly"),
                 preserve_latest      => $preserve_latest,
                );
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
@@ -3557,6 +3574,7 @@ MAIN:
               preserve_daily       => config_key($config_target, "target_preserve_daily"),
               preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
               preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
+              preserve_yearly      => config_key($config_target, "target_preserve_yearly"),
               preserve_latest      => $preserve_latest_backup,
               results              => $schedule_results,
               result_hints         => { topic => "backup", root_path => $droot->{PATH} },
@@ -3603,6 +3621,7 @@ MAIN:
             preserve_daily       => config_key($config_subvol, "snapshot_preserve_daily"),
             preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
             preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
+            preserve_yearly      => config_key($config_subvol, "snapshot_preserve_yearly"),
             preserve_latest      => $preserve_latest_snapshot,
             results              => $schedule_results,
             result_hints         => { topic => "snapshot", root_path => $sroot->{PATH} },
