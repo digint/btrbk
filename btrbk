@@ -1949,13 +1949,15 @@ sub schedule(@)
     my $delta_days_to_eow = $delta_days + $delta_days_to_eow_from_today;
     {
       use integer; # do integer arithmetics
-      $href->{delta_days}   = $delta_days;
-      $href->{delta_weeks}  = $delta_days_to_eow / 7;
-      $href->{err_days}     = 6 - ( $delta_days_to_eow % 7 );
-      $href->{delta_months} = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
-      $href->{delta_years}  = $today[0] - $date[0];
-      $href->{month}        = "$date[0]-$date[1]";
-      $href->{year}         = "$date[0]";
+      $href->{delta_days}    = $delta_days;
+      $href->{delta_weeks}   = $delta_days_to_eow / 7;
+      $href->{delta_months}  = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
+      $href->{delta_years}   = $today[0] - $date[0];
+
+      my $err_days           = 6 - ( $delta_days_to_eow % 7 );
+      $href->{err_days_text} = ($err_days ? "+$err_days days after " : "on ") . "$preserve_day_of_week";
+      $href->{month}         = "$date[0]-$date[1]";
+      $href->{year}          = "$date[0]";
     }
   }
 
@@ -1977,21 +1979,21 @@ sub schedule(@)
   foreach (sort {$b <=> $a} keys %first_in_delta_weeks) {
     my $href = $first_in_delta_weeks{$_} || die;
     if($preserve_weekly && (($preserve_weekly eq "all") || ($href->{delta_weeks} <= $preserve_weekly))) {
-      $href->{preserve} ||= "preserved weekly: $href->{delta_weeks} weeks ago, " . ($href->{err_days} ? "+$href->{err_days} days after " : "on ") . "$preserve_day_of_week";
+      $href->{preserve} ||= "preserved weekly: $href->{delta_weeks} weeks ago, $href->{err_days_text}";
     }
     $last_weekly_in_delta_months{$href->{delta_months}} = $href;
   }
   foreach (sort {$b <=> $a} keys %last_weekly_in_delta_months) {
     my $href = $last_weekly_in_delta_months{$_} || die;
     if($preserve_monthly && (($preserve_monthly eq "all") || ($href->{delta_months} <= $preserve_monthly))) {
-      $href->{preserve} ||= "preserved monthly: " . ($href->{err_days} ? "$href->{err_days} days after " : "") . "last $preserve_day_of_week of month $href->{month} (age: $href->{delta_months} months)";
+      $href->{preserve} ||= "preserved monthly: last present weekly of month $href->{month} ($href->{delta_months} months ago, $href->{err_days_text})";
     }
     $last_monthly_in_delta_years{$href->{delta_years}} = $href;
   }
   foreach (sort {$b <=> $a} keys %last_monthly_in_delta_years) {
     my $href = $last_monthly_in_delta_years{$_} || die;
     if($preserve_yearly && (($preserve_yearly eq "all") || ($href->{delta_years} <= $preserve_yearly))) {
-      $href->{preserve} ||= "preserved yearly: " . ($href->{err_days} ? "$href->{err_days} days after " : "") . "last $preserve_day_of_week of year $href->{year} (age: $href->{delta_years} years)";
+      $href->{preserve} ||= "preserved yearly: last present weekly of year $href->{year} ($href->{delta_years} years ago, $href->{err_days_text})";
     }
   }
 
@@ -2043,15 +2045,16 @@ sub format_preserve_matrix(@)
   my $m   = $args{m}   // config_key($args{config}, "$args{prefix}_preserve_monthly");
   my $y   = $args{y}   // config_key($args{config}, "$args{prefix}_preserve_yearly");
   my $format = $args{format} // "long";
-  $d =~ s/^all$/-1/;
-  $w =~ s/^all$/-1/;
-  $m =~ s/^all$/-1/;
+  $d =~ s/^all$/\*/;
+  $w =~ s/^all$/\*/;
+  $m =~ s/^all$/\*/;
+  $y =~ s/^all$/\*/;
   if($format eq "short") {
     # short format
-    return sprintf("%2sd %2sw %2sm", $d, $w, $m);
+    return sprintf("%2sd %2sw %2sm %2sy", $d, $w, $m, $y);
   }
   # long format
-  return sprintf("%2sd %2sw %2sm ($dow)", $d, $w, $m);
+  return sprintf("%2sd %2sw %2sm %2sy ($dow)", $d, $w, $m, $y);
 }
 
 
