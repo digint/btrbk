@@ -125,6 +125,15 @@ snapshots, and missing backups are created if needed (complying to the
 target preserve matrix). Defaults to \[lq]yes\[rq].
 .RE
 .PP
+\fBtarget_preserve\fR  [<daily>d] [<weekly>w] [<monthly>m] [<yearly>y]
+.RS 4
+Shortcut to set \fItarget_preserve_daily\fR,
+\fItarget_preserve_weekly\fR, \fItarget_preserve_monthly\fR and
+\fItarget_preserve_yearly\fR options (see below) on a single line. Use
+an asterisk for \[lq]all\[rq] (e.g. "target_preserve 60d *m" expands
+to "target_preserve_daily 60" and "target_preserve_monthly all").
+.RE
+.PP
 \fBtarget_preserve_daily\fR  all|<number>
 .RS 4
 How many days of backups should be preserved. Defaults to \[lq]all\[rq].
@@ -152,8 +161,10 @@ preserved. Every last monthly backup in a year is considered a yearly
 backup. Defaults to \[lq]0\[rq].
 .RE
 .PP
-\fBsnapshot_preserve_daily\fR
+\fBsnapshot_preserve\fR
 .PD 0
+.PP
+\fBsnapshot_preserve_daily\fR
 .PP
 \fBsnapshot_preserve_weekly\fR
 .PP

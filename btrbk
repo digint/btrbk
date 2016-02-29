@@ -83,10 +83,12 @@ my %config_options = (
   snapshot_preserve_weekly    => { default => 0,         accept => [ "all" ], accept_numeric => 1  },
   snapshot_preserve_monthly   => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
   snapshot_preserve_yearly    => { default => "0",       accept => [ "all" ], accept_numeric => 1  },
+  snapshot_preserve           => { shortcut => 1,        accept_preserve_matrix => 1, },
   target_preserve_daily       => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
   target_preserve_weekly      => { default => 0,         accept => [ "all" ], accept_numeric => 1  },
   target_preserve_monthly     => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
   target_preserve_yearly      => { default => "0",       accept => [ "all" ], accept_numeric => 1  },
+  target_preserve             => { shortcut => 1,        accept_preserve_matrix => 1, },
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
@@ -594,6 +596,8 @@ sub config_dump_keys($;@)
   foreach my $key (sort keys %config_options)
   {
     my $val;
+    next if($config_options{$key}->{deprecated});
+    next if($config_options{$key}->{shortcut});
     if($opts{resolve}) {
       $val = config_key($config, $key);
     } else {
@@ -671,8 +675,9 @@ sub check_file($$;$$)
 }
 
 
-sub check_config_option($$$;$)
+sub append_config_option($$$$;$)
 {
+  my $config = shift;
   my $key = shift;
   my $value = shift;
   my $context = shift;
@@ -687,7 +692,28 @@ sub check_config_option($$$;$)
     return undef;
   }
 
-  if(grep(/^$value$/, @{$opt->{accept}})) {
+  if($opt->{context} && !grep(/^$context$/, @{$opt->{context}})) {
+    ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$opt->{context}})) . " context" . $config_file_statement;
+    return undef;
+  }
+
+  if($opt->{accept_preserve_matrix}) {
+    # special case: preserve matrix of form: "[NNd] [NNw] [NNm] [NNy]"
+    my $s = $value;
+    TRACE "option \"$key=$value\" is preserve matrix, parsing...";
+    if($s =~ s/([0-9*][0-9]*)\s*d\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_daily"}   = $v; TRACE "adding option \"${key}_daily=$v\" to $context context";   }
+    if($s =~ s/([0-9*][0-9]*)\s*w\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_weekly"}  = $v; TRACE "adding option \"${key}_weekly=$v\" to $context context";  }
+    if($s =~ s/([0-9*][0-9]*)\s*m\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_monthly"} = $v; TRACE "adding option \"${key}_monthly=$v\" to $context context"; }
+    if($s =~ s/([0-9*][0-9]*)\s*y\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_yearly"}  = $v; TRACE "adding option \"${key}_yearly=$v\" to $context context";  }
+    unless($s eq "") {
+      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
+      return undef;
+    }
+    TRACE "successfully parsed preserve matrix";
+    return $config;
+  }
+
+  if(grep(/^\Q$value\E$/, @{$opt->{accept}})) {
     TRACE "option \"$key=$value\" found in accept list";
   }
   elsif($opt->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
@@ -724,11 +750,6 @@ sub check_config_option($$$;$)
     TRACE "splitted option \"$key\": " . join(',', @$value);
   }
 
-  if($opt->{context} && !grep(/^$context$/, @{$opt->{context}})) {
-    ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$opt->{context}})) . " context" . $config_file_statement;
-    return undef;
-  }
-
   if($opt->{deprecated}) {
     WARN "Found deprecated option \"$key $value\"" . $config_file_statement . ": " .
            ($opt->{deprecated}->{$value}->{warn} // $opt->{deprecated}->{DEFAULT}->{warn});
@@ -741,7 +762,10 @@ sub check_config_option($$$;$)
     }
   }
 
-  return $value;
+  TRACE "adding option \"$key=$value\" to $context context";
+  $value = undef if($value eq "no");  # we don't want to check for "no" all the time
+  $config->{$key} = $value;
+  return $config;
 }
 
 
@@ -808,7 +832,7 @@ sub parse_config_line($$$$$)
     if($value =~ /^(\S+)\s+(\S+)$/)
     {
       my ($target_type, $droot) = ($1, $2);
-      unless(grep(/^$target_type$/, @config_target_types)) {
+      unless(grep(/^\Q$target_type\E$/, @config_target_types)) {
         ERROR "Unknown target type \"$target_type\" in \"$file\" line $.";
         return undef;
       }
@@ -835,12 +859,7 @@ sub parse_config_line($$$$$)
   }
   else
   {
-    $value = check_config_option($key, $value, $cur->{CONTEXT}, $file);
-    return undef unless(defined($value));
-
-    TRACE "config: adding option \"$key=$value\" to $cur->{CONTEXT} context";
-    $value = undef if($value eq "no");  # we don't want to check for "no" all the time
-    $cur->{$key} = $value;
+    return append_config_option($cur, $key, $value, $cur->{CONTEXT}, $file);
   }
 
   return $cur;
@@ -868,6 +887,7 @@ sub parse_config(@)
   # set defaults
   foreach (keys %config_options) {
     next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
+    next if $config_options{$_}->{shortcut};    # don't pollute hash with shortcuts
     $root->{$_} = $config_options{$_}->{default};
   }
 
@@ -2234,6 +2254,7 @@ MAIN:
   my $start_time = time;
   my @today_and_now = Today_and_Now();
   my @today = @today_and_now[0..2];
+  my %config_override_opts;
 
 
   my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only);
@@ -2250,7 +2271,7 @@ MAIN:
     'progress'      => \$show_progress,
     'table|t'       => sub { $output_format = "table" },
     'format=s'      => \$output_format,
-    # 'override=s'    => \%config_override,  # e.g. --override=incremental=no
+    # 'override=s'    => \%config_override_opts,  # e.g. --override=incremental=no
    ))
   {
     VERSION_MESSAGE();
@@ -2378,13 +2399,12 @@ MAIN:
       exit 2;
     }
   }
-  foreach my $key (keys %config_override) {
-    my $value = check_config_option($key, $config_override{$key}, "root");
-    unless(defined($value)) {
+  foreach my $key (keys %config_override_opts) {
+    DEBUG "config_override: \"$key=$config_override_opts{$key}\"";
+    unless(append_config_option(\%config_override, $key, $config_override_opts{$key}, "root")) {
       HELP_MESSAGE(0);
       exit 2;
     }
-    $config_override{$key} = $value;
   }
 
 
