@@ -198,6 +198,7 @@ location. In some situations, is is also required to transport the
 data physically, either to the datacenter or to your safe in the
 basement.
 
+
 ### Answer 1: Use external storage as "stream-fifo"
 
 This example uses a USB disk as "stream-fifo" for transferring
@@ -216,6 +217,7 @@ This approach has the advantage that you don't need to reformat your
 USB disk. This works fine, but be aware that you may run into trouble
 if a single stream gets corrupted, making all subsequent streams
 unusable.
+
 
 ### Answer 2: Clone btrfs subvolumes
 
