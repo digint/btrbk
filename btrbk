@@ -1355,7 +1355,7 @@ sub btrfs_send_receive($$$$)
   DEBUG "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
   DEBUG "[btrfs]   source: $snapshot->{PRINT}";
   DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
-  DEBUG "[btrfs]   target: $target->{PRINT}";
+  DEBUG "[btrfs]   target: $target->{PRINT}/";
 
   my @send_options;
   my @receive_options;
@@ -1434,21 +1434,21 @@ sub btrfs_send_receive($$$$)
 
 sub btrfs_send_to_file($$$$;@)
 {
-  my $snapshot = shift || die;
+  my $source = shift || die;
   my $target = shift || die;
   my $parent = shift;
   my $ret_vol_received = shift;
   my %opts = @_;
-  my $snapshot_path = $snapshot->{PATH} // die;
+  my $source_path   = $source->{PATH} // die;
   my $target_path   = $target->{PATH} // die;
   my $parent_path   = $parent ? $parent->{PATH} : undef;
   my $parent_uuid   = $parent ? $parent->{uuid} : undef ;
-  my $received_uuid = $snapshot->{uuid};
+  my $received_uuid = $source->{uuid};
   $received_uuid = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" if((not $received_uuid) && $dryrun);
   die unless($received_uuid);
   die if($parent && !$parent_uuid);
 
-  my $target_filename = $snapshot->{NAME} || die;
+  my $target_filename = $source->{NAME} || die;
   $target_filename .= "--$received_uuid";
   $target_filename .= '@' . $parent_uuid if($parent_uuid);
   $target_filename .= ".btrfs";
@@ -1464,8 +1464,8 @@ sub btrfs_send_to_file($$$$;@)
 
   my @cmd_pipe;
   push @cmd_pipe, {
-    cmd => [ qw(btrfs send), @send_options, $snapshot_path ],
-    rsh => $snapshot->{RSH},
+    cmd => [ qw(btrfs send), @send_options, $source_path ],
+    rsh => $source->{RSH},
     name => "btrfs send",
   };
   push @cmd_pipe, {
@@ -1524,13 +1524,13 @@ sub btrfs_send_to_file($$$$;@)
   print STDOUT "Receiving subvol (raw): $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
 
   DEBUG "[btrfs] send-to-file" . ($parent ? " (incremental)" : " (complete)") . ":";
-  DEBUG "[btrfs]   source: $snapshot->{PRINT}";
+  DEBUG "[btrfs]   source: $source->{PRINT}";
   DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
   DEBUG "[btrfs]   target: $target->{PRINT}";
 
   start_transaction("send-to-raw",
                     vinfo_prefixed_keys("target", $vol_received),
-                    vinfo_prefixed_keys("source", $snapshot),
+                    vinfo_prefixed_keys("source", $source),
                     vinfo_prefixed_keys("parent", $parent),
                    );
   my $ret = run_cmd(@cmd_pipe);
@@ -1546,7 +1546,7 @@ sub btrfs_send_to_file($$$$;@)
   }
   end_transaction("send-to-raw", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
   unless(defined($ret)) {
-    ERROR "Failed to send btrfs subvolume to raw file: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}";
+    ERROR "Failed to send btrfs subvolume to raw file: $source->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}";
     return undef;
   }
   return 1;
@@ -1695,19 +1695,19 @@ sub macro_send_receive($@)
 {
   my $config_target = shift || die;
   my %info = @_;
-  my $snapshot = $info{snapshot} || die;
+  my $source = $info{source} || die;
   my $target = $info{target} || die;
   my $parent = $info{parent};
   my $target_type = $config_target->{target_type} || die;
   my $incremental = config_key($config_target, "incremental");
 
-  INFO "Receiving from snapshot: $snapshot->{PRINT}";
+  INFO "Receiving from subvolume: $source->{PRINT}";
 
   # check for existing target subvolume
-  if(my $err_vol = vinfo_subvol($target, $snapshot->{NAME})) {
+  if(my $err_vol = vinfo_subvol($target, $source->{NAME})) {
     ABORTED($config_target, "Target subvolume \"$err_vol->{PRINT}\" already exists");
     $config_target->{UNRECOVERABLE} = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
-    ERROR $config_target->{ABORTED} . ", aborting send/receive of: $snapshot->{PRINT}";
+    ERROR $config_target->{ABORTED} . ", aborting send/receive of: $source->{PRINT}";
     ERROR $config_target->{UNRECOVERABLE};
     $info{ERROR} = 1;
     return undef;
@@ -1717,7 +1717,7 @@ sub macro_send_receive($@)
   {
     # create backup from latest common
     if($parent) {
-      INFO "Incremental from parent snapshot: $parent->{PRINT}";
+      INFO "Incremental from parent subvolume: $parent->{PRINT}";
     }
     elsif($incremental ne "strict") {
       INFO "No common parent subvolume present, creating full backup";
@@ -1739,18 +1739,18 @@ sub macro_send_receive($@)
   my $vol_received;
   if($target_type eq "send-receive")
   {
-    $ret = btrfs_send_receive($snapshot, $target, $parent, \$vol_received);
+    $ret = btrfs_send_receive($source, $target, $parent, \$vol_received);
     ABORTED($config_target, "Failed to send/receive subvolume") unless($ret);
   }
   elsif($target_type eq "raw")
   {
     unless($dryrun) {
-      # make sure we know the snapshot uuid
-      unless($snapshot->{uuid}) {
-        DEBUG "Fetching uuid of new snapshot: $snapshot->{PRINT}";
-        my $detail = btrfs_subvolume_detail($snapshot);
+      # make sure we know the source uuid
+      unless($source->{uuid}) {
+        DEBUG "Fetching uuid of new subvolume: $source->{PRINT}";
+        my $detail = btrfs_subvolume_detail($source);
         die unless($detail->{uuid});
-        vinfo_set_detail($snapshot, { uuid => $detail->{uuid} });
+        vinfo_set_detail($source, { uuid => $detail->{uuid} });
       }
     }
 
@@ -1763,7 +1763,7 @@ sub macro_send_receive($@)
                    recipient => config_key($config_target, "gpg_recipient"),
                  }
     }
-    $ret = btrfs_send_to_file($snapshot, $target, $parent, \$vol_received,
+    $ret = btrfs_send_to_file($source, $target, $parent, \$vol_received,
                               compress         => config_key($config_target, "raw_target_compress"),
                               compress_level   => config_key($config_target, "raw_target_compress_level"),
                               compress_threads => config_key($config_target, "raw_target_compress_threads"),
@@ -1895,18 +1895,18 @@ sub get_latest_common($$$;$)
 
     if($child->{RECEIVE_TARGET_PRESENT} && ($child->{RECEIVE_TARGET_PRESENT} eq $droot->{URL})) {
       # little hack to keep track of previously received subvolumes
-      DEBUG("Latest common snapshots for: $debug_src: src=$child->{PRINT}  target=<previously received>");
+      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=<previously received>");
       return ($child, undef);
     }
 
     foreach (get_receive_targets($droot, $child)) {
       TRACE "get_latest_common: found receive target: $_->{PRINT}";
-      DEBUG("Latest common snapshots for: $debug_src: src=$child->{PRINT}  target=$_->{PRINT}");
+      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=$_->{PRINT}");
       return ($child, $_);
     }
-    TRACE "get_latest_common: no matching targets found for: $child->{PRINT}";
+    TRACE "get_latest_common: no matching target found for: $child->{PRINT}";
   }
-  DEBUG("No common snapshots of \"$debug_src\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
+  DEBUG("No common subvolumes of \"$debug_src\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
   return (undef, undef);
 }
 
@@ -3512,10 +3512,10 @@ MAIN:
                 INFO "Resuming subvolume backup (send-receive) for: $child->{PRINT}";
                 my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{cgen});
                 if(macro_send_receive($config_target,
-                                      snapshot  => $child,
-                                      target    => $droot,
-                                      parent    => $latest_common_src,  # this is <undef> if no common found
-                                      resume    => 1,     # propagated to $config_target->{SUBVOL_RECEIVED}
+                                      source => $child,
+                                      target => $droot,
+                                      parent => $latest_common_src,  # this is <undef> if no common found
+                                      resume => 1,     # propagated to $config_target->{SUBVOL_RECEIVED}
                                      ))
                 {
                   # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
@@ -3547,9 +3547,9 @@ MAIN:
             INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
             my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
             macro_send_receive($config_target,
-                               snapshot => $config_subvol->{SNAPSHOT},
-                               target   => $droot,
-                               parent   => $latest_common_src,  # this is <undef> if no common found
+                               source => $config_subvol->{SNAPSHOT},
+                               target => $droot,
+                               parent => $latest_common_src,  # this is <undef> if no common found
                               );
           }
         }
