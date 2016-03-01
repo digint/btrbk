@@ -3039,7 +3039,7 @@ MAIN:
           next if($config_subvol->{ABORTED});
           my $svol = $config_subvol->{svol} || die;
           my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
-          foreach my $snapshot (sort { $a->{cgen} cmp $b->{cgen} } get_snapshot_children($sroot, $svol)) {
+          foreach my $snapshot (sort { $a->{cgen} <=> $b->{cgen} } get_snapshot_children($sroot, $svol)) {
             my $snapshot_data = { type => "snapshot",
                                   status => ($snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
                                   vinfo_prefixed_keys("source", $svol),
