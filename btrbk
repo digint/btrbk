@@ -1790,6 +1790,56 @@ sub macro_send_receive($@)
 }
 
 
+sub macro_delete($$$$$)
+{
+  my $config = shift || die;
+  my $root_subvol = shift || die;
+  my $subvol_basename = shift // die;  # relative "path/to/snapshot_name"
+  my $config_section = shift || die;
+  my $schedule_options = shift || die;
+  my $raw_format = ($config->{CONTEXT} eq "target") ? ($config->{target_type} eq "raw") : undef;
+
+  my @schedule;
+  foreach my $vol (values %{vinfo_subvol_list($root_subvol)}) {
+    my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $subvol_basename, $raw_format);
+    unless($filename_info) {
+      TRACE "Target subvolume does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+      next;
+    }
+
+    # NOTE: checking received_uuid does not make much sense, as this received_uuid is propagated to snapshots
+    # if($vol->{received_uuid} && ($vol->{received_uuid} eq '-')) {
+    #   INFO "Target subvolume is not a received backup, skipping deletion of: $vol->{PRINT}";
+    #   next;
+    # }
+    push(@schedule, { value      => $vol,
+                      name       => $vol->{PRINT},  # only for logging
+                      btrbk_date => $filename_info->{btrbk_date},
+                      preserve   => $vol->{FORCE_PRESERVE},
+                     });
+  }
+  my (undef, $delete) = schedule(
+    schedule             => \@schedule,
+    preserve_day_of_week => config_key($config, "preserve_day_of_week"),
+    preserve_daily       => config_key($config, "${config_section}_preserve_daily"),
+    preserve_weekly      => config_key($config, "${config_section}_preserve_weekly"),
+    preserve_monthly     => config_key($config, "${config_section}_preserve_monthly"),
+    preserve_yearly      => config_key($config, "${config_section}_preserve_yearly"),
+    %$schedule_options
+   );
+  my $ret = btrfs_subvolume_delete($delete, commit => config_key($config, "btrfs_commit_delete"), type => "delete_${config_section}");
+  if(defined($ret)) {
+    INFO "Deleted $ret subvolumes in: $root_subvol->{PRINT}/$subvol_basename.*";
+    $config->{SUBVOL_DELETED} = $delete;
+    return $delete;
+  }
+  else {
+    ABORTED($config, "Failed to delete subvolume");
+    return undef;
+  }
+}
+
+
 # returns { btrbk_date => [ yyyy, mm, dd, hh, mm, <date_ext> ] } or undef
 # fixed array length of 6, all individually defaulting to 0
 sub parse_filename($$;$)
@@ -3608,44 +3658,13 @@ MAIN:
             # delete backups
             #
             INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
-            my @schedule;
-            foreach my $vol (values %{vinfo_subvol_list($droot)}) {
-              my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, ($config_target->{target_type} eq "raw"));
-              unless($filename_info) {
-                TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
-                next;
-              }
-
-              # NOTE: checking received_uuid does not make much sense, as this received_uuid is propagated to snapshots
-              # if($vol->{received_uuid} && ($vol->{received_uuid} eq '-')) {
-              #   INFO "Target subvolume is not a received backup, skipping deletion of: $vol->{PRINT}";
-              #   next;
-              # }
-              push(@schedule, { value      => $vol,
-                                name       => $vol->{PRINT},  # only for logging
-                                btrbk_date => $filename_info->{btrbk_date},
-                                preserve   => $vol->{FORCE_PRESERVE}
-                               });
-            }
-            my (undef, $delete) = schedule(
-              schedule             => \@schedule,
-              today                => \@today,
-              preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
-              preserve_daily       => config_key($config_target, "target_preserve_daily"),
-              preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
-              preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
-              preserve_yearly      => config_key($config_target, "target_preserve_yearly"),
-              preserve_latest      => $preserve_latest_backup,
-              results              => $schedule_results,
-              result_hints         => { topic => "backup", root_path => $droot->{PATH} },
-             );
-            my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_target, "btrfs_commit_delete"), type => "delete_target");
-            if(defined($ret)) {
-              INFO "Deleted $ret subvolumes in: $droot->{PRINT}/$snapshot_basename.*";
-              $config_target->{SUBVOL_DELETED} = $delete;
-            }
-            else {
-              ABORTED($config_target, "Failed to delete subvolume");
+            unless(macro_delete($config_target, $droot, $snapshot_basename, "target",
+                                { today           => \@today,
+                                  preserve_latest => $preserve_latest_backup,
+                                  results         => $schedule_results,
+                                  result_hints    => { topic => "backup", root_path => $droot->{PATH} },
+                                } ))
+            {
               $target_aborted = -1;
             }
           }
@@ -3662,38 +3681,12 @@ MAIN:
             next;
           }
           INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir$snapshot_basename.*";
-          my @schedule;
-          foreach my $vol (values %{vinfo_subvol_list($sroot)}) {
-            my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapdir . $snapshot_basename);
-            unless($filename_info) {
-              TRACE "Snapshot does not match btrbk filename scheme, skipping: $vol->{PRINT}";
-              next;
-            }
-            push(@schedule, { value      => $vol,
-                              name       => $vol->{PRINT},  # only for logging
-                              btrbk_date => $filename_info->{btrbk_date}
-                             });
-          }
-          my (undef, $delete) = schedule(
-            schedule             => \@schedule,
-            today                => \@today,
-            preserve_day_of_week => config_key($config_subvol, "preserve_day_of_week"),
-            preserve_daily       => config_key($config_subvol, "snapshot_preserve_daily"),
-            preserve_weekly      => config_key($config_subvol, "snapshot_preserve_weekly"),
-            preserve_monthly     => config_key($config_subvol, "snapshot_preserve_monthly"),
-            preserve_yearly      => config_key($config_subvol, "snapshot_preserve_yearly"),
-            preserve_latest      => $preserve_latest_snapshot,
-            results              => $schedule_results,
-            result_hints         => { topic => "snapshot", root_path => $sroot->{PATH} },
-           );
-          my $ret = btrfs_subvolume_delete($delete, commit => config_key($config_subvol, "btrfs_commit_delete"), type => "delete_snapshot");
-          if(defined($ret)) {
-            INFO "Deleted $ret subvolumes in: $sroot->{PRINT}/$snapdir$snapshot_basename.*";
-            $config_subvol->{SUBVOL_DELETED} = $delete;
-          }
-          else {
-            ABORTED($config_subvol, "Failed to delete subvolume");
-          }
+          macro_delete($config_subvol, $sroot, $snapdir . $snapshot_basename, "snapshot",
+                       { today           => \@today,
+                         preserve_latest => $preserve_latest_snapshot,
+                         results         => $schedule_results,
+                         result_hints    => { topic => "snapshot", root_path => $sroot->{PATH} },
+                       } );
         }
       }
     }
