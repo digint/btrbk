@@ -2515,6 +2515,7 @@ MAIN:
     my $files = $ret->{files};
 
     # calculate the character offsets
+    my $total_len = 0;
     my $len_charlen = 0;
     my $gen_charlen = 0;
     foreach (values %$files) {
@@ -2522,6 +2523,7 @@ MAIN:
       my $gen = length(scalar(keys(%{$_->{gen}})));
       $len_charlen = $len if($len > $len_charlen);
       $gen_charlen = $gen if($gen > $gen_charlen);
+      $total_len += $_->{len};
     }
 
     # finally print the output
@@ -2538,7 +2540,7 @@ MAIN:
 
       print "  $name\n";
     }
-
+    print "\nTotal size: $total_len bytes\n";
     exit 0;
   }
 
