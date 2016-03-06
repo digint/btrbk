@@ -2848,8 +2848,6 @@ MAIN:
   #
   # fill vinfo hash, basic checks on configuration
   #
-  my %snapshot_check;
-  my %backup_check;
   foreach my $config_vol (@{$config->{VOLUME}})
   {
     next if($config_vol->{ABORTED});
@@ -2892,16 +2890,6 @@ MAIN:
       }
       $config_subvol->{svol} = $svol;
 
-      # check for duplicate snapshot locations
-      my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
-      my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
-      my $snapshot_target = "$sroot->{REAL_URL}/$snapdir$snapshot_basename";
-      if(my $prev = $snapshot_check{$snapshot_target}) {
-        ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snapshot_target";
-        ERROR "Please fix \"snapshot_name\" configuration options!";
-        exit 1;
-      }
-      $snapshot_check{$snapshot_target} = $svol->{PRINT};
 
       foreach my $config_target (@{$config_subvol->{TARGET}})
       {
@@ -2947,6 +2935,7 @@ MAIN:
               ABORTED($config_target, "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
               last;
             }
+            my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
             my $filename_info = parse_filename($file, $snapshot_basename, 1);
             unless($filename_info) {
               DEBUG "Skipping file (not btrbk raw): \"$file\"";
@@ -3007,6 +2996,37 @@ MAIN:
           # TRACE(Data::Dumper->Dump([\%subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
         }
         $config_target->{droot} = $droot;
+      }
+    }
+  }
+
+  # check for duplicate snapshot locations
+  my %snapshot_check;
+  my %backup_check;
+  foreach my $config_vol (@{$config->{VOLUME}})
+  {
+    next if($config_vol->{ABORTED});
+    my $sroot = $config_vol->{sroot} || die;
+    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
+    {
+      next if($config_subvol->{ABORTED});
+      my $svol = $config_subvol->{svol} || die;
+
+      # check for duplicate snapshot locations
+      my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
+      my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
+      my $snapshot_target = "$sroot->{REAL_URL}/$snapdir$snapshot_basename";
+      if(my $prev = $snapshot_check{$snapshot_target}) {
+        ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snapshot_target";
+        ERROR "Please fix \"snapshot_name\" configuration options!";
+        exit 1;
+      }
+      $snapshot_check{$snapshot_target} = $svol->{PRINT};
+
+      foreach my $config_target (@{$config_subvol->{TARGET}})
+      {
+        next if($config_target->{ABORTED});
+        my $droot = $config_target->{droot} || die;
 
         # check for duplicate snapshot locations
         my $snapshot_backup_target = "$droot->{REAL_URL}/$snapshot_basename";
