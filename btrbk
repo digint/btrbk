@@ -533,16 +533,22 @@ sub vinfo_set_detail($$)
 
   # add detail data to vinfo hash
   foreach(keys %$detail) {
-    next if($_ eq "REL_PATH");
-    next if($_ eq "TOP_LEVEL");
-    next if($_ eq "SUBTREE");
-    next if($_ eq "path");
+    next if(uc($_) eq $_);  # skip UPPER_CASE keys
+    next if($_ eq "path");  # skip "path", this comes in wrong by "btrfs subvolume list"
+
+    die if(exists($vol->{$_}) && ($vol->{$_} ne $detail->{$_}));
     $vol->{$_} = $detail->{$_};
   }
 
-  if($vol->{REAL_PATH}) {
+  # !!!  be super-paranoid
+  die if(defined($detail->{URL}) && ($detail->{URL} ne $vol->{URL}));
+  die if(defined($detail->{NAME}) && ($detail->{NAME} ne $vol->{NAME}));
+  die if(defined($detail->{SUBVOL_PATH}) && ($detail->{SUBVOL_PATH} ne $vol->{SUBVOL_PATH}));
+
+  if($detail->{REAL_PATH}) {
+    $vol->{REAL_PATH} = $detail->{REAL_PATH};
     if($vol->{RSH_TYPE} && ($vol->{RSH_TYPE} eq "ssh")) {
-      $vol->{REAL_URL} = "ssh://$vol->{HOST}$detail->{REAL_PATH}";
+      $vol->{REAL_URL} = "ssh://$vol->{HOST}$vol->{REAL_PATH}";
     } else {
       $vol->{REAL_URL} = $vol->{REAL_PATH};
     }
@@ -1691,7 +1697,7 @@ sub vinfo_subvol_list($)
     $ret{$subvol_path} = $subvol;
   }
 
-  DEBUG "Found " . scalar(keys %ret) . " subvolume children of: $vol->{PRINT}";
+  DEBUG "Found " . scalar(keys %ret) . " subvolumes below: $vol->{PRINT}";
   TRACE(Data::Dumper->Dump([\%ret], ["vinfo_subvol_list{$vol->{URL}}"]));
 
   $vol->{SUBVOL_LIST} = \%ret;
@@ -2360,13 +2366,36 @@ sub exit_status($)
 }
 
 
-sub valid_subsection_vinfo($)
+sub vinfo_subsection($$)
 {
   # if config: must have SUBSECTION key
   # if vinfo:  must have CONFIG key
   my $config_or_vinfo = shift;
-  my $config_list = exists($config_or_vinfo->{SUBSECTION}) ? $config_or_vinfo->{SUBSECTION} : $config_or_vinfo->{CONFIG}->{SUBSECTION};
-  return map { $_->{ABORTED} ? () : $_->{VINFO} } @$config_list;
+  my $context = shift;
+  my $config_list;
+  my $vinfo_check;
+  if(exists($config_or_vinfo->{SUBSECTION})) {
+    # config
+    $config_list = $config_or_vinfo->{SUBSECTION};
+  }
+  else {
+    # vinfo
+    $config_list = $config_or_vinfo->{CONFIG}->{SUBSECTION};
+    die unless($config_or_vinfo->{CONFIG}->{VINFO} == $config_or_vinfo);  # check back reference
+  }
+
+  # for now be paranoid and check all contexts
+  my @ret;
+  foreach (@$config_list) {
+    die unless($_->{CONTEXT} eq $context);
+    next if($_->{ABORTED});
+    die unless($_->{VINFO} == $_->{VINFO}->{CONFIG}->{VINFO});  # check all back references
+    push @ret, $_->{VINFO};
+  }
+  return @ret;
+
+  # much simpler implementation, without checks
+  #return map { $_->{ABORTED} ? () : $_->{VINFO} } @$config_list;
 }
 
 
@@ -2648,11 +2677,10 @@ MAIN:
     ERROR "Failed to parse configuration file";
     exit 2;
   }
-#!!! check this below
-#  unless(ref($config->{VOLUME}) eq "ARRAY") {
-#    ERROR "No volumes defined in configuration file";
-#    exit 2;
-#  }
+  unless(ref($config->{SUBSECTION}) eq "ARRAY") { #!!! TODO: check this below, only when needed
+    ERROR "No volumes defined in configuration file";
+    exit 2;
+  }
 
 
   #
@@ -2914,57 +2942,54 @@ MAIN:
   #
   # fill vinfo hash, basic checks on configuration
   #
-  foreach my $sroot (valid_subsection_vinfo($config))
+  foreach my $sroot (vinfo_subsection($config, 'volume'))
   {
     unless(vinfo_root($sroot)) {
       ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-      WARN "Skipping volume \"$sroot->{PRINT}\": " . ABORTED($sroot);
+      WARN "Skipping volume \"$sroot->{PRINT}\": $abrt";
       next;
     }
 
-    foreach my $svol (valid_subsection_vinfo($sroot))
+    foreach my $svol (vinfo_subsection($sroot, 'subvolume'))
     {
-      dump_vinfo $svol;
-      my $config_subvol = $svol->{CONFIG} // die;  #!!!
-      $svol = vinfo_subvol($sroot, $config_subvol);
-      unless($svol) {
+      my $svol_check = vinfo_subvol($sroot, $svol->{CONFIG}->{rel_path});
+      if($svol_check) {
+        vinfo_set_detail($svol, $svol_check);
+      }
+      else {
         # configured subvolume is not present in btrfs subvolume list.
         # try to read subvolume detail, as configured subvolume could be a symlink.
-        DEBUG "Subvolume \"$config_subvol->{rel_path}\" not present in btrfs subvolume list for \"$sroot->{PRINT}\"";
-        $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+        DEBUG "Subvolume \"$svol->{CONFIG}->{rel_path}\" not present in btrfs subvolume list for \"$sroot->{PRINT}\"";
         my $detail = btrfs_subvolume_detail($svol);
         unless($detail) {
-          ABORTED($config_subvol, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-          WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
+          ABORTED($svol, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
+          WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
           next;
         }
         if($detail->{is_root}) {
-          ABORTED($config_subvol, "Subvolume is btrfs root");
-          WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
+          ABORTED($svol, "Subvolume is btrfs root");
+          WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
           next;
         }
         if(grep { $_->{uuid} eq $detail->{uuid} } values %{vinfo_subvol_list($sroot)}) {
           vinfo_set_detail($svol, $uuid_info{$detail->{uuid}});
+          # vinfo_set_detail($svol, $detail);
         } else {
-          ABORTED($config_subvol, "Not a child subvolume of: $sroot->{PRINT}");
-          WARN "Skipping subvolume \"$svol->{PRINT}\": $config_subvol->{ABORTED}";
+          ABORTED($svol, "Not a child subvolume of: $sroot->{PRINT}");
+          WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
           next;
         }
       }
-      $svol->{CONFIG} = $config_subvol; #!!! (maybe better have vinfo_set_config() function!)
-      $config_subvol->{VINFO} = $svol; #!!!
-      $config_subvol->{svol} = $svol;  #!!!
 
 
-      foreach my $droot (valid_subsection_vinfo($svol))
+      foreach my $droot (vinfo_subsection($svol, 'target'))
       {
-        my $config_target = $droot->{CONFIG} // die;  #!!!
-        my $target_type = $config_target->{target_type} || die;
+        my $target_type = $droot->{CONFIG}->{target_type} || die;
         if($target_type eq "send-receive")
         {
           unless(vinfo_root($droot)) {
             ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-            WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED($droot);
+            WARN "Skipping target \"$droot->{PRINT}\": $abrt";
             next;
           }
         }
@@ -2982,7 +3007,7 @@ MAIN:
            );
           unless(defined($ret)) {
             ABORTED($droot, "Failed to list files from: $droot->{PATH}");
-            WARN  "Skipping target \"$droot->{PRINT}\": " . ABORTED($droot);
+            WARN  "Skipping target \"$droot->{PRINT}\": $abrt";
             next;
           }
 
@@ -2998,7 +3023,7 @@ MAIN:
               ABORTED($droot, "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
               last;
             }
-            my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
+            my $snapshot_basename = config_key($svol, "snapshot_name") // die;
             my $filename_info = parse_filename($file, $snapshot_basename, 1);
             unless($filename_info) {
               DEBUG "Skipping file (not btrbk raw): \"$file\"";
@@ -3065,8 +3090,8 @@ MAIN:
   # check for duplicate snapshot locations
   my %snapshot_check;
   my %backup_check;
-  foreach my $sroot (valid_subsection_vinfo($config)) {
-    foreach my $svol (valid_subsection_vinfo($sroot)) {
+  foreach my $sroot (vinfo_subsection($config, 'volume')) {
+    foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
       # check for duplicate snapshot locations
       my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
       my $snapshot_basename = config_key($svol, "snapshot_name") // die;
@@ -3078,7 +3103,7 @@ MAIN:
       }
       $snapshot_check{$snapshot_target} = $svol->{PRINT};
 
-      foreach my $droot (valid_subsection_vinfo($svol)) {
+      foreach my $droot (vinfo_subsection($svol, 'target')) {
         # check for duplicate snapshot locations
         my $snapshot_backup_target = "$droot->{REAL_URL}/$snapshot_basename";
         if(my $prev = $backup_check{$snapshot_backup_target}) {
