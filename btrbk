@@ -249,10 +249,13 @@ sub INFO  { my $t = shift; print STDERR "$t\n" if($loglevel >= 2);  }
 sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
 sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 
-sub ABORTED($$)
+sub ABORTED($;$)
 {
   my $config = shift;
   my $t = shift;
+  $config = $config->{CONFIG} unless($config->{CONTEXT});
+  return $config->{ABORTED} unless(defined($t));
+
   unless($t eq "USER_SKIP") {
     $t =~ s/\n/\\\\/g;
     $t =~ s/\r//g;
@@ -263,6 +266,7 @@ sub ABORTED($$)
           );
   }
   $config->{ABORTED} = $t;
+  return $t;
 }
 
 
@@ -406,7 +410,7 @@ sub run_cmd(@)
 sub vinfo($$)
 {
   my $url = shift // die;
-  my $config = shift || die;
+  my $config = shift || die;  #!!! make optional
 
   my $name = $url;
   $name =~ s/^.*\///;
@@ -462,10 +466,23 @@ sub vinfo($$)
 }
 
 
-sub vinfo_child($$)
+sub vinfo_assign_config($$)
+{
+  my $vinfo = shift || die;
+  my $config = shift || die;
+
+  die if($config->{VINFO});
+  die if($vinfo->{CONFIG});
+  $vinfo->{CONFIG} = $config;
+  $config->{VINFO} = $vinfo;
+}
+
+
+sub vinfo_child($$;$)
 {
   my $parent = shift || die;
   my $rel_path = shift // die;
+  my $config = shift;
 
   my $name = $rel_path;
   $name =~ s/^.*\///;
@@ -540,6 +557,15 @@ sub vinfo_set_detail($$)
 }
 
 
+sub dump_vinfo($)
+{
+  my $vinfo = shift;
+  my $dumper = Data::Dumper->new([$vinfo], ["vinfo"]);
+  $dumper->Maxdepth(2);
+  print $dumper->Dump();
+}
+
+
 # returns hash: ( $prefix_{url,path,host,name,subvol_path,rsh} => value, ... )
 sub vinfo_prefixed_keys($$)
 {
@@ -565,6 +591,10 @@ sub config_key($$;@)
   my $node = shift || die;
   my $key = shift || die;
   my %opts = @_;
+
+  # accept vinfo as $node
+  $node = $node->{CONFIG} unless($node->{CONTEXT}); #!!!
+
   TRACE "config_key: context=$node->{CONTEXT}, key=$key";
 
   if(exists($config_override{$key})) {
@@ -788,6 +818,7 @@ sub parse_config_line($$$$$)
                    url => $value,
                   };
     $cur->{VOLUME} //= [];
+    $cur->{SUBSECTION} //= $cur->{VOLUME};
     push(@{$cur->{VOLUME}}, $volume);
     $cur = $volume;
   }
@@ -816,6 +847,7 @@ sub parse_config_line($$$$$)
                       snapshot_name => $snapshot_name,
                      };
     $cur->{SUBVOLUME} //= [];
+    $cur->{SUBSECTION} //= $cur->{SUBVOLUME};
     push(@{$cur->{SUBVOLUME}}, $subvolume);
     $cur = $subvolume;
   }
@@ -848,6 +880,7 @@ sub parse_config_line($$$$$)
                      url => $droot,
                    };
       $cur->{TARGET} //= [];
+      $cur->{SUBSECTION} //= $cur->{TARGET};
       push(@{$cur->{TARGET}}, $target);
       $cur = $target;
     }
@@ -2326,6 +2359,17 @@ sub exit_status($)
 }
 
 
+sub valid_subsection_vinfo($)
+{
+  # if config: must have SUBSECTION key
+  # if vinfo:  must have CONFIG key
+  my $config_or_vinfo = shift;
+  my $config_list = exists($config_or_vinfo->{SUBSECTION}) ? $config_or_vinfo->{SUBSECTION} : $config_or_vinfo->{CONFIG}->{SUBSECTION};
+  return map { $_->{ABORTED} ? () : $_->{VINFO} } @$config_list;
+}
+
+
+
 MAIN:
 {
   # set PATH instead of using absolute "/sbin/btrfs" (for now), as
@@ -2606,6 +2650,26 @@ MAIN:
   unless(ref($config->{VOLUME}) eq "ARRAY") {
     ERROR "No volumes defined in configuration file";
     exit 2;
+  }
+
+
+  #
+  # create vinfo nodes (no readin yet)
+  #
+  foreach my $config_vol (@{$config->{VOLUME}}) {
+    my $sroot = vinfo($config_vol->{url}, $config_vol);
+    vinfo_assign_config($sroot, $config_vol);
+    $config_vol->{sroot} = $sroot; #!!!
+    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+      my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+      vinfo_assign_config($svol, $config_subvol);
+      $config_subvol->{svol} = $svol;  #!!!
+      foreach my $config_target (@{$config_subvol->{TARGET}}) {
+        my $droot = vinfo($config_target->{url}, $config_target);
+        vinfo_assign_config($droot, $config_target);
+        $config_target->{droot} = $droot;  #!!!
+      }
+    }
   }
 
 
