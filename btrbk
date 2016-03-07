@@ -598,9 +598,7 @@ sub config_key($$;@)
   my $node = shift || die;
   my $key = shift || die;
   my %opts = @_;
-
-  # accept vinfo as $node
-  $node = $node->{CONFIG} if($node->{CONFIG});
+  $node = $node->{CONFIG} if($node->{CONFIG});  # accept vinfo for $node
 
   TRACE "config_key: context=$node->{CONTEXT}, key=$key";
 
@@ -629,6 +627,7 @@ sub config_dump_keys($;@)
   my %opts = @_;
   my @ret;
   my $maxlen = 0;
+  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
 
   foreach my $key (sort keys %config_options)
   {
@@ -2352,17 +2351,12 @@ sub print_formatted(@)
 }
 
 
-sub exit_status($)
+sub exit_status
 {
   my $config = shift;
-  foreach my $config_vol (@{$config->{VOLUME}}) {
-    return 10 if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP"));
-    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-      return 10 if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP"));
-      foreach my $config_target (@{$config_subvol->{TARGET}}) {
-        return 10 if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP"));
-      }
-    }
+  foreach my $subsection (@{$config->{SUBSECTION}}) {
+    return 10 if($subsection->{ABORTED} && ($subsection->{ABORTED} ne "USER_SKIP"));
+    return 10 if(exit_status($subsection));
   }
   return 0;
 }
@@ -2723,13 +2717,13 @@ MAIN:
   if(($action_run || $action_clean || $action_resolve || $action_usage || $action_list || $action_config_print) && scalar(@filter_args))
   {
     my %match;
-    foreach my $config_vol (@{$config->{VOLUME}}) {
-      my $vol_url = $config_vol->{url} // die;
+    foreach my $sroot (vinfo_subsection($config, 'volume', 1)) {
+      my $vol_url = $sroot->{URL};
       my $found_vol = 0;
       foreach my $filter (@filter_args) {
-        if(($vol_url eq $filter) || (map { ($filter eq $_) || () } @{$config_vol->{group}})) {
+        if(($vol_url eq $filter) || (map { ($filter eq $_) || () } @{$sroot->{CONFIG}->{group}})) {
           TRACE "filter argument \"$filter\" matches volume: $vol_url\n";
-          $match{$filter} = ($vol_url eq $filter) ? "volume=" . vinfo($vol_url, $config_vol)->{PRINT} : "group=$filter";
+          $match{$filter} = ($vol_url eq $filter) ? "volume=$sroot->{PRINT}" : "group=$filter";
           $found_vol = 1;
           # last; # need to cycle through all filter_args for correct %match
         }
@@ -2737,13 +2731,13 @@ MAIN:
       next if($found_vol);
 
       my @filter_subvol;
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-        my $subvol_url = $config_subvol->{url} // die;
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume', 1)) {
+        my $subvol_url = $svol->{URL};
         my $found_subvol = 0;
         foreach my $filter (@filter_args) {
-          if(($subvol_url eq $filter) || (map { ($filter eq $_) || () } @{$config_subvol->{group}})) {
+          if(($subvol_url eq $filter) || (map { ($filter eq $_) || () } @{$svol->{CONFIG}->{group}})) {
             TRACE "filter argument \"$filter\" matches subvolume: $subvol_url\n";
-            $match{$filter} = ($subvol_url eq $filter) ? "subvolume=" . vinfo($subvol_url, $config_subvol)->{PRINT} : "group=$filter";
+            $match{$filter} = ($subvol_url eq $filter) ? "subvolume=$svol->{PRINT}" : "group=$filter";
             $found_subvol = 1;
             $found_vol = 1;
             # last; # need to cycle through all filter_args for correct %match
@@ -2751,16 +2745,16 @@ MAIN:
         }
         next if($found_subvol);
 
-        my $snapshot_name = $config_subvol->{snapshot_name} // die;
-        foreach my $config_target (@{$config_subvol->{TARGET}}) {
-          my $target_url = $config_target->{url} // die;
+        my $snapshot_name = config_key($svol, "snapshot_name") // die;
+        foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
+          my $target_url = $droot->{URL};
           my $found_target = 0;
           foreach my $filter (@filter_args) {
             if(($filter eq $target_url) ||
                ($filter eq "$target_url/$snapshot_name") ||
-               (map { ($filter eq $_) || () } @{$config_target->{group}})) {
+               (map { ($filter eq $_) || () } @{$droot->{CONFIG}->{group}})) {
               TRACE "filter argument \"$filter\" matches target: $target_url\n";
-              $match{$filter} = ($target_url eq $filter) ? "target=" . vinfo($target_url, $config_target)->{PRINT} : "group=$filter";
+              $match{$filter} = ($target_url eq $filter) ? "target=$droot->{PRINT}" : "group=$filter";
               $found_target = 1;
               $found_subvol = 1;
               $found_vol = 1;
@@ -2769,17 +2763,17 @@ MAIN:
           }
           unless($found_target) {
             DEBUG "No match on filter command line argument, skipping target: $target_url";
-            ABORTED($config_target, "USER_SKIP");
+            ABORTED($droot, "USER_SKIP");
           }
         }
         unless($found_subvol) {
           DEBUG "No match on filter command line argument, skipping subvolume: $subvol_url";
-          ABORTED($config_subvol, "USER_SKIP");
+          ABORTED($svol, "USER_SKIP");
         }
       }
       unless($found_vol) {
         DEBUG "No match on filter command line argument, skipping volume: $vol_url";
-        ABORTED($config_vol, "USER_SKIP");
+        ABORTED($sroot, "USER_SKIP");
       }
     }
     # make sure all args have a match
@@ -2801,9 +2795,7 @@ MAIN:
     #
     my @data;
     my %processed;
-    foreach my $config_vol (@{$config->{VOLUME}}) {
-      next if($config_vol->{ABORTED});
-      my $sroot = vinfo($config_vol->{url}, $config_vol);
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
       unless($processed{$sroot->{URL}}) {
         my $usage = btrfs_filesystem_usage($sroot) // {};
         push @data, { %$usage,
@@ -2814,13 +2806,9 @@ MAIN:
       }
     }
 
-    foreach my $config_vol (@{$config->{VOLUME}}) {
-      next if($config_vol->{ABORTED});
-      my $sroot = vinfo($config_vol->{url}, $config_vol);
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-        next if($config_subvol->{ABORTED});
-        foreach my $config_target (@{$config_subvol->{TARGET}}) {
-          my $droot = vinfo($config_target->{url}, $config_target);
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+        foreach my $droot (vinfo_subsection($svol, 'target')) {
           unless($processed{$droot->{URL}}) {
             my $usage = btrfs_filesystem_usage($droot) // {};
             push @data, { %$usage,
@@ -2845,25 +2833,16 @@ MAIN:
     #
     my @out;
     push @out, config_dump_keys($config, skip_defaults => 1);
-    foreach my $config_vol (@{$config->{VOLUME}}) {
-      next if($config_vol->{ABORTED});
-      my $sroot = vinfo($config_vol->{url}, $config_vol);
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
       push @out, "\nvolume $sroot->{URL}";
-      push @out, config_dump_keys($config_vol, prefix => "\t", resolve => $resolve);
-
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-        next if($config_subvol->{ABORTED});
-        my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+      push @out, config_dump_keys($sroot, prefix => "\t", resolve => $resolve);
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
         # push @out, "\n  subvolume $svol->{URL}";
         push @out, "\n\tsubvolume $svol->{SUBVOL_PATH}";
-        push @out, config_dump_keys($config_subvol, prefix => "\t\t", resolve => $resolve);
-
-        foreach my $config_target (@{$config_subvol->{TARGET}})
-        {
-          next if($config_target->{ABORTED});
-          my $droot = vinfo($config_target->{url}, $config_target);
-          push @out, "\n\t\ttarget $config_target->{target_type} $droot->{URL}";
-          push @out, config_dump_keys($config_target, prefix => "\t\t\t", resolve => $resolve);
+        push @out, config_dump_keys($svol, prefix => "\t\t", resolve => $resolve);
+        foreach my $droot (vinfo_subsection($svol, 'target')) {
+          push @out, "\n\t\ttarget $droot->{CONFIG}->{target_type} $droot->{URL}";
+          push @out, config_dump_keys($droot, prefix => "\t\t\t", resolve => $resolve);
         }
       }
     }
@@ -2889,31 +2868,24 @@ MAIN:
     #
     # print configuration lines, machine readable
     #
-    foreach my $config_vol (@{$config->{VOLUME}}) {
-      next if($config_vol->{ABORTED});
-      my $sroot = vinfo($config_vol->{url}, $config_vol);
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
       my $volh = { vinfo_prefixed_keys("volume", $sroot) };
       push @vol_data, $volh;
 
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-        next if($config_subvol->{ABORTED});
-        my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
         my $subvolh = { %$volh,
                         vinfo_prefixed_keys("source", $svol),
-                        snapshot_path     => $sroot->{PATH} . (config_key($config_subvol, "snapshot_dir", prefix => '/') // ""),
-                        snapshot_name     => config_key($config_subvol, "snapshot_name"),
-                        snapshot_preserve => format_preserve_matrix(config => $config_subvol, prefix => "snapshot"),
+                        snapshot_path     => $sroot->{PATH} . (config_key($svol, "snapshot_dir", prefix => '/') // ""),
+                        snapshot_name     => config_key($svol, "snapshot_name"),
+                        snapshot_preserve => format_preserve_matrix(config => $svol->{CONFIG}, prefix => "snapshot"),
                       };
         push @subvol_data, $subvolh;
 
         my $found = 0;
-        foreach my $config_target (@{$config_subvol->{TARGET}})
-        {
-          next if($config_target->{ABORTED});
-          my $droot = vinfo($config_target->{url}, $config_target);
+        foreach my $droot (vinfo_subsection($svol, 'target')) {
           my $targeth = { %$subvolh,
                           vinfo_prefixed_keys("target", $droot),
-                          target_preserve => format_preserve_matrix(config => $config_target, prefix => "target"),
+                          target_preserve => format_preserve_matrix(config => $droot->{CONFIG}, prefix => "target"),
                         };
           if($action_list eq "target") {
             next if($target_uniq{$droot->{URL}});
@@ -3051,7 +3023,7 @@ MAIN:
             }
           }
           if(ABORTED($droot)) {
-            WARN "Skipping target \"$droot->{PRINT}\": "  . ABORTED($droot);
+            WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED($droot);
             next;
           }
           DEBUG "Found " . scalar(keys %subvol_list) . " raw subvolume backups of: $svol->{PRINT}";
@@ -3145,9 +3117,9 @@ MAIN:
     my $lines = [];
     _origin_tree("", $vol->{uuid}, $lines);
 
-    print_header(title => "Origin Tree",
+    print_header(title  => "Origin Tree",
                  config => $config,
-                 time => $start_time,
+                 time   => $start_time,
                  legend => [
                    "^--     : received from subvolume",
                    "newline : parent subvolume",
@@ -3182,13 +3154,9 @@ MAIN:
       #
       # print all snapshots and their receive targets
       #
-      foreach my $config_vol (@{$config->{VOLUME}}) {
-        next if($config_vol->{ABORTED});
-        my $sroot = $config_vol->{sroot} || die;
-        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-          next if($config_subvol->{ABORTED});
-          my $svol = $config_subvol->{svol} || die;
-          my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
+      foreach my $sroot (vinfo_subsection($config, 'volume')) {
+        foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+          my $snapshot_name = config_key($svol, "snapshot_name") // die;
           foreach my $snapshot (sort { $a->{cgen} <=> $b->{cgen} } get_snapshot_children($sroot, $svol)) {
             my $snapshot_data = { type => "snapshot",
                                   status => ($snapshot->{cgen} == $svol->{gen}) ? "up-to-date" : undef,
@@ -3197,9 +3165,7 @@ MAIN:
                                   snapshot_name => $snapshot_name,
                                 };
             my $found = 0;
-            foreach my $config_target (@{$config_subvol->{TARGET}}) {
-              next if($config_target->{ABORTED});
-              my $droot = $config_target->{droot} || die;
+            foreach my $droot (vinfo_subsection($svol, 'target')) {
               $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
               foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
                 push @data, { %$snapshot_data,
@@ -3219,13 +3185,9 @@ MAIN:
       #
       # print all targets and their corresponding source snapshots
       #
-      foreach my $config_vol (@{$config->{VOLUME}}) {
-        next if($config_vol->{ABORTED});
-        my $sroot = $config_vol->{sroot} || die;
-        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-          next if($config_subvol->{ABORTED});
-          my $svol = $config_subvol->{svol} || die;
-          my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
+      foreach my $sroot (vinfo_subsection($config, 'volume')) {
+        foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+          my $snapshot_name = config_key($svol, "snapshot_name") // die;
           my @snapshot_children = get_snapshot_children($sroot, $svol);
           my $stats_snapshot_uptodate = "";
           foreach my $snapshot (@snapshot_children) {
@@ -3237,9 +3199,7 @@ MAIN:
           push @stats_data, [ $svol->{PRINT}, sprintf("%4u snapshots$stats_snapshot_uptodate", scalar(@snapshot_children)) ];
           $stats_snapshots_total += scalar(@snapshot_children);  # NOTE: this adds ALL snaphot children under $sroot (not only the ones created by btrbk!)
 
-          foreach my $config_target (@{$config_subvol->{TARGET}}) {
-            next if($config_target->{ABORTED});
-            my $droot = $config_target->{droot} || die;
+          foreach my $droot (vinfo_subsection($svol, 'target')) {
             $droot_compat{$droot->{URL}} = 1 if($droot->{BTRFS_PROGS_COMPAT});
             my $stats_received = 0;
             my $stats_orphaned = 0;
@@ -3278,7 +3238,7 @@ MAIN:
               }
               else {
                 # don't display all subvolumes in $droot, only the ones matching snapshot_name
-                if(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, ($config_target->{target_type} eq "raw"))) {
+                if(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, ($droot->{CONFIG}->{target_type} eq "raw"))) {
                   if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
                   push @data, { type => "received",
                                 status => ($incomplete_backup ? "incomplete" : "orphaned"),
@@ -3310,16 +3270,10 @@ MAIN:
       #
       # print latest common
       #
-      foreach my $config_vol (@{$config->{VOLUME}}) {
-        next if($config_vol->{ABORTED});
-        my $sroot = $config_vol->{sroot} || die;
-        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
-          next if($config_subvol->{ABORTED});
-          my $svol = $config_subvol->{svol} || die;
+      foreach my $sroot (vinfo_subsection($config, 'volume')) {
+        foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $found = 0;
-          foreach my $config_target (@{$config_subvol->{TARGET}}) {
-            next if($config_target->{ABORTED});
-            my $droot = $config_target->{droot} || die;
+          foreach my $droot (vinfo_subsection($svol, 'target')) {
             my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
             if ($latest_common_src && $latest_common_target) {
               push @data, { type => "latest_common",
@@ -3351,9 +3305,9 @@ MAIN:
       WARN " - target: $_" foreach(sort keys %droot_compat);
     }
     if($action_resolve eq "stats") {
-      print_header(title => "Statistics",
+      print_header(title  => "Statistics",
                    config => $config,
-                   time => $start_time,
+                   time   => $start_time,
                   );
 
       print_table(\@stats_data, "  ");
@@ -3383,19 +3337,10 @@ MAIN:
     # identify and delete incomplete backups
     #
     my @out;
-    foreach my $config_vol (@{$config->{VOLUME}})
-    {
-      next if($config_vol->{ABORTED});
-      my $sroot = $config_vol->{sroot} || die;
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-      {
-        next if($config_subvol->{ABORTED});
-        my $svol = $config_subvol->{svol} || die;
-        my $snapshot_name = config_key($config_subvol, "snapshot_name") // die;
-        foreach my $config_target (@{$config_subvol->{TARGET}})
-        {
-          next if($config_target->{ABORTED});
-          my $droot = $config_target->{droot} || die;
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+        my $snapshot_name = config_key($svol, "snapshot_name") // die;
+        foreach my $droot (vinfo_subsection($svol, 'target')) {
           if($droot->{BTRFS_PROGS_COMPAT}) {
             WARN "btrfs_progs_compat is set, skipping cleanup of target: $droot->{PRINT}";
             next;
@@ -3413,15 +3358,15 @@ MAIN:
               push @out, "--- $target_vol->{PRINT}";
             }
           }
-          my $ret = btrfs_subvolume_delete(\@delete, commit => config_key($config_target, "btrfs_commit_delete"), type => "delete_garbled");
+          my $ret = btrfs_subvolume_delete(\@delete, commit => config_key($droot, "btrfs_commit_delete"), type => "delete_garbled");
           if(defined($ret)) {
             INFO "Deleted $ret incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
             $droot->{SUBVOL_DELETED} //= [];
             push @{$droot->{SUBVOL_DELETED}}, @delete;
           }
           else {
-            ABORTED($config_target, "Failed to delete incomplete target subvolume");
-            push @out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
+            ABORTED($droot, "Failed to delete incomplete target subvolume");
+            push @out, "!!! Target \"$droot->{PRINT}\" aborted: $abrt";
           }
           push(@out, "<no_action>") unless(scalar(@delete));
           push(@out, "");
@@ -3447,9 +3392,9 @@ MAIN:
       $output_format ||= "custom";
       if($output_format eq "custom")
       {
-        print_header(title => "Cleanup Summary",
+        print_header(title  => "Cleanup Summary",
                      config => $config,
-                     time => $start_time,
+                     time   => $start_time,
                      legend => [
                        "---  deleted subvolume (incomplete backup)",
                       ],
