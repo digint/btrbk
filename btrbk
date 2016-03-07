@@ -176,6 +176,7 @@ my $dryrun;
 my $loglevel = 1;
 my $show_progress = 0;
 my $err = "";
+my $abrt = "";  # last ABORTED() message
 my $output_format;
 my $tlog_fh;
 my $current_transaction;
@@ -252,21 +253,21 @@ sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 sub ABORTED($;$)
 {
   my $config = shift;
-  my $t = shift;
+  $abrt = shift;
   $config = $config->{CONFIG} unless($config->{CONTEXT});
-  return $config->{ABORTED} unless(defined($t));
+  return $config->{ABORTED} unless(defined($abrt));
 
-  unless($t eq "USER_SKIP") {
-    $t =~ s/\n/\\\\/g;
-    $t =~ s/\r//g;
+  unless($abrt eq "USER_SKIP") {
+    $abrt =~ s/\n/\\\\/g;
+    $abrt =~ s/\r//g;
     action("abort_" . ($config->{CONTEXT} || "undef"),
            status => "ABORT",
            vinfo_prefixed_keys("target", vinfo($config->{url}, $config)),
-           message => $t,
+           message => $abrt,
           );
   }
-  $config->{ABORTED} = $t;
-  return $t;
+  $abrt = 1 unless($abrt);  # make sure $abrt is always a true value
+  $config->{ABORTED} = $abrt;
 }
 
 
