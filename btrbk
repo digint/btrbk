@@ -600,7 +600,7 @@ sub config_key($$;@)
   my %opts = @_;
 
   # accept vinfo as $node
-  $node = $node->{CONFIG} unless($node->{CONTEXT}); #!!!
+  $node = $node->{CONFIG} if($node->{CONFIG});
 
   TRACE "config_key: context=$node->{CONTEXT}, key=$key";
 
@@ -1731,13 +1731,14 @@ sub vinfo_subvol($$)
 
 # sets $config->{ABORTED} on failure
 # sets $config->{SUBVOL_RECEIVED}
-sub macro_send_receive($@)
+sub macro_send_receive(@)
 {
-  my $config_target = shift || die;
   my %info = @_;
   my $source = $info{source} || die;
   my $target = $info{target} || die;
   my $parent = $info{parent};
+  my $config_target = $target->{CONFIG};
+  die unless($config_target->{CONTEXT} eq "target");
   my $target_type = $config_target->{target_type} || die;
   my $incremental = config_key($config_target, "incremental");
 
@@ -1832,7 +1833,7 @@ sub macro_send_receive($@)
 
 sub macro_delete($$$$$)
 {
-  my $config = shift || die;
+  my $config = shift || die;   #!!! TODO
   my $root_subvol = shift || die;
   my $subvol_basename = shift // die;  # relative "path/to/snapshot_name"
   my $config_section = shift || die;
@@ -2366,12 +2367,13 @@ sub exit_status($)
 }
 
 
-sub vinfo_subsection($$)
+sub vinfo_subsection($$;$)
 {
   # if config: must have SUBSECTION key
   # if vinfo:  must have CONFIG key
-  my $config_or_vinfo = shift;
-  my $context = shift;
+  my $config_or_vinfo = shift || die;
+  my $context = shift || die;
+  my $include_aborted = shift;
   my $config_list;
   my $vinfo_check;
   if(exists($config_or_vinfo->{SUBSECTION})) {
@@ -2388,7 +2390,9 @@ sub vinfo_subsection($$)
   my @ret;
   foreach (@$config_list) {
     die unless($_->{CONTEXT} eq $context);
-    next if($_->{ABORTED});
+    next if((not $include_aborted) && $_->{ABORTED});
+    die unless($_->{VINFO});
+    die unless($_->{VINFO}->{CONFIG});
     die unless($_->{VINFO} == $_->{VINFO}->{CONFIG}->{VINFO});  # check all back references
     push @ret, $_->{VINFO};
   }
@@ -2942,16 +2946,14 @@ MAIN:
   #
   # fill vinfo hash, basic checks on configuration
   #
-  foreach my $sroot (vinfo_subsection($config, 'volume'))
-  {
+  foreach my $sroot (vinfo_subsection($config, 'volume')) {
     unless(vinfo_root($sroot)) {
       ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
       WARN "Skipping volume \"$sroot->{PRINT}\": $abrt";
       next;
     }
 
-    foreach my $svol (vinfo_subsection($sroot, 'subvolume'))
-    {
+    foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
       my $svol_check = vinfo_subvol($sroot, $svol->{CONFIG}->{rel_path});
       if($svol_check) {
         vinfo_set_detail($svol, $svol_check);
@@ -2982,8 +2984,7 @@ MAIN:
       }
 
 
-      foreach my $droot (vinfo_subsection($svol, 'target'))
-      {
+      foreach my $droot (vinfo_subsection($svol, 'target')) {
         my $target_type = $droot->{CONFIG}->{target_type} || die;
         if($target_type eq "send-receive")
         {
@@ -3478,19 +3479,13 @@ MAIN:
       #
       # create snapshots
       #
-      foreach my $config_vol (@{$config->{VOLUME}})
-      {
-        next if($config_vol->{ABORTED});
-        my $sroot = $config_vol->{sroot} || die;
-        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-        {
-          next if($config_subvol->{ABORTED});
-          my $svol = $config_subvol->{svol} || die;
-          my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
-          my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
+      foreach my $sroot (vinfo_subsection($config, 'volume')) {
+        foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+          my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
+          my $snapshot_basename = config_key($svol, "snapshot_name") // die;
 
           # check if we need to create a snapshot
-          my $snapshot_create = config_key($config_subvol, "snapshot_create");
+          my $snapshot_create = config_key($svol, "snapshot_create");
           if(not $snapshot_create) {
             DEBUG "Snapshot creation disabled (snapshot_create=no)";
             next;
@@ -3504,7 +3499,7 @@ MAIN:
             if($latest) {
               if($latest->{cgen} == $svol->{gen}) {
                 INFO "Snapshot creation skipped: snapshot_create=onchange, snapshot is up-to-date: $latest->{PRINT}";
-                $config_subvol->{SNAPSHOT_UP_TO_DATE} = $latest;
+                $svol->{CONFIG}->{SNAPSHOT_UP_TO_DATE} = $latest;
                 next;
               }
               DEBUG "Snapshot creation enabled: snapshot_create=onchange, gen=$svol->{gen} > snapshot_cgen=$latest->{cgen}";
@@ -3515,7 +3510,7 @@ MAIN:
           }
           elsif($snapshot_create eq "ondemand") {
             # check if at least one target is present
-            if(scalar grep { not $_->{ABORTED} } @{$config_subvol->{TARGET}}) {
+            if(scalar vinfo_subsection($svol, 'target')) {
               DEBUG "Snapshot creation enabled (snapshot_create=ondemand): at least one target is present";
             }
             else {
@@ -3528,18 +3523,17 @@ MAIN:
           }
 
           # find unique snapshot name
-          my $timestamp = ((config_key($config_subvol, "timestamp_format") eq "short") ?
+          my $timestamp = ((config_key($svol, "timestamp_format") eq "short") ?
                            sprintf("%04d%02d%02d", @today) :
                            sprintf("%04d%02d%02dT%02d%02d", @today_and_now[0..4]));
           my @unconfirmed_target_name;
           my @lookup = keys %{vinfo_subvol_list($sroot)};
           @lookup = grep s/^\Q$snapdir\E// , @lookup;
-          foreach my $config_target (@{$config_subvol->{TARGET}}) {
-            if($config_target->{ABORTED}) {
-              push(@unconfirmed_target_name, vinfo($config_target->{url}, $config_target));
+          foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
+            if(ABORTED($droot)) {
+              push(@unconfirmed_target_name, $droot);
               next;
             }
-            my $droot = $config_target->{droot} || die;
             push(@lookup, keys %{vinfo_subvol_list($droot)});
           }
           @lookup = grep /^\Q$snapshot_basename.$timestamp\E(_[0-9]+)?$/ ,@lookup;
@@ -3558,11 +3552,11 @@ MAIN:
           INFO "Creating subvolume snapshot for: $svol->{PRINT}";
           my $snapshot = vinfo_child($sroot, "$snapdir$snapshot_name");
           if(btrfs_subvolume_snapshot($svol, $snapshot)) {
-            $config_subvol->{SNAPSHOT} = $snapshot;
+            $svol->{CONFIG}->{SNAPSHOT} = $snapshot; #!!! TODO: move this to $svol directly!
           }
           else {
-            ABORTED($config_subvol, "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name");
-            WARN "Skipping subvolume section: $config_subvol->{ABORTED}";
+            ABORTED($svol, "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name");
+            WARN "Skipping subvolume section: $abrt";
           }
         }
       }
@@ -3571,27 +3565,17 @@ MAIN:
     #
     # create backups
     #
-    foreach my $config_vol (@{$config->{VOLUME}})
-    {
-      next if($config_vol->{ABORTED});
-      my $sroot = $config_vol->{sroot} || die;
-      foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-      {
-        next if($config_subvol->{ABORTED});
-        my $svol = $config_subvol->{svol} || die;
-        my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
-        my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
-        my $preserve_latest = $config_subvol->{SNAPSHOT} ? 0 : 1;
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+        my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
+        my $snapshot_basename = config_key($svol, "snapshot_name") // die;
+        my $preserve_latest = $svol->{CONFIG}->{SNAPSHOT} ? 0 : 1;
 
-        foreach my $config_target (@{$config_subvol->{TARGET}})
-        {
-          next if($config_target->{ABORTED});
-          my $droot = $config_target->{droot} || die;
-
+        foreach my $droot (vinfo_subsection($svol, 'target')) {
           #
           # resume missing backups (resume_missing)
           #
-          if(config_key($config_target, "resume_missing"))
+          if(config_key($droot, "resume_missing"))
           {
             INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
             my @schedule;
@@ -3630,7 +3614,7 @@ MAIN:
               # add all present backups to schedule, with no value
               # these are needed for correct results of schedule()
               foreach my $vol (values %{vinfo_subvol_list($droot)}) {
-                my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, ($config_target->{target_type} eq "raw"));
+                my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, ($droot->{CONFIG}->{target_type} eq "raw"));
                 unless($filename_info) {
                   TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                   next;
@@ -3643,11 +3627,11 @@ MAIN:
               my ($preserve, undef) = schedule(
                 schedule             => \@schedule,
                 today                => \@today,
-                preserve_day_of_week => config_key($config_target, "preserve_day_of_week"),
-                preserve_daily       => config_key($config_target, "target_preserve_daily"),
-                preserve_weekly      => config_key($config_target, "target_preserve_weekly"),
-                preserve_monthly     => config_key($config_target, "target_preserve_monthly"),
-                preserve_yearly      => config_key($config_target, "target_preserve_yearly"),
+                preserve_day_of_week => config_key($droot, "preserve_day_of_week"),
+                preserve_daily       => config_key($droot, "target_preserve_daily"),
+                preserve_weekly      => config_key($droot, "target_preserve_weekly"),
+                preserve_monthly     => config_key($droot, "target_preserve_monthly"),
+                preserve_yearly      => config_key($droot, "target_preserve_yearly"),
                 preserve_latest      => $preserve_latest,
                );
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
@@ -3657,8 +3641,7 @@ MAIN:
               {
                 INFO "Resuming subvolume backup (send-receive) for: $child->{PRINT}";
                 my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{cgen});
-                if(macro_send_receive($config_target,
-                                      source => $child,
+                if(macro_send_receive(source => $child,
                                       target => $droot,
                                       parent => $latest_common_src,  # this is <undef> if no common found
                                       resume => 1,     # propagated to $config_target->{SUBVOL_RECEIVED}
@@ -3686,14 +3669,13 @@ MAIN:
           unless($resume_only)
           {
             # skip creation if resume_missing failed
-            next if($config_target->{ABORTED});
-            next unless($config_subvol->{SNAPSHOT});
+            next if(ABORTED($droot));
+            next unless($svol->{CONFIG}->{SNAPSHOT});
 
             # finally receive the previously created snapshot
             INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
             my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
-            macro_send_receive($config_target,
-                               source => $config_subvol->{SNAPSHOT},
+            macro_send_receive(source => $svol->{CONFIG}->{SNAPSHOT},
                                target => $droot,
                                parent => $latest_common_src,  # this is <undef> if no common found
                               );
@@ -3712,33 +3694,25 @@ MAIN:
     }
     else
     {
-      foreach my $config_vol (@{$config->{VOLUME}})
-      {
-        next if($config_vol->{ABORTED});
-        my $sroot = $config_vol->{sroot} || die;
-        foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-        {
-          next if($config_subvol->{ABORTED});
-          my $svol = $config_subvol->{svol} || die;
-          my $snapdir = config_key($config_subvol, "snapshot_dir", postfix => '/') // "";
-          my $snapshot_basename = config_key($config_subvol, "snapshot_name") // die;
-          my $preserve_latest_snapshot = $config_subvol->{SNAPSHOT} ? 0 : "preserve forced: latest in list";
+      foreach my $sroot (vinfo_subsection($config, 'volume')) {
+        foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+          my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
+          my $snapshot_basename = config_key($svol, "snapshot_name") // die;
+          my $preserve_latest_snapshot = $svol->{CONFIG}->{SNAPSHOT} ? 0 : "preserve forced: latest in list";
           my $preserve_latest_backup = $preserve_latest_snapshot;
           my $target_aborted = 0;
 
-          foreach my $config_target (@{$config_subvol->{TARGET}})
-          {
-            if($config_target->{ABORTED}) {
-              if($config_target->{ABORTED} eq "USER_SKIP") {
+          foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
+            if(ABORTED($droot)) {
+              if(ABORTED($droot) eq "USER_SKIP") {
                 $target_aborted ||= -1;
               } else {
                 $target_aborted = 1;
               }
               next;
             }
-            my $droot = $config_target->{droot} || die;
-            if($config_target->{target_type} eq "raw") {
-              if(config_key($config_target, "incremental")) {
+            if($droot->{CONFIG}->{target_type} eq "raw") {
+              if(config_key($droot, "incremental")) {
                 # In incremental mode, the latest backup is most certainly our parent.
                 # (see note on FORCE_PRESERVE above)
                 $preserve_latest_backup ||= "preserve forced: possibly parent of latest backup";
@@ -3754,7 +3728,7 @@ MAIN:
             # delete backups
             #
             INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
-            unless(macro_delete($config_target, $droot, $snapshot_basename, "target",
+            unless(macro_delete($droot->{CONFIG}, $droot, $snapshot_basename, "target",
                                 { today           => \@today,
                                   preserve_latest => $preserve_latest_backup,
                                   results         => $schedule_results,
@@ -3777,7 +3751,7 @@ MAIN:
             next;
           }
           INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir$snapshot_basename.*";
-          macro_delete($config_subvol, $sroot, $snapdir . $snapshot_basename, "snapshot",
+          macro_delete($svol->{CONFIG}, $sroot, $snapdir . $snapshot_basename, "snapshot",
                        { today           => \@today,
                          preserve_latest => $preserve_latest_snapshot,
                          results         => $schedule_results,
@@ -3827,29 +3801,22 @@ MAIN:
       {
         my @unrecoverable;
         my @out;
-        foreach my $config_vol (@{$config->{VOLUME}})
-        {
-          my $sroot = $config_vol->{sroot} || vinfo($config_vol->{url}, $config_vol);
-          foreach my $config_subvol (@{$config_vol->{SUBVOLUME}})
-          {
+        foreach my $sroot (vinfo_subsection($config, 'volume', 1)) {
+          foreach my $svol (vinfo_subsection($sroot, 'subvolume', 1)) {
             my @subvol_out;
-            my $svol = $config_subvol->{svol} || vinfo_child($sroot, $config_subvol->{rel_path});
-
-            if($config_subvol->{SNAPSHOT_UP_TO_DATE}) {
-              push @subvol_out, "=== $config_subvol->{SNAPSHOT_UP_TO_DATE}->{PRINT}";
+            if($svol->{CONFIG}->{SNAPSHOT_UP_TO_DATE}) {
+              push @subvol_out, "=== $svol->{CONFIG}->{SNAPSHOT_UP_TO_DATE}->{PRINT}";
             }
-            if($config_subvol->{SNAPSHOT}) {
-              push @subvol_out, "+++ $config_subvol->{SNAPSHOT}->{PRINT}";
+            if($svol->{CONFIG}->{SNAPSHOT}) {
+              push @subvol_out, "+++ $svol->{CONFIG}->{SNAPSHOT}->{PRINT}";
             }
-            if($config_subvol->{SUBVOL_DELETED}) {
-              foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_subvol->{SUBVOL_DELETED}}) {
+            if($svol->{CONFIG}->{SUBVOL_DELETED}) {
+              foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$svol->{CONFIG}->{SUBVOL_DELETED}}) {
                 push @subvol_out, "--- $_->{PRINT}";
               }
             }
-            foreach my $config_target (@{$config_subvol->{TARGET}})
-            {
-              my $droot = $config_target->{droot} || vinfo($config_target->{url}, $config_target);
-              foreach(@{$config_target->{SUBVOL_RECEIVED} // []}) {
+            foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
+              foreach(@{$droot->{CONFIG}->{SUBVOL_RECEIVED} // []}) {
                 my $create_mode = "***";
                 $create_mode = ">>>" if($_->{parent});
                 # substr($create_mode, 0, 1, '%') if($_->{resume});
@@ -3857,32 +3824,32 @@ MAIN:
                 push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
               }
 
-              if($config_target->{SUBVOL_DELETED}) {
-                foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$config_target->{SUBVOL_DELETED}}) {
+              if($droot->{CONFIG}->{SUBVOL_DELETED}) {
+                foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$droot->{CONFIG}->{SUBVOL_DELETED}}) {
                   push @subvol_out, "--- $_->{PRINT}";
                 }
               }
 
-              if($config_target->{ABORTED} && ($config_target->{ABORTED} ne "USER_SKIP")) {
-                push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: $config_target->{ABORTED}";
+              if(ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) {
+                push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED($droot);
               }
 
-              if($config_target->{UNRECOVERABLE}) {
-                push(@unrecoverable, $config_target->{UNRECOVERABLE});
+              if($droot->{CONFIG}->{UNRECOVERABLE}) {
+                push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});
               }
             }
-            if($config_vol->{ABORTED} && ($config_vol->{ABORTED} ne "USER_SKIP")) {
+            if(ABORTED($sroot) && (ABORTED($sroot) ne "USER_SKIP")) {
               # repeat volume errors in subvolume context
-              push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: $config_vol->{ABORTED}";
+              push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: " . ABORTED($sroot);
             }
-            if($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} ne "USER_SKIP")) {
-              push @subvol_out, "!!! Aborted: $config_subvol->{ABORTED}";
+            if(ABORTED($svol) && (ABORTED($svol) ne "USER_SKIP")) {
+              push @subvol_out, "!!! Aborted: " . ABORTED($svol);
             }
 
             if(@subvol_out) {
               push @out, "$svol->{PRINT}", @subvol_out, "";
             }
-            elsif($config_subvol->{ABORTED} && ($config_subvol->{ABORTED} eq "USER_SKIP")) {
+            elsif(ABORTED($svol) && (ABORTED($svol) eq "USER_SKIP")) {
               # don't print "<no_action>" on USER_SKIP
             }
             else {
