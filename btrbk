@@ -813,13 +813,13 @@ sub parse_config_line($$$$$)
     $value =~ s/\/+$// unless($value =~ /^\/+$/);   # remove trailing slash
     $value =~ s/^\/+/\//; # sanitize leading slash
     TRACE "config: adding volume \"$value\" to root context";
+    die unless($cur->{CONTEXT} eq "root");
     my $volume = { CONTEXT => "volume",
                    PARENT => $cur,
                    url => $value,
                   };
-    $cur->{VOLUME} //= [];
-    $cur->{SUBSECTION} //= $cur->{VOLUME};
-    push(@{$cur->{VOLUME}}, $volume);
+    $cur->{SUBSECTION} //= [];
+    push(@{$cur->{SUBSECTION}}, $volume);
     $cur = $volume;
   }
   elsif($key eq "subvolume")
@@ -840,15 +840,15 @@ sub parse_config_line($$$$$)
     TRACE "config: adding subvolume \"$value\" to volume context: $cur->{url}";
     my $snapshot_name = $value;
     $snapshot_name =~ s/^.*\///; # snapshot_name defaults to subvolume name
+    die unless($cur->{CONTEXT} eq "volume");
     my $subvolume = { CONTEXT => "subvolume",
                       PARENT => $cur,
                       rel_path => $value,
                       url => $cur->{url} . '/' . $value,
                       snapshot_name => $snapshot_name,
                      };
-    $cur->{SUBVOLUME} //= [];
-    $cur->{SUBSECTION} //= $cur->{SUBVOLUME};
-    push(@{$cur->{SUBVOLUME}}, $subvolume);
+    $cur->{SUBSECTION} //= [];
+    push(@{$cur->{SUBSECTION}}, $subvolume);
     $cur = $subvolume;
   }
   elsif($key eq "target")
@@ -874,14 +874,14 @@ sub parse_config_line($$$$$)
       $droot =~ s/\/+$//;   # remove trailing slash
       $droot =~ s/^\/+/\//; # sanitize leading slash
       TRACE "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{url}";
+      die unless($cur->{CONTEXT} eq "subvolume");
       my $target = { CONTEXT => "target",
                      PARENT => $cur,
                      target_type => $target_type,
                      url => $droot,
                    };
-      $cur->{TARGET} //= [];
-      $cur->{SUBSECTION} //= $cur->{TARGET};
-      push(@{$cur->{TARGET}}, $target);
+      $cur->{SUBSECTION} //= [];
+      push(@{$cur->{SUBSECTION}}, $target);
       $cur = $target;
     }
     else
@@ -2647,27 +2647,28 @@ MAIN:
     ERROR "Failed to parse configuration file";
     exit 2;
   }
-  unless(ref($config->{VOLUME}) eq "ARRAY") {
-    ERROR "No volumes defined in configuration file";
-    exit 2;
-  }
+#!!! check this below
+#  unless(ref($config->{VOLUME}) eq "ARRAY") {
+#    ERROR "No volumes defined in configuration file";
+#    exit 2;
+#  }
 
 
   #
   # create vinfo nodes (no readin yet)
   #
-  foreach my $config_vol (@{$config->{VOLUME}}) {
+  foreach my $config_vol (@{$config->{SUBSECTION}}) {
+    die unless($config_vol->{CONTEXT} eq "volume");
     my $sroot = vinfo($config_vol->{url}, $config_vol);
     vinfo_assign_config($sroot, $config_vol);
-    $config_vol->{sroot} = $sroot; #!!!
-    foreach my $config_subvol (@{$config_vol->{SUBVOLUME}}) {
+    foreach my $config_subvol (@{$config_vol->{SUBSECTION}}) {
+      die unless($config_subvol->{CONTEXT} eq "subvolume");
       my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
       vinfo_assign_config($svol, $config_subvol);
-      $config_subvol->{svol} = $svol;  #!!!
-      foreach my $config_target (@{$config_subvol->{TARGET}}) {
+      foreach my $config_target (@{$config_subvol->{SUBSECTION}}) {
+        die unless($config_target->{CONTEXT} eq "target");
         my $droot = vinfo($config_target->{url}, $config_target);
         vinfo_assign_config($droot, $config_target);
-        $config_target->{droot} = $droot;  #!!!
       }
     }
   }
