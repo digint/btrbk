@@ -254,7 +254,7 @@ sub ABORTED($;$)
 {
   my $config = shift;
   $abrt = shift;
-  $config = $config->{CONFIG} unless($config->{CONTEXT});
+  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
   return $config->{ABORTED} unless(defined($abrt));
 
   unless($abrt eq "USER_SKIP") {
@@ -411,14 +411,11 @@ sub run_cmd(@)
 sub vinfo($$)
 {
   my $url = shift // die;
-  my $config = shift || die;  #!!! make optional
+  my $config = shift || die;
+  my %info;
 
   my $name = $url;
   $name =~ s/^.*\///;
-  my %info = (
-    URL => $url,
-    NAME => $name,
-   );
 
   if($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/) {
     my ($host, $path)   = ($1, $2);
@@ -437,7 +434,8 @@ sub vinfo($$)
       WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
     }
     %info = (
-      %info,
+      URL          => $url,
+      NAME         => $name,
       HOST         => $host,
       PATH         => $path,
       PRINT        => "$host:$path",
@@ -450,7 +448,8 @@ sub vinfo($$)
   }
   elsif(($url =~ /^\//) && ($url =~ /^$file_match$/)) {
     %info = (
-      %info,
+      URL    => $url,
+      NAME   => $name,
       PATH   => $url,
       PRINT  => $url,
      );
@@ -464,6 +463,12 @@ sub vinfo($$)
 
   TRACE "vinfo created: $url";
   return \%info;
+}
+
+
+sub vinfo_dump($;$)
+{
+  return Data::Dumper->new([shift], [(shift || "vinfo")])->Maxdepth(2)->Dump();
 }
 
 
@@ -536,6 +541,7 @@ sub vinfo_set_detail($$)
     next if(uc($_) eq $_);  # skip UPPER_CASE keys
     next if($_ eq "path");  # skip "path", this comes in wrong by "btrfs subvolume list"
 
+    # check if already present matches new
     die if(exists($vol->{$_}) && ($vol->{$_} ne $detail->{$_}));
     $vol->{$_} = $detail->{$_};
   }
@@ -559,17 +565,8 @@ sub vinfo_set_detail($$)
   $vinfo_cache{$vol->{REAL_URL}} = $vol if($vol->{REAL_URL});
 
   TRACE "vinfo updated for: $vol->{PRINT}";
-  TRACE(Data::Dumper->Dump([$vol], ["vinfo{$vol->{PRINT}}"]));
+  TRACE(vinfo_dump($vol)) if($loglevel >= 4);
   return $vol;
-}
-
-
-sub dump_vinfo($)
-{
-  my $vinfo = shift;
-  my $dumper = Data::Dumper->new([$vinfo], ["vinfo"]);
-  $dumper->Maxdepth(2);
-  print $dumper->Dump();
 }
 
 
@@ -595,26 +592,24 @@ sub vinfo_prefixed_keys($$)
 
 sub config_key($$;@)
 {
-  my $node = shift || die;
+  my $config = shift || die;
   my $key = shift || die;
   my %opts = @_;
-  $node = $node->{CONFIG} if($node->{CONFIG});  # accept vinfo for $node
-
-  TRACE "config_key: context=$node->{CONTEXT}, key=$key";
+  my $orig_config = $config;
+  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
 
   if(exists($config_override{$key})) {
-    TRACE "config_key: forced key=$key to value=" . ($config_override{$key} // "<undef>");
+    TRACE "config_key: OVERRIDE key=$key to value=" . ($config_override{$key} // "<undef>");
     return $config_override{$key};
   }
 
-  while(not exists($node->{$key})) {
+  while(not exists($config->{$key})) {
     # note: while all config keys exist in root context (at least with default values),
     #       we also allow fake configs (CONTEXT="cmdline") which have no PARENT.
-    return undef unless($node->{PARENT});
-    $node = $node->{PARENT};
+    return undef unless($config->{PARENT});
+    $config = $config->{PARENT};
   }
-  TRACE "config_key: found value=" . ($node->{$key} // "<undef>");
-  my $retval = $node->{$key};
+  my $retval = $config->{$key};
   $retval = $opts{prefix} . $retval if(defined($opts{prefix}) && defined($retval));
   $retval .= $opts{postfix} if(defined($opts{postfix}) && defined($retval));
   return $retval;
@@ -959,7 +954,7 @@ sub parse_config(@)
   }
   close FILE || ERROR "Failed to close configuration file: $!";
 
-  TRACE(Data::Dumper->Dump([$root], ["config{$file}"])) if($root);
+  TRACE(Data::Dumper->Dump([$root], ["config"])) if(($loglevel >= 4) && $root);
   return $root;
 }
 
@@ -1043,7 +1038,7 @@ sub btrfs_filesystem_usage($)
     }
   }
   DEBUG "Parsed " . scalar(keys %detail) . " filesystem usage detail items: $vol->{PRINT}";
-  TRACE(Data::Dumper->Dump([\%detail], ["btrfs_filesystem_usage($vol->{URL})"]));
+  TRACE(Data::Dumper->Dump([\%detail], ["btrfs_filesystem_usage($vol->{URL})"])) if($loglevel >= 4);
   return \%detail;
 }
 
@@ -1137,7 +1132,7 @@ sub btrfs_subvolume_detail($)
       }
     }
     DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
-    TRACE(Data::Dumper->Dump([$vol], ["btrfs_subvolume_detail($vol->{URL})"]));
+    TRACE(Data::Dumper->new([\%detail], [("btrfs_subvolume_detail")])->Maxdepth(2)->Dump()) if($loglevel >= 4);
     foreach(@required_keys) {
       unless(defined($detail{$_})) {
         ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
@@ -1697,7 +1692,7 @@ sub vinfo_subvol_list($)
   }
 
   DEBUG "Found " . scalar(keys %ret) . " subvolumes below: $vol->{PRINT}";
-  TRACE(Data::Dumper->Dump([\%ret], ["vinfo_subvol_list{$vol->{URL}}"]));
+  TRACE(Data::Dumper->Dump([\%ret], ["vinfo_subvol_list"])) if($loglevel >= 4);
 
   $vol->{SUBVOL_LIST} = \%ret;
   return \%ret;
@@ -2071,7 +2066,7 @@ sub schedule(@)
   DEBUG "Filter scheme: preserving all within $preserve_daily days";
   DEBUG "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
   DEBUG "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
-  DEBUG "Filter scheme: preserving last monthly of year, for $preserve_yearly years";
+  DEBUG "Filter scheme: preserving last weekly of year, for $preserve_yearly years";
 
   # sort the schedule, ascending by date
   my @sorted_schedule = sort { ($a->{btrbk_date}->[0] <=> $b->{btrbk_date}->[0]) ||
@@ -2676,7 +2671,7 @@ MAIN:
     ERROR "Failed to parse configuration file";
     exit 2;
   }
-  unless(ref($config->{SUBSECTION}) eq "ARRAY") { #!!! TODO: check this below, only when needed
+  unless(ref($config->{SUBSECTION}) eq "ARRAY") {
     ERROR "No volumes defined in configuration file";
     exit 2;
   }
@@ -3499,7 +3494,7 @@ MAIN:
           INFO "Creating subvolume snapshot for: $svol->{PRINT}";
           my $snapshot = vinfo_child($sroot, "$snapdir$snapshot_name");
           if(btrfs_subvolume_snapshot($svol, $snapshot)) {
-            $svol->{SNAPSHOT_CREATED} = $snapshot; #!!! TODO: move this to $svol directly!
+            $svol->{SNAPSHOT_CREATED} = $snapshot;
           }
           else {
             ABORTED($svol, "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name");
