@@ -1730,7 +1730,7 @@ sub vinfo_subvol($$)
 
 
 # sets $config->{ABORTED} on failure
-# sets $config->{SUBVOL_RECEIVED}
+# sets $target->{SUBVOL_RECEIVED}
 sub macro_send_receive(@)
 {
   my %info = @_;
@@ -1820,8 +1820,8 @@ sub macro_send_receive(@)
   # add info to $config->{SUBVOL_RECEIVED}
   $info{received_type} = $target_type || die;
   $info{received_subvolume} = $vol_received || die;
-  $config_target->{SUBVOL_RECEIVED} //= [];
-  push(@{$config_target->{SUBVOL_RECEIVED}}, \%info);
+  $target->{SUBVOL_RECEIVED} //= [];
+  push(@{$target->{SUBVOL_RECEIVED}}, \%info);
 
   unless($ret) {
     $info{ERROR} = 1;
@@ -1871,7 +1871,8 @@ sub macro_delete($$$$$)
   my $ret = btrfs_subvolume_delete($delete, commit => config_key($config, "btrfs_commit_delete"), type => "delete_${config_section}");
   if(defined($ret)) {
     INFO "Deleted $ret subvolumes in: $root_subvol->{PRINT}/$subvol_basename.*";
-    $config->{SUBVOL_DELETED} = $delete;
+    $config->{VINFO}->{SUBVOL_DELETED} //= [];  #!!! TODO: not very nice. find other way, or simply do this outside the macro.
+    push @{$config->{VINFO}->{SUBVOL_DELETED}}, @$delete;
     return $delete;
   }
   else {
@@ -3415,7 +3416,8 @@ MAIN:
           my $ret = btrfs_subvolume_delete(\@delete, commit => config_key($config_target, "btrfs_commit_delete"), type => "delete_garbled");
           if(defined($ret)) {
             INFO "Deleted $ret incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
-            $config_target->{SUBVOL_DELETED} = \@delete;
+            $droot->{SUBVOL_DELETED} //= [];
+            push @{$droot->{SUBVOL_DELETED}}, @delete;
           }
           else {
             ABORTED($config_target, "Failed to delete incomplete target subvolume");
@@ -3499,7 +3501,7 @@ MAIN:
             if($latest) {
               if($latest->{cgen} == $svol->{gen}) {
                 INFO "Snapshot creation skipped: snapshot_create=onchange, snapshot is up-to-date: $latest->{PRINT}";
-                $svol->{CONFIG}->{SNAPSHOT_UP_TO_DATE} = $latest;
+                $svol->{SNAPSHOT_UP_TO_DATE} = $latest;
                 next;
               }
               DEBUG "Snapshot creation enabled: snapshot_create=onchange, gen=$svol->{gen} > snapshot_cgen=$latest->{cgen}";
@@ -3552,7 +3554,7 @@ MAIN:
           INFO "Creating subvolume snapshot for: $svol->{PRINT}";
           my $snapshot = vinfo_child($sroot, "$snapdir$snapshot_name");
           if(btrfs_subvolume_snapshot($svol, $snapshot)) {
-            $svol->{CONFIG}->{SNAPSHOT} = $snapshot; #!!! TODO: move this to $svol directly!
+            $svol->{SNAPSHOT_CREATED} = $snapshot; #!!! TODO: move this to $svol directly!
           }
           else {
             ABORTED($svol, "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name");
@@ -3569,7 +3571,7 @@ MAIN:
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
         my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
         my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-        my $preserve_latest = $svol->{CONFIG}->{SNAPSHOT} ? 0 : 1;
+        my $preserve_latest = $svol->{SNAPSHOT_CREATED} ? 0 : 1;
 
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           #
@@ -3644,7 +3646,7 @@ MAIN:
                 if(macro_send_receive(source => $child,
                                       target => $droot,
                                       parent => $latest_common_src,  # this is <undef> if no common found
-                                      resume => 1,     # propagated to $config_target->{SUBVOL_RECEIVED}
+                                      resume => 1,     # propagated to $droot->{SUBVOL_RECEIVED}
                                      ))
                 {
                   # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
@@ -3670,12 +3672,12 @@ MAIN:
           {
             # skip creation if resume_missing failed
             next if(ABORTED($droot));
-            next unless($svol->{CONFIG}->{SNAPSHOT});
+            next unless($svol->{SNAPSHOT_CREATED});
 
             # finally receive the previously created snapshot
             INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
             my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
-            macro_send_receive(source => $svol->{CONFIG}->{SNAPSHOT},
+            macro_send_receive(source => $svol->{SNAPSHOT_CREATED},
                                target => $droot,
                                parent => $latest_common_src,  # this is <undef> if no common found
                               );
@@ -3698,7 +3700,7 @@ MAIN:
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-          my $preserve_latest_snapshot = $svol->{CONFIG}->{SNAPSHOT} ? 0 : "preserve forced: latest in list";
+          my $preserve_latest_snapshot = $svol->{SNAPSHOT_CREATED} ? 0 : "preserve forced: latest in list";
           my $preserve_latest_backup = $preserve_latest_snapshot;
           my $target_aborted = 0;
 
@@ -3716,10 +3718,10 @@ MAIN:
                 # In incremental mode, the latest backup is most certainly our parent.
                 # (see note on FORCE_PRESERVE above)
                 $preserve_latest_backup ||= "preserve forced: possibly parent of latest backup";
-                # Note that we could check against $config_subvol->{SNAPSHOT}->{parent_uuid} to be certain,
+                # Note that we could check against $svol->{SNAPSHOT_CREATED}->{parent_uuid} to be certain,
                 # but this information is not available in $dryrun:
                 #  foreach my $vol (values %{vinfo_subvol_list($droot)}) {
-                #    $vol->{FORCE_PRESERVE} = 1 if($vol->{received_uuid} eq $config_subvol->{SNAPSHOT}->{parent_uuid});
+                #    $vol->{FORCE_PRESERVE} = 1 if($vol->{received_uuid} eq $svol->{SNAPSHOT_CREATED}->{parent_uuid});
                 #  }
               }
             }
@@ -3804,19 +3806,17 @@ MAIN:
         foreach my $sroot (vinfo_subsection($config, 'volume', 1)) {
           foreach my $svol (vinfo_subsection($sroot, 'subvolume', 1)) {
             my @subvol_out;
-            if($svol->{CONFIG}->{SNAPSHOT_UP_TO_DATE}) {
-              push @subvol_out, "=== $svol->{CONFIG}->{SNAPSHOT_UP_TO_DATE}->{PRINT}";
+            if($svol->{SNAPSHOT_UP_TO_DATE}) {
+              push @subvol_out, "=== $svol->{SNAPSHOT_UP_TO_DATE}->{PRINT}";
             }
-            if($svol->{CONFIG}->{SNAPSHOT}) {
-              push @subvol_out, "+++ $svol->{CONFIG}->{SNAPSHOT}->{PRINT}";
+            if($svol->{SNAPSHOT_CREATED}) {
+              push @subvol_out, "+++ $svol->{SNAPSHOT_CREATED}->{PRINT}";
             }
-            if($svol->{CONFIG}->{SUBVOL_DELETED}) {
-              foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$svol->{CONFIG}->{SUBVOL_DELETED}}) {
-                push @subvol_out, "--- $_->{PRINT}";
-              }
+            foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$svol->{SUBVOL_DELETED} // []}) {
+              push @subvol_out, "--- $_->{PRINT}";
             }
             foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
-              foreach(@{$droot->{CONFIG}->{SUBVOL_RECEIVED} // []}) {
+              foreach(@{$droot->{SUBVOL_RECEIVED} // []}) {
                 my $create_mode = "***";
                 $create_mode = ">>>" if($_->{parent});
                 # substr($create_mode, 0, 1, '%') if($_->{resume});
@@ -3824,10 +3824,8 @@ MAIN:
                 push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
               }
 
-              if($droot->{CONFIG}->{SUBVOL_DELETED}) {
-                foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$droot->{CONFIG}->{SUBVOL_DELETED}}) {
-                  push @subvol_out, "--- $_->{PRINT}";
-                }
+              foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$droot->{SUBVOL_DELETED} // []}) {
+                push @subvol_out, "--- $_->{PRINT}";
               }
 
               if(ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) {
