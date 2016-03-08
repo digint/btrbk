@@ -1864,13 +1864,13 @@ sub macro_delete($$$$;@)
     #   next;
     # }
     push(@schedule, { value      => $vol,
-                      name       => $vol->{PRINT},  # only for logging
+                      # name       => $vol->{PRINT},  # only for logging
                       btrbk_date => $filename_info->{btrbk_date},
                       preserve   => $vol->{FORCE_PRESERVE},
                      });
   }
   my (undef, $delete) = schedule(
-    schedule             => \@schedule,
+    schedule => \@schedule,
     %$schedule_options
    );
   my $ret = btrfs_subvolume_delete($delete, %delete_options);
@@ -2074,10 +2074,13 @@ sub schedule(@)
   my $results_list         = $args{results};
   my $result_hints         = $args{result_hints} // {};
 
-  DEBUG "Filter scheme: preserving all within $preserve_daily days";
-  DEBUG "Filter scheme: preserving first in week (starting on $preserve_day_of_week), for $preserve_weekly weeks";
-  DEBUG "Filter scheme: preserving last weekly of month, for $preserve_monthly months";
-  DEBUG "Filter scheme: preserving last weekly of year, for $preserve_yearly years";
+  my %preserve_matrix = ( d   => $preserve_daily,
+                          w   => $preserve_weekly,
+                          m   => $preserve_monthly,
+                          y   => $preserve_yearly,
+                          dow => $preserve_day_of_week,
+                         );
+  DEBUG "Schedule: " . format_preserve_matrix(%preserve_matrix, format => "debug_text");
 
   # sort the schedule, ascending by date
   my @sorted_schedule = sort { ($a->{btrbk_date}->[0] <=> $b->{btrbk_date}->[0]) ||
@@ -2151,21 +2154,18 @@ sub schedule(@)
   # assemble results
   my @delete;
   my @preserve;
-  my %preserve_matrix = ( d   => $preserve_daily,
-                          w   => $preserve_weekly,
-                          m   => $preserve_monthly,
-                          y   => $preserve_yearly,
-                          dow => $preserve_day_of_week,
-                         );
   my %result_base = ( %preserve_matrix,
                       scheme => format_preserve_matrix(%preserve_matrix, format => "short"),
                       %$result_hints,
                      );
+  my $count_defined = 0;
   foreach my $href (@sorted_schedule)
   {
+    next unless(defined($href->{value}));
+    $count_defined++;
     if($href->{preserve}) {
       push(@preserve, $href->{value});
-      DEBUG "=== $href->{name}: $href->{preserve}" if($href->{name});
+      DEBUG "Schedule: $href->{name}: $href->{preserve}" if($href->{name});
       push @$results_list, { %result_base,
                              # action => "preserve",
                              reason => $href->{preserve},
@@ -2175,14 +2175,14 @@ sub schedule(@)
     }
     else {
       push(@delete, $href->{value});
-      DEBUG "<<< $href->{name}" if($href->{name});
+      DEBUG "Schedule: $href->{name}: delete" if($href->{name});
       push @$results_list, { %result_base,
                              action => "delete",
                              value => $href->{value},
                            } if($results_list);;
     }
   }
-  DEBUG "Preserving " . @preserve . "/" . @$schedule . " items";
+  DEBUG "Preserving " . @preserve . "/" . $count_defined . " items";
   return (\@preserve, \@delete);
 }
 
@@ -2190,12 +2190,27 @@ sub schedule(@)
 sub format_preserve_matrix(@)
 {
   my %args = @_;
-  my $dow = $args{dow} // config_key($args{config}, "preserve_day_of_week");
-  my $d   = $args{d}   // config_key($args{config}, "$args{prefix}_preserve_daily");
-  my $w   = $args{w}   // config_key($args{config}, "$args{prefix}_preserve_weekly");
-  my $m   = $args{m}   // config_key($args{config}, "$args{prefix}_preserve_monthly");
-  my $y   = $args{y}   // config_key($args{config}, "$args{prefix}_preserve_yearly");
+  my $dow = $args{dow} // $args{preserve_day_of_week};
+  my $d   = $args{d}   // $args{preserve_daily};
+  my $w   = $args{w}   // $args{preserve_weekly};
+  my $m   = $args{m}   // $args{preserve_monthly};
+  my $y   = $args{y}   // $args{preserve_yearly};
   my $format = $args{format} // "long";
+
+  if($format eq "debug_text") {
+    my $s = "preserving all within $d days";
+    unless($d eq 'all') {
+      $s .= "; first in week (starting on $dow), for $w weeks" if($w);
+      unless($w eq 'all') {
+        $s .= "; last weekly of month, for $m months" if($m);
+        unless($m eq 'all') {
+          $s .= "; last weekly of year, for $y years" if($y);
+        }
+      }
+    }
+    return $s;
+  }
+
   $d =~ s/^all$/\*/;
   $w =~ s/^all$/\*/;
   $m =~ s/^all$/\*/;
@@ -2883,7 +2898,7 @@ MAIN:
                         vinfo_prefixed_keys("source", $svol),
                         snapshot_path     => $sroot->{PATH} . (config_key($svol, "snapshot_dir", prefix => '/') // ""),
                         snapshot_name     => config_key($svol, "snapshot_name"),
-                        snapshot_preserve => format_preserve_matrix(config => $svol->{CONFIG}, prefix => "snapshot"),
+                        snapshot_preserve => format_preserve_matrix(config_preserve_hash($svol, "snapshot")),
                       };
         push @subvol_data, $subvolh;
 
@@ -2891,7 +2906,7 @@ MAIN:
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           my $targeth = { %$subvolh,
                           vinfo_prefixed_keys("target", $droot),
-                          target_preserve => format_preserve_matrix(config => $droot->{CONFIG}, prefix => "target"),
+                          target_preserve => format_preserve_matrix(config_preserve_hash($droot, "target")),
                         };
           if($action_list eq "target") {
             next if($target_uniq{$droot->{URL}});
@@ -3552,7 +3567,7 @@ MAIN:
               }
 
               unless(scalar get_receive_targets($droot, $child)) {
-                DEBUG "No matching receive targets found, adding resume candidate: $child->{PRINT}";
+                DEBUG "Adding resume candidate: $child->{PRINT}";
 
                 if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
                   WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
