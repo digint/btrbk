@@ -616,6 +616,20 @@ sub config_key($$;@)
 }
 
 
+sub config_preserve_hash($$)
+{
+  my $config = shift || die;
+  my $prefix = shift || die;
+  return (
+    preserve_day_of_week => config_key($config, "preserve_day_of_week"),
+    preserve_daily       => config_key($config, "${prefix}_preserve_daily"),
+    preserve_weekly      => config_key($config, "${prefix}_preserve_weekly"),
+    preserve_monthly     => config_key($config, "${prefix}_preserve_monthly"),
+    preserve_yearly      => config_key($config, "${prefix}_preserve_yearly"),
+   );
+}
+
+
 sub config_dump_keys($;@)
 {
   my $config = shift || die;
@@ -1723,7 +1737,7 @@ sub vinfo_subvol($$)
 }
 
 
-# sets $config->{ABORTED} on failure
+# sets $target->{CONFIG}->{ABORTED} on failure
 # sets $target->{SUBVOL_RECEIVED}
 sub macro_send_receive(@)
 {
@@ -1825,14 +1839,16 @@ sub macro_send_receive(@)
 }
 
 
-sub macro_delete($$$$$)
+# sets $result_vinfo->{CONFIG}->{ABORTED} on failure
+# sets $result_vinfo->{SUBVOL_DELETED}
+sub macro_delete($$$$;@)
 {
-  my $config = shift || die;   #!!! TODO
   my $root_subvol = shift || die;
   my $subvol_basename = shift // die;  # relative "path/to/snapshot_name"
-  my $config_section = shift || die;
+  my $result_vinfo = shift || die;
   my $schedule_options = shift || die;
-  my $raw_format = ($config->{CONTEXT} eq "target") ? ($config->{target_type} eq "raw") : undef;
+  my %delete_options = @_;
+  my $raw_format = ($root_subvol->{CONFIG}->{CONTEXT} eq "target") ? ($root_subvol->{CONFIG}->{target_type} eq "raw") : undef;
 
   my @schedule;
   foreach my $vol (values %{vinfo_subvol_list($root_subvol)}) {
@@ -1855,22 +1871,17 @@ sub macro_delete($$$$$)
   }
   my (undef, $delete) = schedule(
     schedule             => \@schedule,
-    preserve_day_of_week => config_key($config, "preserve_day_of_week"),
-    preserve_daily       => config_key($config, "${config_section}_preserve_daily"),
-    preserve_weekly      => config_key($config, "${config_section}_preserve_weekly"),
-    preserve_monthly     => config_key($config, "${config_section}_preserve_monthly"),
-    preserve_yearly      => config_key($config, "${config_section}_preserve_yearly"),
     %$schedule_options
    );
-  my $ret = btrfs_subvolume_delete($delete, commit => config_key($config, "btrfs_commit_delete"), type => "delete_${config_section}");
+  my $ret = btrfs_subvolume_delete($delete, %delete_options);
   if(defined($ret)) {
     INFO "Deleted $ret subvolumes in: $root_subvol->{PRINT}/$subvol_basename.*";
-    $config->{VINFO}->{SUBVOL_DELETED} //= [];  #!!! TODO: not very nice. find other way, or simply do this outside the macro.
-    push @{$config->{VINFO}->{SUBVOL_DELETED}}, @$delete;
+    $result_vinfo->{SUBVOL_DELETED} //= [];
+    push @{$result_vinfo->{SUBVOL_DELETED}}, @$delete;
     return $delete;
   }
   else {
-    ABORTED($config, "Failed to delete subvolume");
+    ABORTED($result_vinfo, "Failed to delete subvolume");
     return undef;
   }
 }
@@ -3569,12 +3580,8 @@ MAIN:
               my ($preserve, undef) = schedule(
                 schedule             => \@schedule,
                 today                => \@today,
-                preserve_day_of_week => config_key($droot, "preserve_day_of_week"),
-                preserve_daily       => config_key($droot, "target_preserve_daily"),
-                preserve_weekly      => config_key($droot, "target_preserve_weekly"),
-                preserve_monthly     => config_key($droot, "target_preserve_monthly"),
-                preserve_yearly      => config_key($droot, "target_preserve_yearly"),
                 preserve_latest      => $preserve_latest,
+                config_preserve_hash($droot, "target"),
                );
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
               $resume_total = scalar @resume;
@@ -3670,12 +3677,16 @@ MAIN:
             # delete backups
             #
             INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
-            unless(macro_delete($droot->{CONFIG}, $droot, $snapshot_basename, "target",
+            unless(macro_delete($droot, $snapshot_basename, $droot,
                                 { today           => \@today,
+                                  config_preserve_hash($droot, "target"),
                                   preserve_latest => $preserve_latest_backup,
                                   results         => $schedule_results,
                                   result_hints    => { topic => "backup", root_path => $droot->{PATH} },
-                                } ))
+                                },
+                                commit => config_key($droot, "btrfs_commit_delete"),
+                                type   => "delete_target",
+                               ))
             {
               $target_aborted = -1;
             }
@@ -3693,12 +3704,16 @@ MAIN:
             next;
           }
           INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir$snapshot_basename.*";
-          macro_delete($svol->{CONFIG}, $sroot, $snapdir . $snapshot_basename, "snapshot",
+          macro_delete($sroot, $snapdir . $snapshot_basename, $svol,
                        { today           => \@today,
+                         config_preserve_hash($svol, "snapshot"),
                          preserve_latest => $preserve_latest_snapshot,
                          results         => $schedule_results,
                          result_hints    => { topic => "snapshot", root_path => $sroot->{PATH} },
-                       } );
+                       },
+                       commit => config_key($svol, "btrfs_commit_delete"),
+                       type   => "delete_snapshot",
+                      );
         }
       }
     }
