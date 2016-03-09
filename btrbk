@@ -167,10 +167,10 @@ my %table_formats = (
                  },
 );
 
-my %root_tree_cache;    # map URL to SUBTREE (needed since "btrfs subvolume list" does not provide us with the uuid of the btrfs root node)
-my %vinfo_cache;        # map URL to vinfo
+my %btrfs_tree_cache;   # map URL to btr_tree node
+my %subvol_list_cache;  # map URL to subvolume list ( rel_path => vinfo, ... )
 my %uuid_info;          # map UUID to btr_tree node
-my %uuid_fs_map;        # map UUID to URL
+my %uuid_url_map;       # map UUID to hash ( URL => btr_tree, ... )
 
 my $dryrun;
 my $loglevel = 1;
@@ -408,58 +408,60 @@ sub run_cmd(@)
 }
 
 
-sub vinfo($$)
+sub vinfo($;$)
 {
   my $url = shift // die;
-  my $config = shift || die;
+  my $config = shift;
   my %info;
 
   my $name = $url;
   $name =~ s/^.*\///;
 
+  %info = (
+    URL    => $url,
+    NAME   => $name,
+    PATH   => $url,
+    PRINT  => $url,
+   );
+
   if($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/) {
     my ($host, $path)   = ($1, $2);
-    my $ssh_port        = config_key($config, "ssh_port");
-    my $ssh_user        = config_key($config, "ssh_user");
-    my $ssh_identity    = config_key($config, "ssh_identity");
-    my $ssh_compression = config_key($config, "ssh_compression");
-    my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
-    my @ssh_options;
-    push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
-    push(@ssh_options, '-C') if($ssh_compression);
-    push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
-    if($ssh_identity) {
-      push(@ssh_options, '-i', $ssh_identity);
-    } else {
-      WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
-    }
     %info = (
-      URL          => $url,
-      NAME         => $name,
+      %info,
       HOST         => $host,
       PATH         => $path,
       PRINT        => "$host:$path",
-      RSH_TYPE     => "ssh",
-      SSH_USER     => $ssh_user,
-      SSH_IDENTITY => $ssh_identity,
-      SSH_PORT     => $ssh_port,
-      RSH          => ['/usr/bin/ssh', @ssh_options, $ssh_user . '@' . $host ],
      );
-  }
-  elsif(($url =~ /^\//) && ($url =~ /^$file_match$/)) {
-    %info = (
-      URL    => $url,
-      NAME   => $name,
-      PATH   => $url,
-      PRINT  => $url,
-     );
-  }
-  else {
-    die "Ambiguous vinfo url: $url";
+    if($config) {
+      my $ssh_port        = config_key($config, "ssh_port");
+      my $ssh_user        = config_key($config, "ssh_user");
+      my $ssh_identity    = config_key($config, "ssh_identity");
+      my $ssh_compression = config_key($config, "ssh_compression");
+      my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
+      my @ssh_options;
+      push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
+      push(@ssh_options, '-C') if($ssh_compression);
+      push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
+      if($ssh_identity) {
+        push(@ssh_options, '-i', $ssh_identity);
+      } else {
+        WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
+      }
+      %info = (
+        %info,
+        RSH_TYPE     => "ssh",
+        SSH_USER     => $ssh_user,
+        SSH_IDENTITY => $ssh_identity,
+        SSH_PORT     => $ssh_port,
+        RSH          => ['/usr/bin/ssh', @ssh_options, $ssh_user . '@' . $host ],
+       );
+    }
   }
 
-  my $btrfs_progs_compat = config_key($config, "btrfs_progs_compat");
-  $info{BTRFS_PROGS_COMPAT} = $btrfs_progs_compat if($btrfs_progs_compat);
+  if($config) {
+    my $btrfs_progs_compat = config_key($config, "btrfs_progs_compat");
+    $info{BTRFS_PROGS_COMPAT} = $btrfs_progs_compat if($btrfs_progs_compat);
+  }
 
   TRACE "vinfo created: $url";
   return \%info;
@@ -515,15 +517,25 @@ sub vinfo_child($$;$)
 }
 
 
-sub vinfo_root($)
+sub vinfo_init_root($)
 {
   my $vol = shift;
 
-  my $detail = btrfs_subvolume_detail($vol);
+  my $detail = $btrfs_tree_cache{$vol->{URL}};
+  my $path_verified;
+  if($detail) {
+    TRACE "vinfo_init_root: cache HIT: $vol->{URL}";
+    $path_verified = 1;  # all keys from btrfs_tree_cache are real_paths
+  }
+  else {
+    TRACE "vinfo_init_root: cache MISS: $vol->{URL}";
+    $detail = btrfs_subvolume_detail($vol);
+  }
   return undef unless $detail;
-  vinfo_set_detail($vol, $detail);
+  vinfo_set_detail($vol, $detail, $path_verified);
 
   # read (and cache) the subvolume list
+
   return undef unless vinfo_subvol_list($vol);
 
   TRACE "vinfo root created: $vol->{PRINT}";
@@ -531,14 +543,15 @@ sub vinfo_root($)
 }
 
 
-sub vinfo_set_detail($$)
+sub vinfo_set_detail($$;$)
 {
   my $vol = shift || die;
   my $detail = shift || die;
+  my $path_verified = shift;
 
   # add detail data to vinfo hash
   foreach(keys %$detail) {
-    next if(uc($_) eq $_);  # skip UPPER_CASE keys
+    next if(uc($_) eq $_);  # skip UPPER_CASE keys (except REAL_PATH below)
     next if($_ eq "path");  # skip "path", this comes in wrong by "btrfs subvolume list"
 
     # check if already present matches new
@@ -546,23 +559,25 @@ sub vinfo_set_detail($$)
     $vol->{$_} = $detail->{$_};
   }
 
-  # !!!  be super-paranoid
+  # be very paranoid, this should never happen
   die if(defined($detail->{URL}) && ($detail->{URL} ne $vol->{URL}));
   die if(defined($detail->{NAME}) && ($detail->{NAME} ne $vol->{NAME}));
-  die if(defined($detail->{SUBVOL_PATH}) && ($detail->{SUBVOL_PATH} ne $vol->{SUBVOL_PATH}));
+  die if(defined($detail->{SUBVOL_PATH}) && defined($vol->{SUBVOL_PATH}) && ($detail->{SUBVOL_PATH} ne $vol->{SUBVOL_PATH}));
 
   if($detail->{REAL_PATH}) {
     $vol->{REAL_PATH} = $detail->{REAL_PATH};
+  }
+  elsif($path_verified) {
+    $vol->{REAL_PATH} = $vol->{PATH};
+  }
+
+  if($vol->{REAL_PATH}) {
     if($vol->{RSH_TYPE} && ($vol->{RSH_TYPE} eq "ssh")) {
       $vol->{REAL_URL} = "ssh://$vol->{HOST}$vol->{REAL_PATH}";
     } else {
       $vol->{REAL_URL} = $vol->{REAL_PATH};
     }
   }
-
-  # update cache
-  $vinfo_cache{$vol->{URL}} = $vol;
-  $vinfo_cache{$vol->{REAL_URL}} = $vol if($vol->{REAL_URL});
 
   TRACE "vinfo updated for: $vol->{PRINT}";
   TRACE(vinfo_dump($vol)) if($loglevel >= 4);
@@ -1188,7 +1203,7 @@ sub btrfs_subvolume_list($;@)
 {
   my $vol = shift || die;
   my %opts = @_;
-  my $path = $vol->{PATH} // die;
+  my $path = $vol->{PATH} // die;  # deliberately NOT using REAL_PATH here!
   my $btrfs_progs_compat = $vol->{BTRFS_PROGS_COMPAT} || $opts{btrfs_progs_compat};
   my @filter_options = ('-a');
   push(@filter_options, '-o') if($opts{subvol_only});
@@ -1601,13 +1616,36 @@ sub btrfs_send_to_file($$$$;@)
 }
 
 
+sub _btr_tree_fill_cache
+{
+  my $node = shift;
+  my $abs_path = shift;
+
+  # traverse tree and update tree cache
+  $btrfs_tree_cache{$abs_path} = $node;
+  $uuid_url_map{$node->{uuid}}->{$abs_path} = $node if($node->{uuid});
+  foreach(values %{$node->{SUBTREE}}) {
+    _btr_tree_fill_cache($_, $abs_path . '/' . $_->{REL_PATH});
+  }
+  return undef;
+}
+
+
 sub btr_tree($)
 {
   my $vol = shift;
 
   # return cached info if present
-  return $root_tree_cache{$vol->{URL}} if($vol->{is_root} && $root_tree_cache{$vol->{URL}});
-  return $root_tree_cache{$vol->{REAL_URL}} if($vol->{is_root} && $vol->{REAL_URL} && $root_tree_cache{$vol->{REAL_URL}});
+  return $btrfs_tree_cache{$vol->{REAL_URL}} if($vol->{REAL_URL} && $btrfs_tree_cache{$vol->{REAL_URL}});
+  return $btrfs_tree_cache{$vol->{URL}} if($btrfs_tree_cache{$vol->{URL}});
+
+  # NOTE: make sure to to have either $vol->{uuid} or $vol->{is_root}
+  # (provided by btrfs_subvolume_show()), or we cannot determine the
+  # anchor to our root path (since the subvolume path output of "btrfs
+  # subvolume list" is ambigous, and the uuid of the btrfs root node
+  # cannot be resolved).
+  die unless($vol->{uuid} || $vol->{is_root});
+  die unless($vol->{REAL_URL});
   return $uuid_info{$vol->{uuid}} if($vol->{uuid} && $uuid_info{$vol->{uuid}});
 
   # man btrfs-subvolume:
@@ -1649,15 +1687,19 @@ sub btr_tree($)
     $node->{REL_PATH} = $rel_path;  # relative to {TOP_LEVEL}->{path}
   }
 
+  my $vol_root;
   if($vol->{is_root}) {
-    $root_tree_cache{$vol->{URL}} = \%tree;
-    $root_tree_cache{$vol->{REAL_URL}} = \%tree if($vol->{REAL_URL});
-    return \%tree;
+    $vol_root = \%tree;
   }
   else {
+    # TODO: graceful, this might happen on buggy btrfs-progs
     die unless($uuid_info{$vol->{uuid}});
-    return $uuid_info{$vol->{uuid}};
+    $vol_root = $uuid_info{$vol->{uuid}};
   }
+
+  _btr_tree_fill_cache($vol_root, $vol->{REAL_URL});
+
+  return $vol_root;
 }
 
 
@@ -1685,6 +1727,16 @@ sub vinfo_subvol_list($)
   my $vol = shift || die;
   return $vol->{SUBVOL_LIST} if($vol->{SUBVOL_LIST});
 
+  # find cached list
+  my $subvol_list = $subvol_list_cache{$vol->{URL}};
+  $subvol_list //= $subvol_list_cache{$vol->{REAL_URL}} if($vol->{REAL_URL} && ($vol->{REAL_URL} ne $vol->{URL}));
+  if($subvol_list) {
+    TRACE "vinfo_subvol_list: cache HIT: $vol->{URL}";
+    $vol->{SUBVOL_LIST} = $subvol_list;
+    return $subvol_list;
+  }
+  TRACE "vinfo_subvol_list: cache MISS: $vol->{URL}";
+
   my $tree_root = btr_tree($vol);
   return undef unless($tree_root);
 
@@ -1700,8 +1752,6 @@ sub vinfo_subvol_list($)
     my $subvol = vinfo_child($vol, $subvol_path);
     vinfo_set_detail($subvol, $_->{node});
 
-    $uuid_fs_map{$subvol->{uuid}}->{$subvol->{URL}} = $subvol;
-
     $ret{$subvol_path} = $subvol;
   }
 
@@ -1709,6 +1759,8 @@ sub vinfo_subvol_list($)
   TRACE(Data::Dumper->Dump([\%ret], ["vinfo_subvol_list"])) if($loglevel >= 4);
 
   $vol->{SUBVOL_LIST} = \%ret;
+  $subvol_list_cache{$vol->{URL}} = \%ret;
+  $subvol_list_cache{$vol->{REAL_URL}} = \%ret if($vol->{REAL_URL} && ($vol->{REAL_URL} ne $vol->{URL}));
   return \%ret;
 }
 
@@ -2039,8 +2091,8 @@ sub _origin_tree
     push(@$lines, ["$prefix<orphaned>", $uuid]);
     return 0;
   }
-  if($uuid_fs_map{$uuid}) {
-    push(@$lines, ["$prefix" . join(" === ", sort map { $_->{PRINT} } values %{$uuid_fs_map{$uuid}}), $uuid]);
+  if($uuid_url_map{$uuid}) {
+    push(@$lines, ["$prefix" . join(" === ", sort map { vinfo($_)->{PRINT} } keys %{$uuid_url_map{$uuid}}), $uuid]);
   } else {
     push(@$lines, ["$prefix<BTRFS_ROOT>/$node->{path}", $uuid]);
   }
@@ -2598,12 +2650,12 @@ MAIN:
     # FIXME: allow ssh:// src/dest (does not work since the configuration is not yet read).
 
     my $src_vol = vinfo($src_url, { CONTEXT => "cmdline" });
-    unless(vinfo_root($src_vol)) { ERROR "Failed to fetch subvolume detail for '$src_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
+    unless(vinfo_init_root($src_vol)) { ERROR "Failed to fetch subvolume detail for '$src_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
     if($src_vol->{is_root})  { ERROR "Subvolume at \"$src_url\" is btrfs root!"; exit 1; }
     unless($src_vol->{cgen}) { ERROR "Subvolume at \"$src_url\" does not provide cgen"; exit 1; }
 
     my $target_vol = vinfo($target_url, { CONTEXT => "cmdline" });
-    unless(vinfo_root($target_vol)) { ERROR "Failed to fetch subvolume detail for '$target_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
+    unless(vinfo_init_root($target_vol)) { ERROR "Failed to fetch subvolume detail for '$target_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
     unless($target_vol->{cgen}) { ERROR "Subvolume at \"$target_url\" does not provide cgen"; exit 1; }
 
     my $uuid_list = vinfo_fs_list($src_vol);
@@ -2940,9 +2992,11 @@ MAIN:
   #
   # fill vinfo hash, basic checks on configuration
   #
+
+  # read volume btrfs tree, and make sure subvolume exist
   foreach my $sroot (vinfo_subsection($config, 'volume')) {
     DEBUG "Initializing volume section: $sroot->{PRINT}";
-    unless(vinfo_root($sroot)) {
+    unless(vinfo_init_root($sroot)) {
       ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
       WARN "Skipping volume \"$sroot->{PRINT}\": $abrt";
       next;
@@ -2969,28 +3023,27 @@ MAIN:
           WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
           next;
         }
+        # make sure $svol is in subtree of $sroot
         if(grep { $_->{uuid} eq $detail->{uuid} } values %{vinfo_subvol_list($sroot)}) {
-          vinfo_set_detail($svol, $uuid_info{$detail->{uuid}});
-          # vinfo_set_detail($svol, $detail);
+          vinfo_set_detail($svol, $detail);
         } else {
           ABORTED($svol, "Not a child subvolume of: $sroot->{PRINT}");
           WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
           next;
         }
       }
+    }
+  }
 
-
+  # read target btrfs tree
+  foreach my $sroot (vinfo_subsection($config, 'volume')) {
+    foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
       foreach my $droot (vinfo_subsection($svol, 'target')) {
         DEBUG "Initializing target section: $droot->{PRINT}";
         my $target_type = $droot->{CONFIG}->{target_type} || die;
         if($target_type eq "send-receive")
         {
-          if(my $vinfo_clone = $vinfo_cache{$droot->{URL}}) {
-            DEBUG "Found previously initialized target with same url, cloning dataset from: $droot->{PRINT}";
-            vinfo_set_detail($droot, $vinfo_clone);
-            $droot->{SUBVOL_LIST} = $vinfo_clone->{SUBVOL_LIST};
-          }
-          elsif(! vinfo_root($droot)) {
+          unless(vinfo_init_root($droot)) {
             ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
             WARN "Skipping target \"$droot->{PRINT}\": $abrt";
             next;
@@ -3038,12 +3091,14 @@ MAIN:
             # NOTE: REMOTE_PARENT_UUID in $filename_info is the "parent of the source subvolume", NOT the
             # "parent of the received subvolume".
             my $subvol = vinfo_child($droot, $file);
-            $filename_info->{uuid} = "FAKE_UUID:" . $subvol->{URL};
-            $filename_info->{parent_uuid} = '-'; # correct value gets inserted below
-            $filename_info->{readonly} = 1; # fake subvolume readonly flag
-            vinfo_set_detail($subvol, $filename_info);
+            my $detail = { uuid          => "FAKE_UUID:" . $subvol->{URL},
+                           received_uuid => $filename_info->{received_uuid},
+                           # parent_uuid   => '-',  # correct value gets inserted below
+                           readonly      => 1,    # fake subvolume readonly flag
+                         };
+            vinfo_set_detail($subvol, $detail);
             $uuid_info{$subvol->{uuid}} = $subvol;
-            $uuid_fs_map{$subvol->{uuid}}->{$subvol->{URL}} = $subvol;
+            $uuid_url_map{$subvol->{uuid}}->{$subvol->{URL}} = $subvol;
 
             $subvol_list{$file} = $subvol;
             if($filename_info->{REMOTE_PARENT_UUID} ne '-') {
@@ -3072,7 +3127,7 @@ MAIN:
             # - svol.<timestamp>--<received_uuid-n>[@<received_uuid_n-1>].btrfs  : incremental image
 
             foreach my $child (@{$child_uuid_list{$subvol->{received_uuid}}}) {
-              $child->{parent_uuid} = $subvol->{uuid};
+              vinfo_set_detail($child, { parent_uuid => $subvol->{uuid} });
 
               DEBUG "Found parent/child partners, forcing preserve of: \"$subvol->{PRINT}\", \"$child->{PRINT}\"";
               $subvol->{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
@@ -3128,15 +3183,10 @@ MAIN:
     my $url = $filter_args[0] || die;
     my $dump_uuid = 0;
 
-    my $vol = $vinfo_cache{$url};
-    unless($vol) {
-      # specified volume is not in config
-      DEBUG "Subvolume not parsed yet, fetching info: $url";
-      $vol = vinfo($url, { CONTEXT => "cmdline" });
-      unless(vinfo_root($vol)) {
-        ERROR "Failed to fetch subvolume detail for: $url" . ($err ? ": $err" : "");
-        exit 1;
-      }
+    my $vol = vinfo($url, { CONTEXT => "cmdline" });
+    unless(vinfo_init_root($vol)) {
+      ERROR "Failed to fetch subvolume detail for: $url" . ($err ? ": $err" : "");
+      exit 1;
     }
     if($vol->{is_root}) {
       ERROR "Subvolume is btrfs root: $url\n";
