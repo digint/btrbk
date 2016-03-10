@@ -254,9 +254,17 @@ sub INFO  { my $t = shift; print STDERR "$t\n" if($loglevel >= 2);  }
 sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
 sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 
-sub VINFO { my $vinfo = shift; my $t = shift || "vinfo";
-            print STDERR Data::Dumper->new([$vinfo], [$t])->Maxdepth(2)->Dump();
-          }
+sub VINFO {
+  my $vinfo = shift; my $t = shift || "vinfo";
+  print STDERR Data::Dumper->new([$vinfo], [$t])->Maxdepth(2)->Dump();
+}
+sub TREE_CACHE {
+  print STDERR "btrfs_tree_cache:\n" . join("\n", (sort keys %btrfs_tree_cache)) . "\n";
+}
+sub SUBVOL_LIST {
+  my $vol = shift; my $t = shift // "SUBVOL_LIST"; my $svl = vinfo_subvol_list($vol);
+  print STDERR "$t:\n" . join("\n", map { "$vol->{PRINT}/./$_->{SUBVOL_PATH}  $_->{id}" } @$svl) . "\n";
+}
 
 sub ABORTED($;$)
 {
@@ -513,7 +521,7 @@ sub vinfo_child($$;$)
     $info{$_} = $parent->{$_} if(exists $parent->{$_});
   }
 
-  TRACE "vinfo child created from \"$parent->{PRINT}\": $info{PRINT}";
+  # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
   return \%info;
 }
 
@@ -536,10 +544,11 @@ sub vinfo_init_root($)
   vinfo_set_detail($vol, $detail, $path_verified);
 
   # read the subvolume list, and update %btrfs_tree_cache
-  return undef unless vinfo_subvol_list($vol, fill_cache => 1);
+  my $subvol_list = vinfo_subvol_list($vol, fill_cache => 1);
 
-  TRACE "vinfo root created: $vol->{PRINT}";
-  return $vol;
+  TRACE "vinfo_init_root: created vinfo root: $vol->{PRINT}";
+  # VINFO($vol);
+  return $subvol_list;
 }
 
 
@@ -548,20 +557,17 @@ sub vinfo_set_detail($$;$)
   my $vol = shift || die;
   my $detail = shift || die;
   my $path_verified = shift;
-  my @vinfo_detail_keys = qw(id is_root gen cgen uuid parent_uuid received_uuid readonly);
+  my @vinfo_detail_keys = qw(id is_root gen cgen uuid parent_uuid received_uuid readonly node);
 
-  TRACE "updating vinfo detail for: $vol->{PRINT}";
-  VINFO($detail) if($loglevel >= 4);
+  # TRACE "updating vinfo detail for: $vol->{PRINT}";
+  # VINFO($detail) if($loglevel >= 4);
 
-  # add detail data to vinfo hash
   # copy only from keys in @vinfo_detail_keys
-  foreach (@vinfo_detail_keys) {
+  foreach(@vinfo_detail_keys) {
+    next unless(exists($detail->{$_}));
     # die if already present matches new
     die if(exists($vol->{$_}) && ($vol->{$_} ne $detail->{$_}));
     $vol->{$_} = $detail->{$_};
-
-    # WARN "vinfo_set_detail: missing key \"$_\"" unless($detail->{$_});
-    # die unless(($_ eq "readonly") || ($_ eq "is_root") || $detail->{is_root} || $detail->{$_});
   }
 
   # be very paranoid, this should never happen
@@ -1134,7 +1140,7 @@ sub btrfs_subvolume_detail($)
     TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
     # NOTE: received_uuid is not required here, as btrfs-progs < 4.1 does not give us that information.
     #       no worries, we get this from btrfs_subvolume_list() for all subvols.
-    my @required_keys = qw(name uuid parent_uuid id gen cgen top_level);  #!!!
+    my @required_keys = qw(name uuid parent_uuid id gen cgen top_level);
     my %trans = (
       "Name"                  => "name",
       "uuid"                  => "uuid",
@@ -1628,7 +1634,7 @@ sub _btr_tree_fill_cache
   #TRACE "_btr_tree_fill_cache: $abs_path";
 
   $btrfs_tree_cache{$abs_path} = $node;
-  $uuid_url_map{$node->{uuid}}->{$abs_path} = $node if($node->{uuid});
+  $uuid_url_map{$node->{uuid}}->{$abs_path} = $node if($node->{uuid});  #!!! fix this also
   foreach(values %{$node->{SUBTREE}}) {
     _btr_tree_fill_cache($_, $abs_path . '/' . $_->{REL_PATH});
   }
@@ -1649,7 +1655,7 @@ sub btr_tree($)
     TRACE "btrfs_tree: cache HIT: $vol->{URL}";
     return $btrfs_tree_cache{$vol->{URL}};
   }
-  TRACE "btrfs_tree: cache MISS: $vol->{REAL_URL} :: $vol->{URL}";
+  TRACE "btrfs_tree: cache MISS: $vol->{REAL_URL}, $vol->{URL}";
 
   # NOTE: make sure to to have either $vol->{uuid} or $vol->{is_root}
   # (provided by btrfs_subvolume_show()), or we cannot determine the
@@ -1750,8 +1756,15 @@ sub vinfo_subvol_list($;@)
   return undef unless($tree_root);
 
   if($opts{fill_cache}) {
-    # force fill cache. _vinfo_subtree_list (below) does not do this, fix!!! TODO
-    _btr_tree_fill_cache($tree_root, $vol->{REAL_URL});
+    # force fill cache
+    foreach ($vol->{URL}, $vol->{REAL_URL}) {
+      if($btrfs_tree_cache{$_}) {
+        TRACE "vinfo_subvol_list: fill_cache: btrfs_tree: cache HIT: $_";
+        next;
+      }
+      TRACE "vinfo_subvol_list: fill_cache: btrfs_tree: cache MISS: $_";
+      _btr_tree_fill_cache($tree_root, $_);
+    }
   }
 
   # recurse into $tree_root, returns array of vinfo
@@ -1759,11 +1772,11 @@ sub vinfo_subvol_list($;@)
 }
 
 
-sub __get_by_id($)
+sub __get_by_id($$)
 {
   my $subvol_list = shift;
-  my $filter_vol = shift;
-  my @ret =  grep { $_->{id} == $filter_vol->{id} } @$subvol_list;
+  my $id = shift;
+  my @ret =  grep { $_->{id} == $id } @$subvol_list;
   return undef unless(scalar @ret);
   die unless(scalar(@ret) == 1);
   return $ret[0];
@@ -1800,7 +1813,11 @@ sub vinfo_subvol($$)
 {
   my $vol = shift || die;
   my $rel_path = shift // die;
-  return __get_by_key_eq(vinfo_subvol_list($vol), 'SUBVOL_PATH', $rel_path);
+  my %opts = @_;
+
+  my $subvol_list = vinfo_subvol_list($vol);
+  my $vinfo = __get_by_key_eq($subvol_list, 'SUBVOL_PATH', $rel_path);
+  return $vinfo;
 }
 
 
@@ -3019,28 +3036,26 @@ MAIN:
 
     foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
       DEBUG "Initializing subvolume section: $svol->{PRINT}";
-      if(my $svol_check = vinfo_subvol($sroot, $svol->{CONFIG}->{rel_path})) {
-        DEBUG "Found \"$svol->{CONFIG}->{rel_path}\" in btrfs subtree of: $sroot->{PRINT}";
-        vinfo_set_detail($svol, $svol_check);
+      my $rel_path = $svol->{CONFIG}->{rel_path};
+      if(my $vinfo = vinfo_subvol($sroot, $rel_path)) {
+        DEBUG "Found \"$rel_path\" in btrfs subtree of: $sroot->{PRINT}";
+        vinfo_set_detail($svol, $vinfo);
       }
       else {
+        DEBUG "Missing \"$rel_path\" in btrfs subtree of \"$sroot->{PRINT}\", resolving details";
         # configured subvolume is not present in btrfs subvolume list.
         # try to read subvolume detail, as configured subvolume could be a symlink.
-        DEBUG "Missing \"$svol->{CONFIG}->{rel_path}\" in btrfs subtree of \"$sroot->{PRINT}\", checking details";
-        my $detail = btrfs_subvolume_detail($svol);
-        unless($detail) {
-          ABORTED($svol, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-          WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        my $subvol_list = vinfo_init_root($svol);
+        unless($subvol_list) {
+          ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
+          WARN "Skipping volume \"$sroot->{PRINT}\": $abrt";
           next;
         }
-        if($detail->{is_root}) {
-          ABORTED($svol, "Subvolume is btrfs root");
-          WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
-          next;
-        }
-        # make sure $svol is in subtree of $sroot
-        if(grep { $_->{uuid} eq $detail->{uuid} } @{vinfo_subvol_list($sroot)}) {
-          vinfo_set_detail($svol, $detail);
+        $subvol_list = vinfo_subvol_list($sroot);
+        my $vinfo = __get_by_id($subvol_list, $svol->{id});
+        if($vinfo) {
+          DEBUG "Found id=$svol->{id} in btrfs subtree of: $sroot->{PRINT}";
+          # NOTE: detail is already set by vinfo_init_root()
         } else {
           ABORTED($svol, "Not a child subvolume of: $sroot->{PRINT}");
           WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
