@@ -169,7 +169,6 @@ my %table_formats = (
 
 my %btrfs_tree_cache;   # map URL to btr_tree node
 my %uuid_info;          # map UUID to btr_tree node
-my %uuid_url_map;       # map UUID to hash ( URL => btr_tree, ... )
 
 # enabling this may speed up a bit, but makes it impossible to inject nodes.
 # keep disabled for now!
@@ -1634,7 +1633,6 @@ sub _btr_tree_fill_cache
   #TRACE "_btr_tree_fill_cache: $abs_path";
 
   $btrfs_tree_cache{$abs_path} = $node;
-  $uuid_url_map{$node->{uuid}}->{$abs_path} = $node if($node->{uuid});  #!!! fix this also
   foreach(values %{$node->{SUBTREE}}) {
     _btr_tree_fill_cache($_, $abs_path . '/' . $_->{REL_PATH});
   }
@@ -1769,6 +1767,20 @@ sub vinfo_subvol_list($;@)
 
   # recurse into $tree_root, returns array of vinfo
   return _vinfo_subtree_list($tree_root, $vol);
+}
+
+
+# reverse path lookup
+sub get_cached_url_by_uuid($)
+{
+  my $uuid = shift;
+  my @result;
+  while(my ($key, $n) = each(%btrfs_tree_cache)) {
+    next if($n->{is_root});
+    next unless($n->{uuid} eq $uuid);
+    push @result, $key;
+  }
+  return @result;
 }
 
 
@@ -2123,8 +2135,10 @@ sub _origin_tree
     push(@$lines, ["$prefix<orphaned>", $uuid]);
     return 0;
   }
-  if($uuid_url_map{$uuid}) {
-    push(@$lines, ["$prefix" . join(" === ", sort map { vinfo($_)->{PRINT} } keys %{$uuid_url_map{$uuid}}), $uuid]);
+
+  my @url = get_cached_url_by_uuid($uuid);
+  if(scalar @url) {
+    push(@$lines, ["$prefix" . join(" === ", sort map { vinfo($_)->{PRINT} } @url), $uuid]);
   } else {
     push(@$lines, ["$prefix<BTRFS_ROOT>/$node->{path}", $uuid]);
   }
@@ -3128,7 +3142,6 @@ MAIN:
                          };
             vinfo_set_detail($subvol, $detail);
             $uuid_info{$subvol->{uuid}} = $subvol;
-            $uuid_url_map{$subvol->{uuid}}->{$subvol->{URL}} = $subvol;
 
             $subvol_list{$file} = $subvol;
             if($filename_info->{REMOTE_PARENT_UUID} ne '-') {
