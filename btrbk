@@ -167,13 +167,8 @@ my %table_formats = (
                  },
 );
 
-my %btrfs_tree_cache;   # map URL to btr_tree node
-my %uuid_info;          # map UUID to btr_tree node
-
-# enabling this may speed up a bit, but makes it impossible to inject nodes.
-# keep disabled for now!
-our $USE_SUBVOL_CACHE__DANGEROUS = undef;
-my %subvol_list_cache;  # map URL to subvolume list ( rel_path => vinfo, ... )
+my %url_cache;   # map URL to btr_tree node
+my %uuid_cache;  # map UUID to btr_tree node
 
 my $dryrun;
 my $loglevel = 1;
@@ -257,13 +252,14 @@ sub VINFO {
   my $vinfo = shift; my $t = shift || "vinfo";
   print STDERR Data::Dumper->new([$vinfo], [$t])->Maxdepth(2)->Dump();
 }
-sub TREE_CACHE {
-  print STDERR "btrfs_tree_cache:\n" . join("\n", (sort keys %btrfs_tree_cache)) . "\n";
-}
 sub SUBVOL_LIST {
   my $vol = shift; my $t = shift // "SUBVOL_LIST"; my $svl = vinfo_subvol_list($vol);
   print STDERR "$t:\n" . join("\n", map { "$vol->{PRINT}/./$_->{SUBVOL_PATH}  $_->{id}" } @$svl) . "\n";
 }
+sub URL_CACHE {
+  print STDERR "URL_CACHE:\n" . join("\n", (sort keys %url_cache)) . "\n";
+}
+
 
 sub ABORTED($;$)
 {
@@ -529,11 +525,11 @@ sub vinfo_init_root($)
 {
   my $vol = shift;
 
-  my $detail = $btrfs_tree_cache{$vol->{URL}};
+  my $detail = $url_cache{$vol->{URL}};
   my $path_verified;
   if($detail) {
     TRACE "vinfo_init_root: cache HIT: $vol->{URL}";
-    $path_verified = 1;  # all keys from btrfs_tree_cache are real_paths
+    $path_verified = 1;  # all keys from url_cache are real_paths
   }
   else {
     TRACE "vinfo_init_root: cache MISS: $vol->{URL}";
@@ -542,7 +538,7 @@ sub vinfo_init_root($)
   return undef unless $detail;
   vinfo_set_detail($vol, $detail, $path_verified);
 
-  # read the subvolume list, and update %btrfs_tree_cache
+  # read the subvolume list, and update %url_cache
   my $subvol_list = vinfo_subvol_list($vol, fill_cache => 1);
 
   TRACE "vinfo_init_root: created vinfo root: $vol->{PRINT}";
@@ -1632,7 +1628,7 @@ sub _btr_tree_fill_cache
   # traverse tree and update tree cache
   #TRACE "_btr_tree_fill_cache: $abs_path";
 
-  $btrfs_tree_cache{$abs_path} = $node;
+  $url_cache{$abs_path} = $node;
   foreach(values %{$node->{SUBTREE}}) {
     _btr_tree_fill_cache($_, $abs_path . '/' . $_->{REL_PATH});
   }
@@ -1645,13 +1641,13 @@ sub btr_tree($)
   my $vol = shift;
 
   # return cached info if present
-  if($vol->{REAL_URL} && $btrfs_tree_cache{$vol->{REAL_URL}}) {
+  if($vol->{REAL_URL} && $url_cache{$vol->{REAL_URL}}) {
     TRACE "btrfs_tree: cache HIT: $vol->{REAL_URL}";
-    return $btrfs_tree_cache{$vol->{REAL_URL}};
+    return $url_cache{$vol->{REAL_URL}};
   }
-  if($btrfs_tree_cache{$vol->{URL}}) {
+  if($url_cache{$vol->{URL}}) {
     TRACE "btrfs_tree: cache HIT: $vol->{URL}";
-    return $btrfs_tree_cache{$vol->{URL}};
+    return $url_cache{$vol->{URL}};
   }
   TRACE "btrfs_tree: cache MISS: $vol->{REAL_URL}, $vol->{URL}";
 
@@ -1662,7 +1658,7 @@ sub btr_tree($)
   # cannot be resolved).
   die unless($vol->{uuid} || $vol->{is_root});
   die unless($vol->{REAL_URL});
-  return $uuid_info{$vol->{uuid}} if($vol->{uuid} && $uuid_info{$vol->{uuid}});
+  return $uuid_cache{$vol->{uuid}} if($vol->{uuid} && $uuid_cache{$vol->{uuid}});
 
   # man btrfs-subvolume:
   #   Also every btrfs filesystem has a default subvolume as its initially
@@ -1683,7 +1679,7 @@ sub btr_tree($)
     $node->{SUBTREE} //= {};
 
     $id{$node->{id}} = $node;
-    $uuid_info{$node->{uuid}} = $node;
+    $uuid_cache{$node->{uuid}} = $node;
   }
 
   # note: it is possible that id < top_level, e.g. after restoring
@@ -1756,7 +1752,7 @@ sub vinfo_subvol_list($;@)
   if($opts{fill_cache}) {
     # force fill cache
     foreach ($vol->{URL}, $vol->{REAL_URL}) {
-      if($btrfs_tree_cache{$_}) {
+      if($url_cache{$_}) {
         TRACE "vinfo_subvol_list: fill_cache: btrfs_tree: cache HIT: $_";
         next;
       }
@@ -1775,7 +1771,7 @@ sub get_cached_url_by_uuid($)
 {
   my $uuid = shift;
   my @result;
-  while(my ($key, $n) = each(%btrfs_tree_cache)) {
+  while(my ($key, $n) = each(%url_cache)) {
     next if($n->{is_root});
     next unless($n->{uuid} eq $uuid);
     push @result, $key;
@@ -2052,7 +2048,7 @@ sub get_receive_targets($$)
   {
     # find matches by comparing uuid / received_uuid
     my $uuid = $src_vol->{uuid};
-    die("subvolume info not present: $uuid") unless($uuid_info{$uuid});
+    die("subvolume info not present: $uuid") unless($uuid_cache{$uuid});
     foreach (@$droot_subvols) {
       next unless($_->{readonly});
       next unless($_->{received_uuid} eq $uuid);
@@ -2130,7 +2126,7 @@ sub _origin_tree
   my $prefix = shift;
   my $uuid = shift;
   my $lines = shift;
-  my $node = $uuid_info{$uuid};
+  my $node = $uuid_cache{$uuid};
   unless($node) {
     push(@$lines, ["$prefix<orphaned>", $uuid]);
     return 0;
@@ -3141,7 +3137,7 @@ MAIN:
                            readonly      => 1,    # fake subvolume readonly flag
                          };
             vinfo_set_detail($subvol, $detail);
-            $uuid_info{$subvol->{uuid}} = $subvol;
+            $uuid_cache{$subvol->{uuid}} = $subvol;
 
             $subvol_list{$file} = $subvol;
             if($filename_info->{REMOTE_PARENT_UUID} ne '-') {
