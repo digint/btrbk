@@ -542,7 +542,6 @@ sub vinfo_init_root($)
   my $subvol_list = vinfo_subvol_list($vol, fill_cache => 1);
 
   TRACE "vinfo_init_root: created vinfo root: $vol->{PRINT}";
-  # VINFO($vol);
   return $subvol_list;
 }
 
@@ -1620,22 +1619,6 @@ sub btrfs_send_to_file($$$$;@)
 }
 
 
-sub _btr_tree_fill_cache
-{
-  my $node = shift;
-  my $abs_path = shift;
-
-  # traverse tree and update tree cache
-  #TRACE "_btr_tree_fill_cache: $abs_path";
-
-  $url_cache{$abs_path} = $node;
-  foreach(values %{$node->{SUBTREE}}) {
-    _btr_tree_fill_cache($_, $abs_path . '/' . $_->{REL_PATH});
-  }
-  return undef;
-}
-
-
 sub btr_tree($)
 {
   my $vol = shift;
@@ -1665,34 +1648,36 @@ sub btr_tree($)
   #   top-level subvolume, whose subvolume id is 5(FS_TREE).
   my %tree = ( id => 5,
                is_root => 1,
-               SUBTREE => {}
+               SUBTREE => []
               );
   my %id = ( 5 => \%tree );
 
-  my $subvol_list = btrfs_subvolume_list($vol);
-  return undef unless(ref($subvol_list) eq "ARRAY");
+  $tree{TREE_ROOT} = \%tree;
+
+  my $node_list = btrfs_subvolume_list($vol);
+  return undef unless(ref($node_list) eq "ARRAY");
 
   TRACE "btr_tree: processing subvolume list of: $vol->{PRINT}";
 
-  foreach my $node (@$subvol_list)
+  foreach my $node (@$node_list)
   {
-    $node->{SUBTREE} //= {};
-
+    die if exists($id{$node->{id}});
+    $node->{SUBTREE} //= [];
     $id{$node->{id}} = $node;
     $uuid_cache{$node->{uuid}} = $node;
   }
 
   # note: it is possible that id < top_level, e.g. after restoring
   my $vol_root;
-  foreach my $node (@$subvol_list)
+  foreach my $node (@$node_list)
   {
     # set SUBTREE / TOP_LEVEL node
     die unless exists($id{$node->{top_level}});
     my $top_level = $id{$node->{top_level}};
 
-    die if exists($top_level->{SUBTREE}->{$node->{id}});
-    $top_level->{SUBTREE}->{$node->{id}} = $node;
+    push(@{$top_level->{SUBTREE}}, $node);
     $node->{TOP_LEVEL} = $top_level;
+    $node->{TREE_ROOT} = \%tree;
 
     # "path" always starts with set REL_PATH
     my $rel_path = $node->{path};
@@ -1721,6 +1706,21 @@ sub btr_tree($)
 }
 
 
+sub _btr_tree_fill_url_cache
+{
+  my $node = shift;
+  my $abs_path = shift;
+  # TRACE "_btr_tree_fill_url_cache: $abs_path";
+
+  # traverse tree from given node and update tree cache
+  $url_cache{$abs_path} = $node;
+  foreach(@{$node->{SUBTREE}}) {
+    _btr_tree_fill_url_cache($_, $abs_path . '/' . $_->{REL_PATH});
+  }
+  return undef;
+}
+
+
 sub _vinfo_subtree_list
 {
   my $tree = shift;
@@ -1728,7 +1728,7 @@ sub _vinfo_subtree_list
   my $list = shift // [];
   my $path_prefix = shift // "";
 
-  foreach(values %{$tree->{SUBTREE}}) {
+  foreach(@{$tree->{SUBTREE}}) {
     my $path = $path_prefix . $_->{REL_PATH};
     my $vinfo = vinfo_child($vinfo_parent, $path);
     vinfo_set_detail($vinfo, $_);
@@ -1757,7 +1757,7 @@ sub vinfo_subvol_list($;@)
         next;
       }
       TRACE "vinfo_subvol_list: fill_cache: btrfs_tree: cache MISS: $_";
-      _btr_tree_fill_cache($tree_root, $_);
+      _btr_tree_fill_url_cache($tree_root, $_);
     }
   }
 
@@ -1780,22 +1780,13 @@ sub get_cached_url_by_uuid($)
 }
 
 
-sub __get_by_id($$)
+sub vinfo_subvol($$;$)
 {
-  my $subvol_list = shift;
-  my $id = shift;
-  my @ret =  grep { $_->{id} == $id } @$subvol_list;
-  return undef unless(scalar @ret);
-  die unless(scalar(@ret) == 1);
-  return $ret[0];
-}
+  my $vol = shift || die;
+  my $filter_value = shift // die;
+  my $filter_key = shift || 'SUBVOL_PATH';
+  my $subvol_list = vinfo_subvol_list($vol);
 
-
-sub __get_by_key_eq($$$)
-{
-  my $subvol_list = shift;
-  my $filter_key = shift;
-  my $filter_value = shift;
   my @ret =  grep { $_->{$filter_key} eq $filter_value } @$subvol_list;
   return undef unless(scalar @ret);
   die unless(scalar(@ret) == 1);
@@ -1803,29 +1794,15 @@ sub __get_by_key_eq($$$)
 }
 
 
-# returns list of uuids for ALL subvolumes in the btrfs filesystem of $vol
-sub vinfo_fs_list($)
+sub vinfo_subvol_by_id($$)
 {
-  my $vol = shift || die;
-  my $tree_root = btr_tree($vol);
-  return undef unless($tree_root);
-
-  $tree_root = $tree_root->{TOP_LEVEL} while($tree_root->{TOP_LEVEL});
-  my $list = _subtree_list($tree_root);
-  my %ret = map { $_->{node}->{uuid} => $_->{node} } @$list;
-  return \%ret;
-}
-
-
-sub vinfo_subvol($$)
-{
-  my $vol = shift || die;
-  my $rel_path = shift // die;
-  my %opts = @_;
-
+  my $vol = shift;
+  my $id = shift;
   my $subvol_list = vinfo_subvol_list($vol);
-  my $vinfo = __get_by_key_eq($subvol_list, 'SUBVOL_PATH', $rel_path);
-  return $vinfo;
+  my @ret = grep { $_->{id} == $id } @$subvol_list;
+  return undef unless(scalar @ret);
+  die unless(scalar(@ret) == 1);
+  return $ret[0];
 }
 
 
@@ -2700,9 +2677,9 @@ MAIN:
     unless(vinfo_init_root($target_vol)) { ERROR "Failed to fetch subvolume detail for '$target_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
     unless($target_vol->{cgen}) { ERROR "Subvolume at \"$target_url\" does not provide cgen"; exit 1; }
 
-    my $uuid_list = vinfo_fs_list($src_vol);
-    unless($uuid_list->{$target_vol->{uuid}}) {
-      ERROR "Target subvolume is not on the same btrfs filesystem!";
+    unless($uuid_cache{$src_vol->{uuid}} && $uuid_cache{$target_vol->{uuid}} &&
+           $uuid_cache{$src_vol->{uuid}}->{TREE_ROOT} eq $uuid_cache{$target_vol->{uuid}}->{TREE_ROOT}) {
+      ERROR "Subvolumes are is not on the same btrfs filesystem!";
       exit 1;
     }
 
@@ -3055,15 +3032,12 @@ MAIN:
         DEBUG "Missing \"$rel_path\" in btrfs subtree of \"$sroot->{PRINT}\", resolving details";
         # configured subvolume is not present in btrfs subvolume list.
         # try to read subvolume detail, as configured subvolume could be a symlink.
-        my $subvol_list = vinfo_init_root($svol);
-        unless($subvol_list) {
+        unless(vinfo_init_root($svol)) {
           ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
           WARN "Skipping volume \"$sroot->{PRINT}\": $abrt";
           next;
         }
-        $subvol_list = vinfo_subvol_list($sroot);
-        my $vinfo = __get_by_id($subvol_list, $svol->{id});
-        if($vinfo) {
+        if(vinfo_subvol_by_id($sroot, $svol->{id})) {
           DEBUG "Found id=$svol->{id} in btrfs subtree of: $sroot->{PRINT}";
           # NOTE: detail is already set by vinfo_init_root()
         } else {
