@@ -1749,6 +1749,8 @@ sub vinfo_subvol_list($;@)
   my $tree_root = btr_tree($vol);
   return undef unless($tree_root);
 
+  $vol->{node} = $tree_root;
+
   if($opts{fill_cache}) {
     # force fill cache
     foreach ($vol->{URL}, $vol->{REAL_URL}) {
@@ -3629,7 +3631,13 @@ MAIN:
                 next;
               }
 
-              unless(scalar get_receive_targets($droot, $child)) {
+              my @receive_targets = get_receive_targets($droot, $child);
+              foreach(@receive_targets) {
+                unless(parse_filename($_->{SUBVOL_PATH}, $snapshot_basename, ($droot->{CONFIG}->{target_type} eq "raw"))) {
+                  WARN "Receive target of resume candidate \"$child->{PRINT}\" exists at unexpected location \"$_->{PRINT}\", skipping";
+                }
+              }
+              unless(scalar @receive_targets) {
                 DEBUG "Adding resume candidate: $child->{PRINT}";
 
                 if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
