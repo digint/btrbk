@@ -1623,24 +1623,12 @@ sub btr_tree($)
 {
   my $vol = shift;
 
-  # return cached info if present
-  if($vol->{REAL_URL} && $url_cache{$vol->{REAL_URL}}) {
-    TRACE "btrfs_tree: cache HIT: $vol->{REAL_URL}";
-    return $url_cache{$vol->{REAL_URL}};
-  }
-  if($url_cache{$vol->{URL}}) {
-    TRACE "btrfs_tree: cache HIT: $vol->{URL}";
-    return $url_cache{$vol->{URL}};
-  }
-  TRACE "btrfs_tree: cache MISS: $vol->{REAL_URL}, $vol->{URL}";
-
   # NOTE: make sure to to have either $vol->{uuid} or $vol->{is_root}
   # (provided by btrfs_subvolume_show()), or we cannot determine the
   # anchor to our root path (since the subvolume path output of "btrfs
   # subvolume list" is ambigous, and the uuid of the btrfs root node
   # cannot be resolved).
   die unless($vol->{uuid} || $vol->{is_root});
-  die unless($vol->{REAL_URL});
   return $uuid_cache{$vol->{uuid}} if($vol->{uuid} && $uuid_cache{$vol->{uuid}});
 
   # man btrfs-subvolume:
@@ -1745,14 +1733,28 @@ sub vinfo_subvol_list($;@)
 {
   my $vol = shift || die;
   my %opts = @_;
+  my $tree_root;
 
-  my $tree_root = btr_tree($vol);
+  # return cached info if present
+  $tree_root = $url_cache{$vol->{URL}};
+  TRACE "vinfo_subvol_list: cache " . ($tree_root ? "HIT" : "MISS") . ": URL=$vol->{URL}";
+  unless($tree_root) {
+    if($vol->{REAL_URL}) {
+      $tree_root = $url_cache{$vol->{REAL_URL}};
+      TRACE "vinfo_subvol_list: cache " . ($tree_root ? "HIT" : "MISS") . ": REAL_URL=$vol->{REAL_URL}";
+    }
+  }
+
+  unless($tree_root) {
+    $tree_root = btr_tree($vol);
+  }
   return undef unless($tree_root);
 
   $vol->{node} = $tree_root;
 
   if($opts{fill_cache}) {
     # force fill cache
+    die unless($vol->{REAL_URL});
     foreach ($vol->{URL}, $vol->{REAL_URL}) {
       if($url_cache{$_}) {
         TRACE "vinfo_subvol_list: fill_cache: btrfs_tree: cache HIT: $_";
