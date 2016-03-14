@@ -169,6 +169,7 @@ my %table_formats = (
 
 my %url_cache;   # map URL to btr_tree node
 my %uuid_cache;  # map UUID to btr_tree node
+my %symlink;     # map URL to REAL_URL (symlink target)
 
 my $dryrun;
 my $loglevel = 1;
@@ -433,15 +434,17 @@ sub vinfo($;$)
     NAME   => $name,
     PATH   => $url,
     PRINT  => $url,
+    URL_PREFIX => "",
    );
 
   if($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/) {
     my ($host, $path)   = ($1, $2);
     %info = (
       %info,
-      HOST         => $host,
-      PATH         => $path,
-      PRINT        => "$host:$path",
+      HOST       => $host,
+      PATH       => $path,
+      PRINT      => "$host:$path",
+      URL_PREFIX => "ssh://$host",
      );
     if($config) {
       my $ssh_port        = config_key($config, "ssh_port");
@@ -506,6 +509,7 @@ sub vinfo_child($$;$)
     SUBVOL_PATH  => $rel_path,
    );
   foreach (qw( HOST
+               URL_PREFIX
                RSH_TYPE
                SSH_USER
                SSH_IDENTITY
@@ -525,19 +529,6 @@ sub vinfo_init_root($)
 {
   my $vol = shift;
 
-  my $detail = $url_cache{$vol->{URL}};
-  my $path_verified;
-  if($detail) {
-    TRACE "vinfo_init_root: cache HIT: $vol->{URL}";
-    $path_verified = 1;  # all keys from url_cache are real_paths
-  }
-  else {
-    TRACE "vinfo_init_root: cache MISS: $vol->{URL}";
-    $detail = btrfs_subvolume_detail($vol);
-  }
-  return undef unless $detail;
-  vinfo_set_detail($vol, $detail, $path_verified);
-
   # read the subvolume list, and update %url_cache
   my $subvol_list = vinfo_subvol_list($vol, fill_cache => 1);
 
@@ -546,11 +537,10 @@ sub vinfo_init_root($)
 }
 
 
-sub vinfo_set_detail($$;$)
+sub vinfo_set_detail($$)
 {
   my $vol = shift || die;
   my $detail = shift || die;
-  my $path_verified = shift;
   my @vinfo_detail_keys = qw(id is_root gen cgen uuid parent_uuid received_uuid readonly node);
 
   # TRACE "updating vinfo detail for: $vol->{PRINT}";
@@ -569,21 +559,6 @@ sub vinfo_set_detail($$;$)
   die if(defined($detail->{NAME}) && ($detail->{NAME} ne $vol->{NAME}));
   die if(defined($detail->{SUBVOL_PATH}) && defined($vol->{SUBVOL_PATH}) && ($detail->{SUBVOL_PATH} ne $vol->{SUBVOL_PATH}));
 
-  # honor REAL_PATH from btrfs_subvolume_detail
-  if($detail->{REAL_PATH}) {
-    $vol->{REAL_PATH} = $detail->{REAL_PATH};
-  }
-  elsif($path_verified) {
-    $vol->{REAL_PATH} = $vol->{PATH};
-  }
-
-  if($vol->{REAL_PATH}) {
-    if($vol->{RSH_TYPE} && ($vol->{RSH_TYPE} eq "ssh")) {
-      $vol->{REAL_URL} = "ssh://$vol->{HOST}$vol->{REAL_PATH}";
-    } else {
-      $vol->{REAL_URL} = $vol->{REAL_PATH};
-    }
-  }
   return $vol;
 }
 
@@ -1077,7 +1052,7 @@ sub btrfs_filesystem_usage($)
 
 # returns hashref with keys: (name uuid parent_uuid id gen cgen top_level)
 # for btrfs-progs >= 4.1, also returns key: "received_uuid"
-sub btrfs_subvolume_detail($)
+sub btrfs_subvolume_show($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
@@ -1116,6 +1091,7 @@ sub btrfs_subvolume_detail($)
     $real_path = $1;
     DEBUG "Real path for subvolume \"$vol->{PRINT}\" is: $real_path" if($real_path ne $path);
     return undef unless(check_file($real_path, { absolute => 1 }));
+    $symlink{$vol->{URL}} = $vol->{URL_PREFIX} . $real_path if($real_path ne $path);
   }
   else {
     $real_path = $path;
@@ -1619,17 +1595,14 @@ sub btrfs_send_to_file($$$$;@)
 }
 
 
-sub btr_tree($)
+sub btr_tree($$)
 {
   my $vol = shift;
-
-  # NOTE: make sure to to have either $vol->{uuid} or $vol->{is_root}
-  # (provided by btrfs_subvolume_show()), or we cannot determine the
-  # anchor to our root path (since the subvolume path output of "btrfs
-  # subvolume list" is ambigous, and the uuid of the btrfs root node
-  # cannot be resolved).
-  die unless($vol->{uuid} || $vol->{is_root});
-  return $uuid_cache{$vol->{uuid}} if($vol->{uuid} && $uuid_cache{$vol->{uuid}});
+  my $vol_root_id = shift || die;
+  # NOTE: we need an ID (provided by btrfs_subvolume_show()) in order
+  # to determine the anchor to our root path (since the subvolume path
+  # output of "btrfs subvolume list" is ambigous, and the uuid of the
+  # btrfs root node cannot be resolved).
 
   # man btrfs-subvolume:
   #   Also every btrfs filesystem has a default subvolume as its initially
@@ -1675,10 +1648,10 @@ sub btr_tree($)
 
     $node->{REL_PATH} = $rel_path;  # relative to {TOP_LEVEL}->{path}
 
-    $vol_root = $node if($vol->{id} == $node->{id});
+    $vol_root = $node if($vol_root_id == $node->{id});
   }
   unless($vol_root) {
-    if($vol->{is_root}) {
+    if($vol_root_id == 5) {
       $vol_root = \%tree;
     }
     else {
@@ -1734,36 +1707,54 @@ sub vinfo_subvol_list($;@)
   my $vol = shift || die;
   my %opts = @_;
   my $tree_root;
+  my @fill_cache;
 
-  # return cached info if present
+  # use cached info if present
   $tree_root = $url_cache{$vol->{URL}};
   TRACE "vinfo_subvol_list: cache " . ($tree_root ? "HIT" : "MISS") . ": URL=$vol->{URL}";
   unless($tree_root) {
-    if($vol->{REAL_URL}) {
-      $tree_root = $url_cache{$vol->{REAL_URL}};
-      TRACE "vinfo_subvol_list: cache " . ($tree_root ? "HIT" : "MISS") . ": REAL_URL=$vol->{REAL_URL}";
+    if(my $real_url = $symlink{$vol->{URL}}) {
+      $tree_root = $url_cache{$real_url};
+      TRACE "vinfo_subvol_list: cache " . ($tree_root ? "HIT" : "MISS") . ": REAL_URL=$real_url";
     }
   }
 
   unless($tree_root) {
-    $tree_root = btr_tree($vol);
+    # url_cache miss, read the subvolume detail
+
+    my $detail = btrfs_subvolume_show($vol);
+    return undef unless $detail;
+    vinfo_set_detail($vol, $detail);
+    push @fill_cache, $symlink{$vol->{URL}} if($symlink{$vol->{URL}});
+
+
+    # check uuid_cache
+    if($detail->{uuid}) {
+      $tree_root = $uuid_cache{$detail->{uuid}};
+      TRACE "vinfo_subvol_list: cache " . ($tree_root ? "HIT" : "MISS") . ": UUID=$detail->{uuid}";
+    }
+
+    unless($tree_root) {
+      # cache miss, read the fresh tree
+
+      my $root_id = $detail->{is_root} ? 5 : $detail->{id};
+      $tree_root = btr_tree($vol, $root_id);
+      push @fill_cache, $vol->{URL};
+    }
   }
   return undef unless($tree_root);
 
-  $vol->{node} = $tree_root;
-
-  if($opts{fill_cache}) {
-    # force fill cache
-    die unless($vol->{REAL_URL});
-    foreach ($vol->{URL}, $vol->{REAL_URL}) {
-      if($url_cache{$_}) {
-        TRACE "vinfo_subvol_list: fill_cache: btrfs_tree: cache HIT: $_";
-        next;
-      }
-      TRACE "vinfo_subvol_list: fill_cache: btrfs_tree: cache MISS: $_";
-      _btr_tree_fill_url_cache($tree_root, $_);
+  # fill cache
+  foreach (@fill_cache) {
+    if($url_cache{$_}) {
+      TRACE "vinfo_subvol_list: fill_cache: btrfs_tree: cache HIT: $_";
+      next;
     }
+    TRACE "vinfo_subvol_list: fill_cache: btrfs_tree: cache MISS: $_";
+    _btr_tree_fill_url_cache($tree_root, $_);
   }
+
+  $vol->{node} = $tree_root;
 
   # recurse into $tree_root, returns array of vinfo
   return _vinfo_subtree_list($tree_root, $vol);
@@ -1870,7 +1861,7 @@ sub macro_send_receive(@)
       # make sure we know the source uuid
       unless($source->{uuid}) {
         DEBUG "Fetching uuid of new subvolume: $source->{PRINT}";
-        my $detail = btrfs_subvolume_detail($source);
+        my $detail = btrfs_subvolume_show($source);
         die unless($detail->{uuid});
         vinfo_set_detail($source, { uuid => $detail->{uuid} });
       }
@@ -3170,7 +3161,7 @@ MAIN:
       # check for duplicate snapshot locations
       my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
       my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-      my $snapshot_target = "$sroot->{REAL_URL}/$snapdir$snapshot_basename";
+      my $snapshot_target = ($symlink{$sroot->{URL}} // $sroot->{URL}) . '/' . $snapdir . $snapshot_basename;
       if(my $prev = $snapshot_check{$snapshot_target}) {
         ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snapshot_target";
         ERROR "Please fix \"snapshot_name\" configuration options!";
@@ -3180,7 +3171,7 @@ MAIN:
 
       foreach my $droot (vinfo_subsection($svol, 'target')) {
         # check for duplicate snapshot locations
-        my $snapshot_backup_target = "$droot->{REAL_URL}/$snapshot_basename";
+        my $snapshot_backup_target = ($symlink{$droot->{URL}} // $droot->{URL}) . '/' . $snapshot_basename;
         if(my $prev = $backup_check{$snapshot_backup_target}) {
           ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same backup target: $snapshot_target";
           ERROR "Please fix \"snapshot_name\" or \"target\" configuration options!";
