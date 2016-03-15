@@ -1326,6 +1326,10 @@ sub _vinfo_subtree_list
 sub vinfo_subvol_list($)
 {
   my $vol = shift || die;
+
+  # return cached subvolume list if present
+  return $vol->{SUBVOL_LIST} if($vol->{SUBVOL_LIST});
+
   my $tree_root = $vol->{node} || die;
 
   # recurse into $tree_root, returns array of vinfo
@@ -1473,11 +1477,18 @@ sub get_latest_common($$$;$)
   my $droot = shift || die;
   my $threshold_gen = shift;  # skip all snapshot children with generation (cgen) >= $threshold_gen
 
-  die("source subvolume info not present: $sroot->{URL}") unless($sroot->{URL});
-  die("target subvolume info not present: $droot->{URL}") unless($droot->{URL});
-
   my $debug_src = $svol->{URL};
   $debug_src .= "#" . $threshold_gen if($threshold_gen);
+
+  # prefer latest received subvolume as latest common
+  if($droot->{SUBVOL_RECEIVED}) {
+    foreach(reverse @{$droot->{SUBVOL_RECEIVED}}) {
+      TRACE "get_latest_common: checking previously received subvolume: $_->{source}->{PRINT}";
+      next if($_->{ERROR});
+      DEBUG("Latest common subvolumes for: $debug_src: src=$_->{source}->{PRINT}  target=$_->{received_subvolume}->{PRINT} (previously received)");
+      return ($_->{source}, $_->{received_subvolume});
+    }
+  }
 
   # sort children of svol descending by generation
   foreach my $child (sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($sroot, $svol)) {
@@ -1487,14 +1498,7 @@ sub get_latest_common($$$;$)
       next;
     }
 
-    if($child->{RECEIVE_TARGET_PRESENT} && ($child->{RECEIVE_TARGET_PRESENT} eq $droot->{URL})) {
-      # little hack to keep track of previously received subvolumes
-      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=<previously received>");
-      return ($child, undef);
-    }
-
     foreach (get_receive_targets($droot, $child)) {
-      TRACE "get_latest_common: found receive target: $_->{PRINT}";
       DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=$_->{PRINT}");
       return ($child, $_);
     }
@@ -1999,7 +2003,7 @@ sub macro_send_receive(@)
         DEBUG "Fetching uuid of new subvolume: $source->{PRINT}";
         my $detail = btrfs_subvolume_show($source);
         die unless($detail->{uuid});
-        vinfo_set_detail($source, { uuid => $detail->{uuid} });
+        $source->{node}{uuid} = $detail->{uuid};
       }
     }
 
@@ -2030,7 +2034,6 @@ sub macro_send_receive(@)
   $info{received_subvolume} = $vol_received || die;
   $target->{SUBVOL_RECEIVED} //= [];
   push(@{$target->{SUBVOL_RECEIVED}}, \%info);
-
   unless($ret) {
     $info{ERROR} = 1;
     return undef;
@@ -3020,7 +3023,7 @@ MAIN:
             next;
           }
 
-          my %subvol_list;
+          my @subvol_list;
           my %child_uuid_list;
           foreach my $file (split("\n", $ret))
           {
@@ -3044,15 +3047,14 @@ MAIN:
             # NOTE: REMOTE_PARENT_UUID in $filename_info is the "parent of the source subvolume", NOT the
             # "parent of the received subvolume".
             my $subvol = vinfo_child($droot, $file);
-            my $detail = { uuid          => "FAKE_UUID:" . $subvol->{URL},
-                           received_uuid => $filename_info->{received_uuid},
-                           # parent_uuid   => '-',  # correct value gets inserted below
-                           readonly      => 1,    # fake subvolume readonly flag
-                         };
-            vinfo_set_detail($subvol, $detail);
+            $subvol->{node} = { uuid          => "FAKE_UUID:" . $subvol->{URL},
+                                received_uuid => $filename_info->{received_uuid},
+                                # parent_uuid   => '-',  # correct value gets inserted below
+                                readonly      => 1,    # fake subvolume readonly flag
+                              };
             $uuid_cache{$subvol->{node}{uuid}} = $subvol;
 
-            $subvol_list{$file} = $subvol;
+            push @subvol_list, $subvol;
             if($filename_info->{REMOTE_PARENT_UUID} ne '-') {
               $child_uuid_list{$filename_info->{REMOTE_PARENT_UUID}} //= [];
               push @{$child_uuid_list{$filename_info->{REMOTE_PARENT_UUID}}}, $subvol;
@@ -3062,12 +3064,11 @@ MAIN:
             WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED($droot);
             next;
           }
-          DEBUG "Found " . scalar(keys %subvol_list) . " raw subvolume backups of: $svol->{PRINT}";
-          $droot->{SUBVOL_LIST} = \%subvol_list;
-          $droot->{REAL_URL} = $droot->{URL}; # ignore symlinks here
+          DEBUG "Found " . scalar(@subvol_list) . " raw subvolume backups of: $svol->{PRINT}";
+          $droot->{SUBVOL_LIST} = \@subvol_list;
 
           # Make sure that incremental backup chains are never broken:
-          foreach my $subvol (values %subvol_list)
+          foreach my $subvol (@subvol_list)
           {
             # If restoring a backup from raw btrfs images (using "incremental yes|strict"):
             # "btrfs send -p parent source > svol.btrfs", the backups
@@ -3079,7 +3080,7 @@ MAIN:
             # - svol.<timestamp>--<received_uuid-n>[@<received_uuid_n-1>].btrfs  : incremental image
 
             foreach my $child (@{$child_uuid_list{$subvol->{node}{received_uuid}}}) {
-              vinfo_set_detail($child, { parent_uuid => $subvol->{node}{uuid} });
+              $child->{node}{parent_uuid} = $subvol->{node}{uuid};
 
               DEBUG "Found parent/child partners, forcing preserve of: \"$subvol->{PRINT}\", \"$child->{PRINT}\"";
               $subvol->{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
@@ -3090,8 +3091,7 @@ MAIN:
             # TODO: remove this line as soon as incremental rotation is implemented.
             $subvol->{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
           }
-
-          # TRACE(Data::Dumper->Dump([\%subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
+          # TRACE(Data::Dumper->Dump([\@subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
         }
       }
     }
@@ -3624,8 +3624,6 @@ MAIN:
                                       resume => 1,     # propagated to $droot->{SUBVOL_RECEIVED}
                                      ))
                 {
-                  # tag the source snapshot, so that get_latest_common() above can make use of the newly received subvolume
-                  $child->{RECEIVE_TARGET_PRESENT} = $droot->{URL};
                   $resume_success++;
                 }
                 else {
