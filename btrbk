@@ -1882,6 +1882,20 @@ sub parse_config_line($$$$$)
 }
 
 
+sub init_config(@)
+{
+  my %config_root = ( CONTEXT => "root", @_ );
+
+  # set defaults
+  foreach (keys %config_options) {
+    next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
+    next if $config_options{$_}->{shortcut};    # don't pollute hash with shortcuts
+    $config_root{$_} = $config_options{$_}->{default};
+  }
+  return \%config_root;
+}
+
+
 sub parse_config(@)
 {
   my @config_files = @_;
@@ -1898,14 +1912,8 @@ sub parse_config(@)
     return undef;
   }
 
-  my $root = { CONTEXT => "root", SRC_FILE => $file };
+  my $root = init_config(SRC_FILE => $file);
   my $cur = $root;
-  # set defaults
-  foreach (keys %config_options) {
-    next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
-    next if $config_options{$_}->{shortcut};    # don't pollute hash with shortcuts
-    $root->{$_} = $config_options{$_}->{default};
-  }
 
   INFO "Using configuration: $file";
   open(FILE, '<', $file) or die $!;
@@ -2622,13 +2630,14 @@ MAIN:
     #
     my $src_url    = $filter_args[0] || die;
     my $target_url = $filter_args[1] || die;
-    # FIXME: allow ssh:// src/dest (does not work since the configuration is not yet read).
+    my $default_config = init_config();
+    # NOTE: ssh://{src,target} uses default config
 
-    my $src_vol = vinfo($src_url, { CONTEXT => "cmdline" });
+    my $src_vol = vinfo($src_url, $default_config);
     unless(vinfo_init_root($src_vol)) { ERROR "Failed to fetch subvolume detail for '$src_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
     if($src_vol->{node}{is_root})     { ERROR "Subvolume is btrfs root: $src_vol->{PRINT}"; exit 1; }
 
-    my $target_vol = vinfo($target_url, { CONTEXT => "cmdline" });
+    my $target_vol = vinfo($target_url, $default_config);
     unless(vinfo_init_root($target_vol)) { ERROR "Failed to fetch subvolume detail for '$target_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
     if($target_vol->{node}{is_root})     { ERROR "Subvolume is btrfs root: $target_vol->{PRINT}"; exit 1; }
 
@@ -3135,7 +3144,7 @@ MAIN:
     my $url = $filter_args[0] || die;
     my $dump_uuid = 0;
 
-    my $vol = vinfo($url, { CONTEXT => "cmdline" });
+    my $vol = vinfo($url, $config);
     unless(vinfo_init_root($vol)) {
       ERROR "Failed to fetch subvolume detail for: $url" . ($err ? ": $err" : "");
       exit 1;
