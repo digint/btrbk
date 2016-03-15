@@ -420,514 +420,6 @@ sub run_cmd(@)
 }
 
 
-sub vinfo($;$)
-{
-  my $url = shift // die;
-  my $config = shift;
-  my %info;
-
-  my $name = $url;
-  $name =~ s/^.*\///;
-
-  %info = (
-    URL    => $url,
-    NAME   => $name,
-    PATH   => $url,
-    PRINT  => $url,
-    URL_PREFIX => "",
-   );
-
-  if($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/) {
-    my ($host, $path)   = ($1, $2);
-    %info = (
-      %info,
-      HOST       => $host,
-      PATH       => $path,
-      PRINT      => "$host:$path",
-      URL_PREFIX => "ssh://$host",
-     );
-    if($config) {
-      my $ssh_port        = config_key($config, "ssh_port");
-      my $ssh_user        = config_key($config, "ssh_user");
-      my $ssh_identity    = config_key($config, "ssh_identity");
-      my $ssh_compression = config_key($config, "ssh_compression");
-      my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
-      my @ssh_options;
-      push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
-      push(@ssh_options, '-C') if($ssh_compression);
-      push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
-      if($ssh_identity) {
-        push(@ssh_options, '-i', $ssh_identity);
-      } else {
-        WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
-      }
-      %info = (
-        %info,
-        RSH_TYPE     => "ssh",
-        SSH_USER     => $ssh_user,
-        SSH_IDENTITY => $ssh_identity,
-        SSH_PORT     => $ssh_port,
-        RSH          => ['/usr/bin/ssh', @ssh_options, $ssh_user . '@' . $host ],
-       );
-    }
-  }
-
-  if($config) {
-    my $btrfs_progs_compat = config_key($config, "btrfs_progs_compat");
-    $info{BTRFS_PROGS_COMPAT} = $btrfs_progs_compat if($btrfs_progs_compat);
-  }
-
-  TRACE "vinfo created: $url";
-  return \%info;
-}
-
-
-sub vinfo_assign_config($$)
-{
-  my $vinfo = shift || die;
-  my $config = shift || die;
-
-  die if($config->{VINFO});
-  die if($vinfo->{CONFIG});
-  $vinfo->{CONFIG} = $config;
-  $config->{VINFO} = $vinfo;
-}
-
-
-sub vinfo_child($$;$)
-{
-  my $parent = shift || die;
-  my $rel_path = shift // die;
-
-  my $name = $rel_path;
-  $name =~ s/^.*\///;
-  my %info = (
-    NAME         => $name,
-    URL          => "$parent->{URL}/$rel_path",
-    PATH         => "$parent->{PATH}/$rel_path",
-    PRINT        => "$parent->{PRINT}/$rel_path",
-    SUBVOL_PATH  => $rel_path,
-   );
-  foreach (qw( HOST
-               URL_PREFIX
-               RSH_TYPE
-               SSH_USER
-               SSH_IDENTITY
-               SSH_PORT
-               RSH
-               BTRFS_PROGS_COMPAT ) )
-  {
-    $info{$_} = $parent->{$_} if(exists $parent->{$_});
-  }
-
-  # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
-  return \%info;
-}
-
-
-# returns hash: ( $prefix_{url,path,host,name,subvol_path,rsh} => value, ... )
-sub vinfo_prefixed_keys($$)
-{
-  my $prefix = shift // die;
-  my $vinfo = shift;
-  return () unless($vinfo);
-  my %ret;
-  if($prefix) {
-    $ret{$prefix} = $vinfo->{PRINT};
-    $prefix .= '_';
-  }
-  foreach (qw( URL PATH HOST NAME SUBVOL_PATH )) {
-    $ret{$prefix . lc($_)} = $vinfo->{$_};
-  }
-  $ret{$prefix . "subvol"} = $vinfo->{PATH};
-  $ret{$prefix . "rsh"} = ($vinfo->{RSH} ? join(" ", @{$vinfo->{RSH}}) : undef),
-  return %ret;
-}
-
-
-sub config_key($$;@)
-{
-  my $config = shift || die;
-  my $key = shift || die;
-  my %opts = @_;
-  my $orig_config = $config;
-  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
-
-  if(exists($config_override{$key})) {
-    TRACE "config_key: OVERRIDE key=$key to value=" . ($config_override{$key} // "<undef>");
-    return $config_override{$key};
-  }
-
-  while(not exists($config->{$key})) {
-    # note: while all config keys exist in root context (at least with default values),
-    #       we also allow fake configs (CONTEXT="cmdline") which have no PARENT.
-    return undef unless($config->{PARENT});
-    $config = $config->{PARENT};
-  }
-  my $retval = $config->{$key};
-  $retval = $opts{prefix} . $retval if(defined($opts{prefix}) && defined($retval));
-  $retval .= $opts{postfix} if(defined($opts{postfix}) && defined($retval));
-  return $retval;
-}
-
-
-sub config_preserve_hash($$)
-{
-  my $config = shift || die;
-  my $prefix = shift || die;
-  return (
-    preserve_day_of_week => config_key($config, "preserve_day_of_week"),
-    preserve_daily       => config_key($config, "${prefix}_preserve_daily"),
-    preserve_weekly      => config_key($config, "${prefix}_preserve_weekly"),
-    preserve_monthly     => config_key($config, "${prefix}_preserve_monthly"),
-    preserve_yearly      => config_key($config, "${prefix}_preserve_yearly"),
-   );
-}
-
-
-sub config_dump_keys($;@)
-{
-  my $config = shift || die;
-  my %opts = @_;
-  my @ret;
-  my $maxlen = 0;
-  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
-
-  foreach my $key (sort keys %config_options)
-  {
-    my $val;
-    next if($config_options{$key}->{deprecated});
-    next if($config_options{$key}->{shortcut});
-    if($opts{resolve}) {
-      $val = config_key($config, $key);
-    } else {
-      next unless exists($config->{$key});
-      $val = $config->{$key};
-    }
-    if($opts{skip_defaults}) {
-      if(defined($config_options{$key}->{default}) && defined($val)) {
-        next if($val eq $config_options{$key}->{default});
-      }
-      if((not defined($config_options{$key}->{default})) && (not (defined($val)))) {
-        next; # both undef, skip
-      }
-    }
-    if(ref($val) eq "ARRAY") {
-      my $val2 = join(',', @$val);
-      $val = $val2;
-    }
-    $val //= "<unset>";
-    my $len = length($key);
-    $maxlen = $len if($len > $maxlen);
-    push @ret, { key => $key, val => $val, len => $len };
-  }
-  # print as table
-  return map { ($opts{prefix} // "") . $_->{key} . (' ' x (1 + $maxlen - $_->{len})) . ' ' . $_->{val} } @ret;
-}
-
-
-sub check_file($$;$$)
-{
-  my $file = shift // die;
-  my $accept = shift || die;
-  my $key = shift;  # only for error text
-  my $config_file = shift;  # only for error text
-
-  if($accept->{ssh} && ($file =~ /^ssh:\/\//)) {
-    unless($file =~ /^$ssh_prefix_match\/$file_match$/) {
-      ERROR "Ambiguous ssh url for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
-      return undef;
-    }
-  }
-  elsif($file =~ /^$file_match$/) {
-    if($accept->{absolute}) {
-      unless($file =~ /^\//) {
-        ERROR "Only absolute files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
-        return undef;
-      }
-    }
-    elsif($accept->{relative}) {
-      if($file =~ /^\//) {
-        ERROR "Only relative files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
-        return undef;
-      }
-    }
-    elsif($accept->{name_only}) {
-      if($file =~ /\//) {
-        ERROR "Option \"$key\" is not a valid file name in \"$config_file\" line $.: $file" if($key && $config_file);
-        return undef;
-      }
-    }
-    else {
-      die("accept_type must contain either 'relative' or 'absolute'");
-    }
-  }
-  else {
-    ERROR "Ambiguous file for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
-    return undef;
-  }
-  # check directory traversal
-  if(($file =~ /^\.\.$/) || ($file =~ /^\.\.\//) || ($file =~ /\/\.\.\//) || ($file =~ /\/\.\.$/)) {
-    ERROR "Illegal directory traversal for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
-    return undef;
-  }
-  return 1;
-}
-
-
-sub append_config_option($$$$;$)
-{
-  my $config = shift;
-  my $key = shift;
-  my $value = shift;
-  my $context = shift;
-  my $config_file = shift;  # only for error text
-  my $config_file_statement = $config_file ? " in \"$config_file\" line $." : "";
-
-  my $opt = $config_options{$key};
-
-  # accept only keys listed in %config_options
-  unless($opt) {
-    ERROR "Unknown option \"$key\"" . $config_file_statement;
-    return undef;
-  }
-
-  if($opt->{context} && !grep(/^$context$/, @{$opt->{context}})) {
-    ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$opt->{context}})) . " context" . $config_file_statement;
-    return undef;
-  }
-
-  if($opt->{accept_preserve_matrix}) {
-    # special case: preserve matrix of form: "[NNd] [NNw] [NNm] [NNy]"
-    my $s = $value;
-    TRACE "option \"$key=$value\" is preserve matrix, parsing...";
-    if($s =~ s/([0-9*][0-9]*)\s*d\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_daily"}   = $v; TRACE "adding option \"${key}_daily=$v\" to $context context";   }
-    if($s =~ s/([0-9*][0-9]*)\s*w\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_weekly"}  = $v; TRACE "adding option \"${key}_weekly=$v\" to $context context";  }
-    if($s =~ s/([0-9*][0-9]*)\s*m\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_monthly"} = $v; TRACE "adding option \"${key}_monthly=$v\" to $context context"; }
-    if($s =~ s/([0-9*][0-9]*)\s*y\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_yearly"}  = $v; TRACE "adding option \"${key}_yearly=$v\" to $context context";  }
-    unless($s eq "") {
-      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
-      return undef;
-    }
-    TRACE "successfully parsed preserve matrix";
-    return $config;
-  }
-
-  if(grep(/^\Q$value\E$/, @{$opt->{accept}})) {
-    TRACE "option \"$key=$value\" found in accept list";
-  }
-  elsif($opt->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
-    TRACE "option \"$key=$value\" is numeric, accepted";
-  }
-  elsif($opt->{accept_file})
-  {
-    # be very strict about file options, for security sake
-    return undef unless(check_file($value, $opt->{accept_file}, $key, $config_file));
-
-    TRACE "option \"$key=$value\" is a valid file, accepted";
-    $value =~ s/\/+$//;   # remove trailing slash
-    $value =~ s/^\/+/\//; # sanitize leading slash
-    $value = "no" if($value eq ".");  # maps to undef later
-  }
-  elsif($opt->{accept_regexp}) {
-    my $match = $opt->{accept_regexp};
-    if($value =~ m/$match/) {
-      TRACE "option \"$key=$value\" matched regexp, accepted";
-    }
-    else {
-      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
-      return undef;
-    }
-  }
-  else
-  {
-    ERROR "Unsupported value \"$value\" for option \"$key\"" . $config_file_statement;
-    return undef;
-  }
-
-  if($opt->{split}) {
-    $value = [ split($opt->{split}, $value) ];
-    TRACE "splitted option \"$key\": " . join(',', @$value);
-  }
-
-  if($opt->{deprecated}) {
-    WARN "Found deprecated option \"$key $value\"" . $config_file_statement . ": " .
-           ($opt->{deprecated}->{$value}->{warn} // $opt->{deprecated}->{DEFAULT}->{warn});
-    my $replace_key   = $opt->{deprecated}->{$value}->{replace_key};
-    my $replace_value = $opt->{deprecated}->{$value}->{replace_value};
-    if(defined($replace_key)) {
-      $key = $replace_key;
-      $value = $replace_value;
-      WARN "Using \"$key $value\"";
-    }
-  }
-
-  TRACE "adding option \"$key=$value\" to $context context";
-  $value = undef if($value eq "no");  # we don't want to check for "no" all the time
-  $config->{$key} = $value;
-  return $config;
-}
-
-
-sub parse_config_line($$$$$)
-{
-  my ($file, $root, $cur, $key, $value) = @_;
-
-  if($key eq "volume")
-  {
-    $cur = $root;
-    TRACE "config: context forced to: $cur->{CONTEXT}";
-
-    # be very strict about file options, for security sake
-    return undef unless(check_file($value, { absolute => 1, ssh => 1 }, $key, $file));
-    $value =~ s/\/+$// unless($value =~ /^\/+$/);   # remove trailing slash
-    $value =~ s/^\/+/\//; # sanitize leading slash
-    TRACE "config: adding volume \"$value\" to root context";
-    die unless($cur->{CONTEXT} eq "root");
-    my $volume = { CONTEXT => "volume",
-                   PARENT => $cur,
-                   url => $value,
-                  };
-    $cur->{SUBSECTION} //= [];
-    push(@{$cur->{SUBSECTION}}, $volume);
-    $cur = $volume;
-  }
-  elsif($key eq "subvolume")
-  {
-    while($cur->{CONTEXT} ne "volume") {
-      if(($cur->{CONTEXT} eq "root") || (not $cur->{PARENT})) {
-        ERROR "Subvolume keyword outside volume context, in \"$file\" line $.";
-        return undef;
-      }
-      $cur = $cur->{PARENT} || die;
-      TRACE "config: context changed to: $cur->{CONTEXT}";
-    }
-    # be very strict about file options, for security sake
-    return undef unless(check_file($value, { relative => 1 }, $key, $file));
-    $value =~ s/\/+$//;    # remove trailing slash
-    $value =~ s/^\/+//;    # remove leading slash
-
-    TRACE "config: adding subvolume \"$value\" to volume context: $cur->{url}";
-    my $snapshot_name = $value;
-    $snapshot_name =~ s/^.*\///; # snapshot_name defaults to subvolume name
-    die unless($cur->{CONTEXT} eq "volume");
-    my $subvolume = { CONTEXT => "subvolume",
-                      PARENT => $cur,
-                      rel_path => $value,
-                      url => $cur->{url} . '/' . $value,
-                      snapshot_name => $snapshot_name,
-                     };
-    $cur->{SUBSECTION} //= [];
-    push(@{$cur->{SUBSECTION}}, $subvolume);
-    $cur = $subvolume;
-  }
-  elsif($key eq "target")
-  {
-    if($cur->{CONTEXT} eq "target") {
-      $cur = $cur->{PARENT} || die;
-      TRACE "config: context changed to: $cur->{CONTEXT}";
-    }
-    if($cur->{CONTEXT} ne "subvolume") {
-      ERROR "Target keyword outside subvolume context, in \"$file\" line $.";
-      return undef;
-    }
-    if($value =~ /^(\S+)\s+(\S+)$/)
-    {
-      my ($target_type, $droot) = ($1, $2);
-      unless(grep(/^\Q$target_type\E$/, @config_target_types)) {
-        ERROR "Unknown target type \"$target_type\" in \"$file\" line $.";
-        return undef;
-      }
-      # be very strict about file options, for security sake
-      return undef unless(check_file($droot, { absolute => 1, ssh => 1 }, $key, $file));
-
-      $droot =~ s/\/+$//;   # remove trailing slash
-      $droot =~ s/^\/+/\//; # sanitize leading slash
-      TRACE "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{url}";
-      die unless($cur->{CONTEXT} eq "subvolume");
-      my $target = { CONTEXT => "target",
-                     PARENT => $cur,
-                     target_type => $target_type,
-                     url => $droot,
-                   };
-      $cur->{SUBSECTION} //= [];
-      push(@{$cur->{SUBSECTION}}, $target);
-      $cur = $target;
-    }
-    else
-    {
-      ERROR "Ambiguous target configuration, in \"$file\" line $.";
-      return undef;
-    }
-  }
-  else
-  {
-    return append_config_option($cur, $key, $value, $cur->{CONTEXT}, $file);
-  }
-
-  return $cur;
-}
-
-
-sub parse_config(@)
-{
-  my @config_files = @_;
-  my $file = undef;
-  foreach(@config_files) {
-    TRACE "config: checking for file: $_";
-    if(-r "$_") {
-      $file = $_;
-      last;
-    }
-  }
-  unless($file) {
-    ERROR "Configuration file not found: " . join(', ', @config_files);
-    return undef;
-  }
-
-  my $root = { CONTEXT => "root", SRC_FILE => $file };
-  my $cur = $root;
-  # set defaults
-  foreach (keys %config_options) {
-    next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
-    next if $config_options{$_}->{shortcut};    # don't pollute hash with shortcuts
-    $root->{$_} = $config_options{$_}->{default};
-  }
-
-  INFO "Using configuration: $file";
-  open(FILE, '<', $file) or die $!;
-  while (<FILE>) {
-    chomp;
-    next if /^\s*#/; # ignore comments
-    next if /^\s*$/; # ignore empty lines
-    TRACE "config: parsing line $. with context=$cur->{CONTEXT}: \"$_\"";
-    if(/^(\s*)([a-zA-Z_]+)\s+(.*)$/)
-    {
-      # NOTE: we do not perform checks on indentation!
-      my ($indent, $key, $value) = (length($1), lc($2), $3);
-      $value =~ s/\s*$//;
-      $cur = parse_config_line($file, $root, $cur, $key, $value);
-      unless(defined($cur)) {
-        # error, bail out
-        $root = undef;
-        last;
-      }
-      TRACE "line processed: new context=$cur->{CONTEXT}";
-    }
-    else
-    {
-      ERROR "Parse error in \"$file\" line $.";
-      $root = undef;
-      last;
-    }
-  }
-  close FILE || ERROR "Failed to close configuration file: $!";
-
-  TRACE(Data::Dumper->Dump([$root], ["config"])) if(($loglevel >= 4) && $root);
-  return $root;
-}
-
-
 sub btrfs_filesystem_show_all_local()
 {
   return run_cmd( cmd => [ qw(btrfs filesystem show) ],
@@ -1641,18 +1133,125 @@ sub _is_child_of
 }
 
 
-sub _btr_tree_fill_url_cache
+sub _fill_url_cache
 {
   my $node = shift;
   my $abs_path = shift;
-  # TRACE "_btr_tree_fill_url_cache: $abs_path";
+  # TRACE "_fill_url_cache: $abs_path";
 
   # traverse tree from given node and update tree cache
   $url_cache{$abs_path} = $node;
   foreach(@{$node->{SUBTREE}}) {
-    _btr_tree_fill_url_cache($_, $abs_path . '/' . $_->{REL_PATH});
+    _fill_url_cache($_, $abs_path . '/' . $_->{REL_PATH});
   }
   return undef;
+}
+
+
+# reverse path lookup
+sub get_cached_url_by_uuid($)
+{
+  my $uuid = shift;
+  my @result;
+  while(my ($url, $node) = each(%url_cache)) {
+    next if($node->{is_root});
+    next unless($node->{uuid} eq $uuid);
+    push @result, $url;
+  }
+  return @result;
+}
+
+
+sub vinfo($;$)
+{
+  my $url = shift // die;
+  my $config = shift;
+  my %info;
+
+  my $name = $url;
+  $name =~ s/^.*\///;
+
+  %info = (
+    URL    => $url,
+    NAME   => $name,
+    PATH   => $url,
+    PRINT  => $url,
+    URL_PREFIX => "",
+   );
+
+  if($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/) {
+    my ($host, $path)   = ($1, $2);
+    %info = (
+      %info,
+      HOST       => $host,
+      PATH       => $path,
+      PRINT      => "$host:$path",
+      URL_PREFIX => "ssh://$host",
+     );
+    if($config) {
+      my $ssh_port        = config_key($config, "ssh_port");
+      my $ssh_user        = config_key($config, "ssh_user");
+      my $ssh_identity    = config_key($config, "ssh_identity");
+      my $ssh_compression = config_key($config, "ssh_compression");
+      my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
+      my @ssh_options;
+      push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
+      push(@ssh_options, '-C') if($ssh_compression);
+      push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
+      if($ssh_identity) {
+        push(@ssh_options, '-i', $ssh_identity);
+      } else {
+        WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
+      }
+      %info = (
+        %info,
+        RSH_TYPE     => "ssh",
+        SSH_USER     => $ssh_user,
+        SSH_IDENTITY => $ssh_identity,
+        SSH_PORT     => $ssh_port,
+        RSH          => ['/usr/bin/ssh', @ssh_options, $ssh_user . '@' . $host ],
+       );
+    }
+  }
+
+  if($config) {
+    my $btrfs_progs_compat = config_key($config, "btrfs_progs_compat");
+    $info{BTRFS_PROGS_COMPAT} = $btrfs_progs_compat if($btrfs_progs_compat);
+  }
+
+  TRACE "vinfo created: $url";
+  return \%info;
+}
+
+
+sub vinfo_child($$;$)
+{
+  my $parent = shift || die;
+  my $rel_path = shift // die;
+
+  my $name = $rel_path;
+  $name =~ s/^.*\///;
+  my %info = (
+    NAME         => $name,
+    URL          => "$parent->{URL}/$rel_path",
+    PATH         => "$parent->{PATH}/$rel_path",
+    PRINT        => "$parent->{PRINT}/$rel_path",
+    SUBVOL_PATH  => $rel_path,
+   );
+  foreach (qw( HOST
+               URL_PREFIX
+               RSH_TYPE
+               SSH_USER
+               SSH_IDENTITY
+               SSH_PORT
+               RSH
+               BTRFS_PROGS_COMPAT ) )
+  {
+    $info{$_} = $parent->{$_} if(exists $parent->{$_});
+  }
+
+  # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
+  return \%info;
 }
 
 
@@ -1696,7 +1295,7 @@ sub vinfo_init_root($)
   # fill cache if needed
   foreach (@fill_cache) {
     TRACE "vinfo_subvol_list: fill_cache: $_";
-    _btr_tree_fill_url_cache($tree_root, $_);
+    _fill_url_cache($tree_root, $_);
   }
 
   $vol->{node} = $tree_root;
@@ -1734,20 +1333,6 @@ sub vinfo_subvol_list($)
 }
 
 
-# reverse path lookup
-sub get_cached_url_by_uuid($)
-{
-  my $uuid = shift;
-  my @result;
-  while(my ($url, $node) = each(%url_cache)) {
-    next if($node->{is_root});
-    next unless($node->{uuid} eq $uuid);
-    push @result, $url;
-  }
-  return @result;
-}
-
-
 sub vinfo_subvol($$)
 {
   my $vol = shift || die;
@@ -1756,6 +1341,599 @@ sub vinfo_subvol($$)
     return $_ if($_->{SUBVOL_PATH} eq $subvol_path);
   }
   return undef;
+}
+
+
+# returns hash: ( $prefix_{url,path,host,name,subvol_path,rsh} => value, ... )
+sub vinfo_prefixed_keys($$)
+{
+  my $prefix = shift // die;
+  my $vinfo = shift;
+  return () unless($vinfo);
+  my %ret;
+  if($prefix) {
+    $ret{$prefix} = $vinfo->{PRINT};
+    $prefix .= '_';
+  }
+  foreach (qw( URL PATH HOST NAME SUBVOL_PATH )) {
+    $ret{$prefix . lc($_)} = $vinfo->{$_};
+  }
+  $ret{$prefix . "subvol"} = $vinfo->{PATH};
+  $ret{$prefix . "rsh"} = ($vinfo->{RSH} ? join(" ", @{$vinfo->{RSH}}) : undef),
+  return %ret;
+}
+
+
+sub vinfo_assign_config($$)
+{
+  my $vinfo = shift || die;
+  my $config = shift || die;
+
+  die if($config->{VINFO});
+  die if($vinfo->{CONFIG});
+  $vinfo->{CONFIG} = $config;
+  $config->{VINFO} = $vinfo;
+}
+
+
+sub vinfo_subsection($$;$)
+{
+  # if config: must have SUBSECTION key
+  # if vinfo:  must have CONFIG key
+  my $config_or_vinfo = shift || die;
+  my $context = shift || die;
+  my $include_aborted = shift;
+  my $config_list;
+  my $vinfo_check;
+  if(exists($config_or_vinfo->{SUBSECTION})) {
+    # config
+    $config_list = $config_or_vinfo->{SUBSECTION};
+  }
+  else {
+    # vinfo
+    $config_list = $config_or_vinfo->{CONFIG}->{SUBSECTION};
+    die unless($config_or_vinfo->{CONFIG}->{VINFO} == $config_or_vinfo);  # check back reference
+  }
+
+  # for now be paranoid and check all contexts
+  my @ret;
+  foreach (@$config_list) {
+    die unless($_->{CONTEXT} eq $context);
+    next if((not $include_aborted) && $_->{ABORTED});
+    die unless($_->{VINFO});
+    die unless($_->{VINFO}->{CONFIG});
+    die unless($_->{VINFO} == $_->{VINFO}->{CONFIG}->{VINFO});  # check all back references
+    push @ret, $_->{VINFO};
+  }
+  return @ret;
+
+  # much simpler implementation, without checks
+  #return map { $_->{ABORTED} ? () : $_->{VINFO} } @$config_list;
+}
+
+
+sub get_snapshot_children($$)
+{
+  my $sroot = shift || die;
+  my $svol = shift // die;
+  my @ret;
+
+  my $sroot_subvols = vinfo_subvol_list($sroot);
+  foreach (@$sroot_subvols) {
+    next unless($_->{node}{readonly});
+    next unless($_->{node}{parent_uuid} eq $svol->{node}{uuid});
+    TRACE "get_snapshot_children: found: $_->{PRINT}";
+    push(@ret, $_);
+  }
+  DEBUG "Found " . scalar(@ret) . " snapshot children of: $svol->{PRINT}";
+  return @ret;
+}
+
+
+sub get_receive_targets($$)
+{
+  my $droot = shift || die;
+  my $src_vol = shift || die;
+  my $droot_subvols = vinfo_subvol_list($droot);
+  my @ret;
+
+  if($droot->{BTRFS_PROGS_COMPAT})
+  {
+    # guess matches by subvolume name (node->received_uuid is not available if BTRFS_PROGS_COMPAT is set)
+    DEBUG "Fallback to compatibility mode (get_receive_targets)";
+    foreach my $target (@$droot_subvols) {
+      next unless($_->{node}{readonly});
+      if($target->{NAME} eq $src_vol->{NAME}) {
+        TRACE "get_receive_targets: by-name: Found receive target: $target->{SUBVOL_PATH}";
+        push(@ret, $target);
+      }
+    }
+  }
+  else
+  {
+    # find matches by comparing uuid / received_uuid
+    my $uuid = $src_vol->{node}{uuid};
+    die("subvolume info not present: $uuid") unless($uuid_cache{$uuid});
+    foreach (@$droot_subvols) {
+      next unless($_->{node}{readonly});
+      next unless($_->{node}{received_uuid} eq $uuid);
+      TRACE "get_receive_targets: by-uuid: Found receive target: $_->{SUBVOL_PATH}";
+      push(@ret, $_);
+    }
+  }
+  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
+  return @ret;
+}
+
+
+sub get_latest_common($$$;$)
+{
+  my $sroot = shift || die;
+  my $svol = shift // die;
+  my $droot = shift || die;
+  my $threshold_gen = shift;  # skip all snapshot children with generation (cgen) >= $threshold_gen
+
+  die("source subvolume info not present: $sroot->{URL}") unless($sroot->{URL});
+  die("target subvolume info not present: $droot->{URL}") unless($droot->{URL});
+
+  my $debug_src = $svol->{URL};
+  $debug_src .= "#" . $threshold_gen if($threshold_gen);
+
+  # sort children of svol descending by generation
+  foreach my $child (sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($sroot, $svol)) {
+    TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
+    if($threshold_gen && ($child->{node}{cgen} >= $threshold_gen)) {
+      TRACE "get_latest_common: skipped gen=$child->{node}{cgen} >= $threshold_gen: $child->{SUBVOL_PATH}";
+      next;
+    }
+
+    if($child->{RECEIVE_TARGET_PRESENT} && ($child->{RECEIVE_TARGET_PRESENT} eq $droot->{URL})) {
+      # little hack to keep track of previously received subvolumes
+      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=<previously received>");
+      return ($child, undef);
+    }
+
+    foreach (get_receive_targets($droot, $child)) {
+      TRACE "get_latest_common: found receive target: $_->{PRINT}";
+      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=$_->{PRINT}");
+      return ($child, $_);
+    }
+    TRACE "get_latest_common: no matching target found for: $child->{PRINT}";
+  }
+  DEBUG("No common subvolumes of \"$debug_src\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
+  return (undef, undef);
+}
+
+
+sub get_latest_snapshot_child($$)
+{
+  my $sroot = shift || die;
+  my $svol = shift // die;
+  my $latest = undef;
+  my $gen = -1;
+  foreach (get_snapshot_children($sroot, $svol)) {
+    if($_->{node}{cgen} > $gen) {
+      $latest = $_;
+      $gen = $_->{node}{cgen};
+    }
+  }
+  if($latest) {
+    DEBUG "Latest snapshot child for \"$svol->{PRINT}#$svol->{node}{gen}\" is: $latest->{PRINT}#$latest->{node}{cgen}";
+  } else {
+    DEBUG "No latest snapshots found for: $svol->{PRINT}";
+  }
+  return $latest;
+}
+
+
+sub check_file($$;$$)
+{
+  my $file = shift // die;
+  my $accept = shift || die;
+  my $key = shift;  # only for error text
+  my $config_file = shift;  # only for error text
+
+  if($accept->{ssh} && ($file =~ /^ssh:\/\//)) {
+    unless($file =~ /^$ssh_prefix_match\/$file_match$/) {
+      ERROR "Ambiguous ssh url for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+      return undef;
+    }
+  }
+  elsif($file =~ /^$file_match$/) {
+    if($accept->{absolute}) {
+      unless($file =~ /^\//) {
+        ERROR "Only absolute files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+        return undef;
+      }
+    }
+    elsif($accept->{relative}) {
+      if($file =~ /^\//) {
+        ERROR "Only relative files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+        return undef;
+      }
+    }
+    elsif($accept->{name_only}) {
+      if($file =~ /\//) {
+        ERROR "Option \"$key\" is not a valid file name in \"$config_file\" line $.: $file" if($key && $config_file);
+        return undef;
+      }
+    }
+    else {
+      die("accept_type must contain either 'relative' or 'absolute'");
+    }
+  }
+  else {
+    ERROR "Ambiguous file for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+    return undef;
+  }
+  # check directory traversal
+  if(($file =~ /^\.\.$/) || ($file =~ /^\.\.\//) || ($file =~ /\/\.\.\//) || ($file =~ /\/\.\.$/)) {
+    ERROR "Illegal directory traversal for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+    return undef;
+  }
+  return 1;
+}
+
+
+# returns { btrbk_date => [ yyyy, mm, dd, hh, mm, <date_ext> ] } or undef
+# fixed array length of 6, all individually defaulting to 0
+sub parse_filename($$;$)
+{
+  my $file = shift;
+  my $name_match = shift;
+  my $raw_format = shift || 0;
+  my %raw_info;
+  if($raw_format)
+  {
+    return undef unless($file =~ /^\Q$name_match\E$timestamp_postfix_match$raw_postfix_match$/);
+    die unless($+{YYYY} && $+{MM} && $+{DD});
+    return { btrbk_date    => [ $+{YYYY}, $+{MM}, $+{DD}, ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ],
+             received_uuid => $+{received_uuid} // die,
+             REMOTE_PARENT_UUID => $+{parent_uuid} // '-',
+             ENCRYPT       => $+{encrypt} // "",
+             COMPRESS      => $+{compress} // "",
+            };
+  }
+  else
+  {
+    return undef unless($file =~ /^\Q$name_match\E$timestamp_postfix_match$/);
+    die unless($+{YYYY} && $+{MM} && $+{DD});
+    return { btrbk_date => [ $+{YYYY}, $+{MM}, $+{DD}, ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ] };
+  }
+}
+
+
+sub config_key($$;@)
+{
+  my $config = shift || die;
+  my $key = shift || die;
+  my %opts = @_;
+  my $orig_config = $config;
+  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
+
+  if(exists($config_override{$key})) {
+    TRACE "config_key: OVERRIDE key=$key to value=" . ($config_override{$key} // "<undef>");
+    return $config_override{$key};
+  }
+
+  while(not exists($config->{$key})) {
+    # note: while all config keys exist in root context (at least with default values),
+    #       we also allow fake configs (CONTEXT="cmdline") which have no PARENT.
+    return undef unless($config->{PARENT});
+    $config = $config->{PARENT};
+  }
+  my $retval = $config->{$key};
+  $retval = $opts{prefix} . $retval if(defined($opts{prefix}) && defined($retval));
+  $retval .= $opts{postfix} if(defined($opts{postfix}) && defined($retval));
+  return $retval;
+}
+
+
+sub config_preserve_hash($$)
+{
+  my $config = shift || die;
+  my $prefix = shift || die;
+  return (
+    preserve_day_of_week => config_key($config, "preserve_day_of_week"),
+    preserve_daily       => config_key($config, "${prefix}_preserve_daily"),
+    preserve_weekly      => config_key($config, "${prefix}_preserve_weekly"),
+    preserve_monthly     => config_key($config, "${prefix}_preserve_monthly"),
+    preserve_yearly      => config_key($config, "${prefix}_preserve_yearly"),
+   );
+}
+
+
+sub config_dump_keys($;@)
+{
+  my $config = shift || die;
+  my %opts = @_;
+  my @ret;
+  my $maxlen = 0;
+  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
+
+  foreach my $key (sort keys %config_options)
+  {
+    my $val;
+    next if($config_options{$key}->{deprecated});
+    next if($config_options{$key}->{shortcut});
+    if($opts{resolve}) {
+      $val = config_key($config, $key);
+    } else {
+      next unless exists($config->{$key});
+      $val = $config->{$key};
+    }
+    if($opts{skip_defaults}) {
+      if(defined($config_options{$key}->{default}) && defined($val)) {
+        next if($val eq $config_options{$key}->{default});
+      }
+      if((not defined($config_options{$key}->{default})) && (not (defined($val)))) {
+        next; # both undef, skip
+      }
+    }
+    if(ref($val) eq "ARRAY") {
+      my $val2 = join(',', @$val);
+      $val = $val2;
+    }
+    $val //= "<unset>";
+    my $len = length($key);
+    $maxlen = $len if($len > $maxlen);
+    push @ret, { key => $key, val => $val, len => $len };
+  }
+  # print as table
+  return map { ($opts{prefix} // "") . $_->{key} . (' ' x (1 + $maxlen - $_->{len})) . ' ' . $_->{val} } @ret;
+}
+
+
+sub append_config_option($$$$;$)
+{
+  my $config = shift;
+  my $key = shift;
+  my $value = shift;
+  my $context = shift;
+  my $config_file = shift;  # only for error text
+  my $config_file_statement = $config_file ? " in \"$config_file\" line $." : "";
+
+  my $opt = $config_options{$key};
+
+  # accept only keys listed in %config_options
+  unless($opt) {
+    ERROR "Unknown option \"$key\"" . $config_file_statement;
+    return undef;
+  }
+
+  if($opt->{context} && !grep(/^$context$/, @{$opt->{context}})) {
+    ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$opt->{context}})) . " context" . $config_file_statement;
+    return undef;
+  }
+
+  if($opt->{accept_preserve_matrix}) {
+    # special case: preserve matrix of form: "[NNd] [NNw] [NNm] [NNy]"
+    my $s = $value;
+    TRACE "option \"$key=$value\" is preserve matrix, parsing...";
+    if($s =~ s/([0-9*][0-9]*)\s*d\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_daily"}   = $v; TRACE "adding option \"${key}_daily=$v\" to $context context";   }
+    if($s =~ s/([0-9*][0-9]*)\s*w\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_weekly"}  = $v; TRACE "adding option \"${key}_weekly=$v\" to $context context";  }
+    if($s =~ s/([0-9*][0-9]*)\s*m\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_monthly"} = $v; TRACE "adding option \"${key}_monthly=$v\" to $context context"; }
+    if($s =~ s/([0-9*][0-9]*)\s*y\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_yearly"}  = $v; TRACE "adding option \"${key}_yearly=$v\" to $context context";  }
+    unless($s eq "") {
+      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
+      return undef;
+    }
+    TRACE "successfully parsed preserve matrix";
+    return $config;
+  }
+
+  if(grep(/^\Q$value\E$/, @{$opt->{accept}})) {
+    TRACE "option \"$key=$value\" found in accept list";
+  }
+  elsif($opt->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
+    TRACE "option \"$key=$value\" is numeric, accepted";
+  }
+  elsif($opt->{accept_file})
+  {
+    # be very strict about file options, for security sake
+    return undef unless(check_file($value, $opt->{accept_file}, $key, $config_file));
+
+    TRACE "option \"$key=$value\" is a valid file, accepted";
+    $value =~ s/\/+$//;   # remove trailing slash
+    $value =~ s/^\/+/\//; # sanitize leading slash
+    $value = "no" if($value eq ".");  # maps to undef later
+  }
+  elsif($opt->{accept_regexp}) {
+    my $match = $opt->{accept_regexp};
+    if($value =~ m/$match/) {
+      TRACE "option \"$key=$value\" matched regexp, accepted";
+    }
+    else {
+      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
+      return undef;
+    }
+  }
+  else
+  {
+    ERROR "Unsupported value \"$value\" for option \"$key\"" . $config_file_statement;
+    return undef;
+  }
+
+  if($opt->{split}) {
+    $value = [ split($opt->{split}, $value) ];
+    TRACE "splitted option \"$key\": " . join(',', @$value);
+  }
+
+  if($opt->{deprecated}) {
+    WARN "Found deprecated option \"$key $value\"" . $config_file_statement . ": " .
+           ($opt->{deprecated}->{$value}->{warn} // $opt->{deprecated}->{DEFAULT}->{warn});
+    my $replace_key   = $opt->{deprecated}->{$value}->{replace_key};
+    my $replace_value = $opt->{deprecated}->{$value}->{replace_value};
+    if(defined($replace_key)) {
+      $key = $replace_key;
+      $value = $replace_value;
+      WARN "Using \"$key $value\"";
+    }
+  }
+
+  TRACE "adding option \"$key=$value\" to $context context";
+  $value = undef if($value eq "no");  # we don't want to check for "no" all the time
+  $config->{$key} = $value;
+  return $config;
+}
+
+
+sub parse_config_line($$$$$)
+{
+  my ($file, $root, $cur, $key, $value) = @_;
+
+  if($key eq "volume")
+  {
+    $cur = $root;
+    TRACE "config: context forced to: $cur->{CONTEXT}";
+
+    # be very strict about file options, for security sake
+    return undef unless(check_file($value, { absolute => 1, ssh => 1 }, $key, $file));
+    $value =~ s/\/+$// unless($value =~ /^\/+$/);   # remove trailing slash
+    $value =~ s/^\/+/\//; # sanitize leading slash
+    TRACE "config: adding volume \"$value\" to root context";
+    die unless($cur->{CONTEXT} eq "root");
+    my $volume = { CONTEXT => "volume",
+                   PARENT => $cur,
+                   url => $value,
+                  };
+    $cur->{SUBSECTION} //= [];
+    push(@{$cur->{SUBSECTION}}, $volume);
+    $cur = $volume;
+  }
+  elsif($key eq "subvolume")
+  {
+    while($cur->{CONTEXT} ne "volume") {
+      if(($cur->{CONTEXT} eq "root") || (not $cur->{PARENT})) {
+        ERROR "Subvolume keyword outside volume context, in \"$file\" line $.";
+        return undef;
+      }
+      $cur = $cur->{PARENT} || die;
+      TRACE "config: context changed to: $cur->{CONTEXT}";
+    }
+    # be very strict about file options, for security sake
+    return undef unless(check_file($value, { relative => 1 }, $key, $file));
+    $value =~ s/\/+$//;    # remove trailing slash
+    $value =~ s/^\/+//;    # remove leading slash
+
+    TRACE "config: adding subvolume \"$value\" to volume context: $cur->{url}";
+    my $snapshot_name = $value;
+    $snapshot_name =~ s/^.*\///; # snapshot_name defaults to subvolume name
+    die unless($cur->{CONTEXT} eq "volume");
+    my $subvolume = { CONTEXT => "subvolume",
+                      PARENT => $cur,
+                      rel_path => $value,
+                      url => $cur->{url} . '/' . $value,
+                      snapshot_name => $snapshot_name,
+                     };
+    $cur->{SUBSECTION} //= [];
+    push(@{$cur->{SUBSECTION}}, $subvolume);
+    $cur = $subvolume;
+  }
+  elsif($key eq "target")
+  {
+    if($cur->{CONTEXT} eq "target") {
+      $cur = $cur->{PARENT} || die;
+      TRACE "config: context changed to: $cur->{CONTEXT}";
+    }
+    if($cur->{CONTEXT} ne "subvolume") {
+      ERROR "Target keyword outside subvolume context, in \"$file\" line $.";
+      return undef;
+    }
+    if($value =~ /^(\S+)\s+(\S+)$/)
+    {
+      my ($target_type, $droot) = ($1, $2);
+      unless(grep(/^\Q$target_type\E$/, @config_target_types)) {
+        ERROR "Unknown target type \"$target_type\" in \"$file\" line $.";
+        return undef;
+      }
+      # be very strict about file options, for security sake
+      return undef unless(check_file($droot, { absolute => 1, ssh => 1 }, $key, $file));
+
+      $droot =~ s/\/+$//;   # remove trailing slash
+      $droot =~ s/^\/+/\//; # sanitize leading slash
+      TRACE "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{url}";
+      die unless($cur->{CONTEXT} eq "subvolume");
+      my $target = { CONTEXT => "target",
+                     PARENT => $cur,
+                     target_type => $target_type,
+                     url => $droot,
+                   };
+      $cur->{SUBSECTION} //= [];
+      push(@{$cur->{SUBSECTION}}, $target);
+      $cur = $target;
+    }
+    else
+    {
+      ERROR "Ambiguous target configuration, in \"$file\" line $.";
+      return undef;
+    }
+  }
+  else
+  {
+    return append_config_option($cur, $key, $value, $cur->{CONTEXT}, $file);
+  }
+
+  return $cur;
+}
+
+
+sub parse_config(@)
+{
+  my @config_files = @_;
+  my $file = undef;
+  foreach(@config_files) {
+    TRACE "config: checking for file: $_";
+    if(-r "$_") {
+      $file = $_;
+      last;
+    }
+  }
+  unless($file) {
+    ERROR "Configuration file not found: " . join(', ', @config_files);
+    return undef;
+  }
+
+  my $root = { CONTEXT => "root", SRC_FILE => $file };
+  my $cur = $root;
+  # set defaults
+  foreach (keys %config_options) {
+    next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
+    next if $config_options{$_}->{shortcut};    # don't pollute hash with shortcuts
+    $root->{$_} = $config_options{$_}->{default};
+  }
+
+  INFO "Using configuration: $file";
+  open(FILE, '<', $file) or die $!;
+  while (<FILE>) {
+    chomp;
+    next if /^\s*#/; # ignore comments
+    next if /^\s*$/; # ignore empty lines
+    TRACE "config: parsing line $. with context=$cur->{CONTEXT}: \"$_\"";
+    if(/^(\s*)([a-zA-Z_]+)\s+(.*)$/)
+    {
+      # NOTE: we do not perform checks on indentation!
+      my ($indent, $key, $value) = (length($1), lc($2), $3);
+      $value =~ s/\s*$//;
+      $cur = parse_config_line($file, $root, $cur, $key, $value);
+      unless(defined($cur)) {
+        # error, bail out
+        $root = undef;
+        last;
+      }
+      TRACE "line processed: new context=$cur->{CONTEXT}";
+    }
+    else
+    {
+      ERROR "Parse error in \"$file\" line $.";
+      $root = undef;
+      last;
+    }
+  }
+  close FILE || ERROR "Failed to close configuration file: $!";
+
+  TRACE(Data::Dumper->Dump([$root], ["config"])) if(($loglevel >= 4) && $root);
+  return $root;
 }
 
 
@@ -1905,181 +2083,6 @@ sub macro_delete($$$$;@)
   else {
     ABORTED($result_vinfo, "Failed to delete subvolume");
     return undef;
-  }
-}
-
-
-# returns { btrbk_date => [ yyyy, mm, dd, hh, mm, <date_ext> ] } or undef
-# fixed array length of 6, all individually defaulting to 0
-sub parse_filename($$;$)
-{
-  my $file = shift;
-  my $name_match = shift;
-  my $raw_format = shift || 0;
-  my %raw_info;
-  if($raw_format)
-  {
-    return undef unless($file =~ /^\Q$name_match\E$timestamp_postfix_match$raw_postfix_match$/);
-    die unless($+{YYYY} && $+{MM} && $+{DD});
-    return { btrbk_date    => [ $+{YYYY}, $+{MM}, $+{DD}, ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ],
-             received_uuid => $+{received_uuid} // die,
-             REMOTE_PARENT_UUID => $+{parent_uuid} // '-',
-             ENCRYPT       => $+{encrypt} // "",
-             COMPRESS      => $+{compress} // "",
-            };
-  }
-  else
-  {
-    return undef unless($file =~ /^\Q$name_match\E$timestamp_postfix_match$/);
-    die unless($+{YYYY} && $+{MM} && $+{DD});
-    return { btrbk_date => [ $+{YYYY}, $+{MM}, $+{DD}, ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ] };
-  }
-}
-
-
-sub get_snapshot_children($$)
-{
-  my $sroot = shift || die;
-  my $svol = shift // die;
-  my @ret;
-
-  my $sroot_subvols = vinfo_subvol_list($sroot);
-  foreach (@$sroot_subvols) {
-    next unless($_->{node}{readonly});
-    next unless($_->{node}{parent_uuid} eq $svol->{node}{uuid});
-    TRACE "get_snapshot_children: found: $_->{PRINT}";
-    push(@ret, $_);
-  }
-  DEBUG "Found " . scalar(@ret) . " snapshot children of: $svol->{PRINT}";
-  return @ret;
-}
-
-
-sub get_receive_targets($$)
-{
-  my $droot = shift || die;
-  my $src_vol = shift || die;
-  my $droot_subvols = vinfo_subvol_list($droot);
-  my @ret;
-
-  if($droot->{BTRFS_PROGS_COMPAT})
-  {
-    # guess matches by subvolume name (node->received_uuid is not available if BTRFS_PROGS_COMPAT is set)
-    DEBUG "Fallback to compatibility mode (get_receive_targets)";
-    foreach my $target (@$droot_subvols) {
-      next unless($_->{node}{readonly});
-      if($target->{NAME} eq $src_vol->{NAME}) {
-        TRACE "get_receive_targets: by-name: Found receive target: $target->{SUBVOL_PATH}";
-        push(@ret, $target);
-      }
-    }
-  }
-  else
-  {
-    # find matches by comparing uuid / received_uuid
-    my $uuid = $src_vol->{node}{uuid};
-    die("subvolume info not present: $uuid") unless($uuid_cache{$uuid});
-    foreach (@$droot_subvols) {
-      next unless($_->{node}{readonly});
-      next unless($_->{node}{received_uuid} eq $uuid);
-      TRACE "get_receive_targets: by-uuid: Found receive target: $_->{SUBVOL_PATH}";
-      push(@ret, $_);
-    }
-  }
-  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
-  return @ret;
-}
-
-
-sub get_latest_common($$$;$)
-{
-  my $sroot = shift || die;
-  my $svol = shift // die;
-  my $droot = shift || die;
-  my $threshold_gen = shift;  # skip all snapshot children with generation (cgen) >= $threshold_gen
-
-  die("source subvolume info not present: $sroot->{URL}") unless($sroot->{URL});
-  die("target subvolume info not present: $droot->{URL}") unless($droot->{URL});
-
-  my $debug_src = $svol->{URL};
-  $debug_src .= "#" . $threshold_gen if($threshold_gen);
-
-  # sort children of svol descending by generation
-  foreach my $child (sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($sroot, $svol)) {
-    TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
-    if($threshold_gen && ($child->{node}{cgen} >= $threshold_gen)) {
-      TRACE "get_latest_common: skipped gen=$child->{node}{cgen} >= $threshold_gen: $child->{SUBVOL_PATH}";
-      next;
-    }
-
-    if($child->{RECEIVE_TARGET_PRESENT} && ($child->{RECEIVE_TARGET_PRESENT} eq $droot->{URL})) {
-      # little hack to keep track of previously received subvolumes
-      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=<previously received>");
-      return ($child, undef);
-    }
-
-    foreach (get_receive_targets($droot, $child)) {
-      TRACE "get_latest_common: found receive target: $_->{PRINT}";
-      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=$_->{PRINT}");
-      return ($child, $_);
-    }
-    TRACE "get_latest_common: no matching target found for: $child->{PRINT}";
-  }
-  DEBUG("No common subvolumes of \"$debug_src\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
-  return (undef, undef);
-}
-
-
-sub get_latest_snapshot_child($$)
-{
-  my $sroot = shift || die;
-  my $svol = shift // die;
-  my $latest = undef;
-  my $gen = -1;
-  foreach (get_snapshot_children($sroot, $svol)) {
-    if($_->{node}{cgen} > $gen) {
-      $latest = $_;
-      $gen = $_->{node}{cgen};
-    }
-  }
-  if($latest) {
-    DEBUG "Latest snapshot child for \"$svol->{PRINT}#$svol->{node}{gen}\" is: $latest->{PRINT}#$latest->{node}{cgen}";
-  } else {
-    DEBUG "No latest snapshots found for: $svol->{PRINT}";
-  }
-  return $latest;
-}
-
-
-sub _origin_tree
-{
-  my $prefix = shift;
-  my $uuid = shift;
-  my $lines = shift;
-  my $node = $uuid_cache{$uuid};
-  unless($node) {
-    push(@$lines, ["$prefix<orphaned>", $uuid]);
-    return 0;
-  }
-
-  my @url = get_cached_url_by_uuid($uuid);
-  if(scalar @url) {
-    push(@$lines, ["$prefix" . join(" === ", sort map { vinfo($_)->{PRINT} } @url), $uuid]);
-  } else {
-    push(@$lines, ["$prefix<BTRFS_ROOT>/$node->{path}", $uuid]);
-  }
-
-  $prefix =~ s/./ /g;
-  if($node->{received_uuid}) {
-    if($node->{received_uuid} ne '-') {
-      _origin_tree("${prefix}^-- ", $node->{received_uuid}, $lines);
-    }
-  } else {
-    # printed if "btrfs_progs_compat" is set
-    push(@$lines,  ["$prefix^-- <missing_received_uuid>", $uuid]);
-  }
-  if($node->{parent_uuid} ne '-') {
-    _origin_tree("${prefix}", $node->{parent_uuid}, $lines);
   }
 }
 
@@ -2396,6 +2399,39 @@ sub print_formatted(@)
 }
 
 
+sub _origin_tree
+{
+  my $prefix = shift;
+  my $uuid = shift;
+  my $lines = shift;
+  my $node = $uuid_cache{$uuid};
+  unless($node) {
+    push(@$lines, ["$prefix<orphaned>", $uuid]);
+    return 0;
+  }
+
+  my @url = get_cached_url_by_uuid($uuid);
+  if(scalar @url) {
+    push(@$lines, ["$prefix" . join(" === ", sort map { vinfo($_)->{PRINT} } @url), $uuid]);
+  } else {
+    push(@$lines, ["$prefix<BTRFS_ROOT>/$node->{path}", $uuid]);
+  }
+
+  $prefix =~ s/./ /g;
+  if($node->{received_uuid}) {
+    if($node->{received_uuid} ne '-') {
+      _origin_tree("${prefix}^-- ", $node->{received_uuid}, $lines);
+    }
+  } else {
+    # printed if "btrfs_progs_compat" is set
+    push(@$lines,  ["$prefix^-- <missing_received_uuid>", $uuid]);
+  }
+  if($node->{parent_uuid} ne '-') {
+    _origin_tree("${prefix}", $node->{parent_uuid}, $lines);
+  }
+}
+
+
 sub exit_status
 {
   my $config = shift;
@@ -2404,42 +2440,6 @@ sub exit_status
     return 10 if(exit_status($subsection));
   }
   return 0;
-}
-
-
-sub vinfo_subsection($$;$)
-{
-  # if config: must have SUBSECTION key
-  # if vinfo:  must have CONFIG key
-  my $config_or_vinfo = shift || die;
-  my $context = shift || die;
-  my $include_aborted = shift;
-  my $config_list;
-  my $vinfo_check;
-  if(exists($config_or_vinfo->{SUBSECTION})) {
-    # config
-    $config_list = $config_or_vinfo->{SUBSECTION};
-  }
-  else {
-    # vinfo
-    $config_list = $config_or_vinfo->{CONFIG}->{SUBSECTION};
-    die unless($config_or_vinfo->{CONFIG}->{VINFO} == $config_or_vinfo);  # check back reference
-  }
-
-  # for now be paranoid and check all contexts
-  my @ret;
-  foreach (@$config_list) {
-    die unless($_->{CONTEXT} eq $context);
-    next if((not $include_aborted) && $_->{ABORTED});
-    die unless($_->{VINFO});
-    die unless($_->{VINFO}->{CONFIG});
-    die unless($_->{VINFO} == $_->{VINFO}->{CONFIG}->{VINFO});  # check all back references
-    push @ret, $_->{VINFO};
-  }
-  return @ret;
-
-  # much simpler implementation, without checks
-  #return map { $_->{ABORTED} ? () : $_->{VINFO} } @$config_list;
 }
 
 
