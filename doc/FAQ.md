@@ -19,7 +19,7 @@ FILTER STATEMENTS), which means you can e.g. add "group automount"
 tags in your configuration and dump only the volumes of this group:
 `btrbk list volume automount`.
 
-  [btrbk(1)]: http://www.digint.ch/btrbk/doc/btrbk.html
+  [btrbk(1)]: http://digint.ch/btrbk/doc/btrbk.html
 
 
 Why is it not possible to backup '/' (btrfs root) ?

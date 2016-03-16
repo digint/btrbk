@@ -14,7 +14,7 @@ Backup tool for btrfs subvolumes, taking advantage of btrfs specific
 send-receive mechanism, allowing incremental backups at file-system
 level.
 
-The full btrbk documentation is available at L<http://www.digint.ch/btrbk/>.
+The full btrbk documentation is available at L<http://digint.ch/btrbk/>.
 
 =head1 AUTHOR
 
@@ -50,7 +50,7 @@ use Data::Dumper;
 
 our $VERSION       = "0.23.0-dev";
 our $AUTHOR        = 'Axel Burri <axel@tty0.ch>';
-our $PROJECT_HOME  = '<http://www.digint.ch/btrbk/>';
+our $PROJECT_HOME  = '<http://digint.ch/btrbk/>';
 
 my $version_info   = "btrbk command line client, version $VERSION";
 

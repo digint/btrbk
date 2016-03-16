@@ -88,8 +88,7 @@ btrbk is in `testing`, install with:
     apk add btrbk
 
 
-  [btrbk source tarball]: http://www.digint.ch/download/btrbk/releases/
-  [btrbk debian package]: http://www.digint.ch/download/btrbk/packages/debian/
+  [btrbk source tarball]: http://digint.ch/download/btrbk/releases/
 
 
 Synopsis
@@ -98,7 +97,7 @@ Synopsis
 Please consult the [btrbk(1)] man-page provided with this package for a
 full description of the command line options.
 
-  [btrbk(1)]: http://www.digint.ch/btrbk/doc/btrbk.html
+  [btrbk(1)]: http://digint.ch/btrbk/doc/btrbk.html
 
 
 Configuration File
@@ -119,7 +118,7 @@ This will read all btrfs information on the source/target filesystems
 and show what actions would be performed (without writing anything to
 the disks).
 
-  [btrbk.conf(5)]: http://www.digint.ch/btrbk/doc/btrbk.conf.html
+  [btrbk.conf(5)]: http://digint.ch/btrbk/doc/btrbk.conf.html
 
 
 Example: laptop with usb-disk for backups
@@ -403,7 +402,7 @@ can setup a chroot environment in /etc/ssh/sshd_config (see
 [sshd_config(5)]).
 
 
-  [ssh_filter_btrbk(1)]: http://www.digint.ch/btrbk/doc/ssh_filter_btrbk.html
+  [ssh_filter_btrbk(1)]: http://digint.ch/btrbk/doc/ssh_filter_btrbk.html
   [sshd(8)]: http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man8/sshd.8
   [sshd_config(5)]: http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man5/sshd_config.5
 
