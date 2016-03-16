@@ -1,3 +1,7 @@
+btrbk-current
+
+  * Allow wildcards in subvolume section (close: #71).
+
 btrbk-0.22.2
 
   * Bugfix: fix checks on "btrfs sub show" output, which resulted in

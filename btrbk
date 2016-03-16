@@ -74,7 +74,7 @@ my %config_options = (
   # NOTE: files "." and "no" map to <undef>
   timestamp_format            => { default => "short",   accept => [ "short", "long" ], context => [ "root", "volume", "subvolume" ] },
   snapshot_dir                => { default => undef,     accept_file => { relative => 1 } },
-  snapshot_name               => { default => undef,     accept_file => { name_only => 1 }, context => [ "subvolume" ] },   # NOTE: defaults to the subvolume name (hardcoded)
+  snapshot_name               => { default => undef,     accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   resume_missing              => { default => "yes",     accept => [ "yes", "no" ] },
@@ -1537,27 +1537,30 @@ sub check_file($$;$$)
   my $key = shift;  # only for error text
   my $config_file = shift;  # only for error text
 
+  my $ckfile = $file;
+  $ckfile =~ s/\*/_/g if($accept->{wildcards});
+
   if($accept->{ssh} && ($file =~ /^ssh:\/\//)) {
-    unless($file =~ /^$ssh_prefix_match\/$file_match$/) {
+    unless($ckfile =~ /^$ssh_prefix_match\/$file_match$/) {
       ERROR "Ambiguous ssh url for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
       return undef;
     }
   }
-  elsif($file =~ /^$file_match$/) {
+  elsif($ckfile =~ /^$file_match$/) {
     if($accept->{absolute}) {
-      unless($file =~ /^\//) {
+      unless($ckfile =~ /^\//) {
         ERROR "Only absolute files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
         return undef;
       }
     }
     elsif($accept->{relative}) {
-      if($file =~ /^\//) {
+      if($ckfile =~ /^\//) {
         ERROR "Only relative files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
         return undef;
       }
     }
     elsif($accept->{name_only}) {
-      if($file =~ /\//) {
+      if($ckfile =~ /\//) {
         ERROR "Option \"$key\" is not a valid file name in \"$config_file\" line $.: $file" if($key && $config_file);
         return undef;
       }
@@ -1710,6 +1713,11 @@ sub append_config_option($$$$;$)
     return undef;
   }
 
+  if($opt->{deny_glob_context} && $config->{GLOB_CONTEXT}) {
+    ERROR "Option \"$key\" is not allowed on section with wildcards" . $config_file_statement;
+    return undef;
+  }
+
   if($opt->{accept_preserve_matrix}) {
     # special case: preserve matrix of form: "[NNd] [NNw] [NNm] [NNy]"
     my $s = $value;
@@ -1816,7 +1824,7 @@ sub parse_config_line($$$$$)
       TRACE "config: context changed to: $cur->{CONTEXT}";
     }
     # be very strict about file options, for security sake
-    return undef unless(check_file($value, { relative => 1 }, $key, $file));
+    return undef unless(check_file($value, { relative => 1, wildcards => 1 }, $key, $file));
     $value =~ s/\/+$//;    # remove trailing slash
     $value =~ s/^\/+//;    # remove leading slash
 
@@ -1830,6 +1838,7 @@ sub parse_config_line($$$$$)
                       url => $cur->{url} . '/' . $value,
                       snapshot_name => $snapshot_name,
                      };
+    $subvolume->{GLOB_CONTEXT} = 1 if($value =~ /\*/);
     $cur->{SUBSECTION} //= [];
     push(@{$cur->{SUBSECTION}}, $subvolume);
     $cur = $subvolume;
@@ -2738,6 +2747,67 @@ MAIN:
 
 
   #
+  # expand subvolume globs (wildcards)
+  #
+  foreach my $config_vol (@{$config->{SUBSECTION}}) {
+    die unless($config_vol->{CONTEXT} eq "volume");
+
+    # read-in subvolume list (and expand globs) only if needed
+    next unless(grep defined($_->{GLOB_CONTEXT}), @{$config_vol->{SUBSECTION}});
+    my $sroot = vinfo($config_vol->{url}, $config_vol);
+    unless(vinfo_init_root($sroot)) {
+      ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
+      WARN "Skipping volume \"$sroot->{PRINT}\": $abrt";
+      next;
+    }
+
+    my @vol_subsection_expanded;
+    foreach my $config_subvol (@{$config_vol->{SUBSECTION}}) {
+      die unless($config_subvol->{CONTEXT} eq "subvolume");
+      if($config_subvol->{GLOB_CONTEXT}) {
+        my $globs = $config_subvol->{rel_path};
+        INFO "Expanding wildcards: $sroot->{PRINT}/$globs";
+
+        # support "*some*file*", "*/*"
+        my $match = join('[^\/]*', map(quotemeta($_), split(/\*+/, $globs, -1)));
+        TRACE "translated globs \"$globs\" to regex \"$match\"";
+        my $expand_count = 0;
+        foreach my $vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @{vinfo_subvol_list($sroot)})
+        {
+          if($vol->{node}{readonly}) {
+            TRACE "skipping readonly subvolume: $vol->{PRINT}";
+            next;
+          }
+          unless($vol->{SUBVOL_PATH} =~ /^$match$/) {
+            TRACE "skipping non-matching subvolume: $vol->{PRINT}";
+            next;
+          }
+          INFO "Found source subvolume: $vol->{PRINT}";
+          my %conf = ( %$config_subvol,
+                       rel_path_glob => $globs,
+                       rel_path      => $vol->{SUBVOL_PATH},
+                       url           => $vol->{URL},
+                       snapshot_name => $vol->{NAME},  # snapshot_name defaults to subvolume name
+                      );
+          # deep copy of target subsection
+          my @subsection_copy = map { { %$_, PARENT => \%conf }; } @{$config_subvol->{SUBSECTION}};
+          $conf{SUBSECTION} = \@subsection_copy;
+          push @vol_subsection_expanded, \%conf;
+          $expand_count += 1;
+        }
+        unless($expand_count) {
+          WARN "No subvolumes found matching: $sroot->{PRINT}/$globs";
+        }
+      }
+      else {
+        push @vol_subsection_expanded, $config_subvol;
+      }
+    }
+    $config_vol->{SUBSECTION} = \@vol_subsection_expanded;
+  }
+
+
+  #
   # create vinfo nodes (no readin yet)
   #
   foreach my $config_vol (@{$config->{SUBSECTION}}) {
@@ -2892,8 +2962,9 @@ MAIN:
       push @out, "\nvolume $sroot->{URL}";
       push @out, config_dump_keys($sroot, prefix => "\t", resolve => $resolve);
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-        # push @out, "\n  subvolume $svol->{URL}";
-        push @out, "\n\tsubvolume $svol->{SUBVOL_PATH}";
+        push @out, ""; # newline
+        push @out, "\t# subvolume $svol->{CONFIG}->{rel_path_glob}" if(defined($svol->{CONFIG}->{rel_path_glob}));
+        push @out, "\tsubvolume $svol->{SUBVOL_PATH}";
         push @out, config_dump_keys($svol, prefix => "\t\t", resolve => $resolve);
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           push @out, "\n\t\ttarget $droot->{CONFIG}->{target_type} $droot->{URL}";
