@@ -1,6 +1,10 @@
 btrbk-current
 
   * Allow wildcards in subvolume section (close: #71).
+  * Added "{snapshot,target}_preserve NNd NNw NNm NNy" shortcut.
+  * Added yearly retention policies (close: #69).
+  * Always read "readonly" flag (additional call to btrfs-progs).
+  * Improvements of internal data structures.
 
 btrbk-0.22.2
 
