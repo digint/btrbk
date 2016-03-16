@@ -1219,7 +1219,6 @@ sub vinfo($;$)
     $info{BTRFS_PROGS_COMPAT} = $btrfs_progs_compat if($btrfs_progs_compat);
   }
 
-  TRACE "vinfo created: $url";
   return \%info;
 }
 
@@ -1263,11 +1262,11 @@ sub vinfo_init_root($)
 
   # use cached info if present
   $tree_root = $url_cache{$vol->{URL}};
-  TRACE "vinfo_subvol_list: cache " . ($tree_root ? "HIT" : "MISS") . ": URL=$vol->{URL}";
+  TRACE "url_cache " . ($tree_root ? "HIT" : "MISS") . ": URL=$vol->{URL}";
   unless($tree_root) {
     if(my $real_url = $symlink{$vol->{URL}}) {
       $tree_root = $url_cache{$real_url};
-      TRACE "vinfo_subvol_list: cache " . ($tree_root ? "HIT" : "MISS") . ": REAL_URL=$real_url";
+      TRACE "url_cache " . ($tree_root ? "HIT" : "MISS") . ": REAL_URL=$real_url";
     }
   }
 
@@ -1282,7 +1281,7 @@ sub vinfo_init_root($)
     # check uuid_cache
     if($detail->{uuid}) {
       $tree_root = $uuid_cache{$detail->{uuid}};
-      TRACE "vinfo_subvol_list: cache " . ($tree_root ? "HIT" : "MISS") . ": UUID=$detail->{uuid}";
+      TRACE "uuid_cache " . ($tree_root ? "HIT" : "MISS") . ": UUID=$detail->{uuid}";
     }
 
     unless($tree_root) {
@@ -1294,7 +1293,7 @@ sub vinfo_init_root($)
 
   # fill cache if needed
   foreach (@fill_cache) {
-    TRACE "vinfo_subvol_list: fill_cache: $_";
+    TRACE "url_cache fill: $_";
     _fill_url_cache($tree_root, $_);
   }
 
@@ -1953,7 +1952,6 @@ sub parse_config(@)
   }
   close FILE || ERROR "Failed to close configuration file: $!";
 
-  TRACE(Data::Dumper->Dump([$root], ["config"])) if(($loglevel >= 4) && $root);
   return $root;
 }
 
@@ -2805,6 +2803,7 @@ MAIN:
     }
     $config_vol->{SUBSECTION} = \@vol_subsection_expanded;
   }
+  TRACE(Data::Dumper->Dump([$config], ["config"])) if($loglevel >= 4);
 
 
   #
@@ -3062,7 +3061,7 @@ MAIN:
         next;
       }
       if($svol->{node}{uuid} && _is_child_of($sroot->{node}, $svol->{node}{uuid})) {
-        DEBUG "Found id=$svol->{PRINT} in btrfs subtree of: $sroot->{PRINT}";
+        DEBUG "Found \"$svol->{PRINT}\" (id=$svol->{node}{id}) in btrfs subtree of: $sroot->{PRINT}";
       } else {
         ABORTED($svol, "Not a child subvolume of: $sroot->{PRINT}");
         WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
@@ -3118,7 +3117,7 @@ MAIN:
             my $snapshot_basename = config_key($svol, "snapshot_name") // die;
             my $filename_info = parse_filename($file, $snapshot_basename, 1);
             unless($filename_info) {
-              DEBUG "Skipping file (not btrbk raw): \"$file\"";
+              DEBUG "Skipping file (filename scheme mismatch): \"$file\"";
               next;
             }
 
