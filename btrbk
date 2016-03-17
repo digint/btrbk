@@ -251,8 +251,8 @@ sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
 sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 
 sub VINFO {
-  my $vinfo = shift; my $t = shift || "vinfo";
-  print STDERR Data::Dumper->new([$vinfo], [$t])->Maxdepth(2)->Dump();
+  my $vinfo = shift; my $t = shift || "vinfo"; my $maxdepth = shift // 2;
+  print STDERR Data::Dumper->new([$vinfo], [$t])->Maxdepth($maxdepth)->Dump();
 }
 sub SUBVOL_LIST {
   my $vol = shift; my $t = shift // "SUBVOL_LIST"; my $svl = vinfo_subvol_list($vol);
@@ -1841,11 +1841,11 @@ sub parse_config_line($$$$$)
     $value =~ s/^\/+/\//; # sanitize leading slash
     TRACE "config: adding volume \"$value\" to root context";
     die unless($cur->{CONTEXT} eq "root");
-    my $volume = { CONTEXT => "volume",
-                   PARENT => $cur,
-                   url => $value,
+    my $volume = { CONTEXT    => "volume",
+                   PARENT     => $cur,
+                   SUBSECTION => [],
+                   url        => $value,
                   };
-    $cur->{SUBSECTION} //= [];
     push(@{$cur->{SUBSECTION}}, $volume);
     $cur = $volume;
   }
@@ -1868,14 +1868,14 @@ sub parse_config_line($$$$$)
     my $snapshot_name = $value;
     $snapshot_name =~ s/^.*\///; # snapshot_name defaults to subvolume name
     die unless($cur->{CONTEXT} eq "volume");
-    my $subvolume = { CONTEXT => "subvolume",
-                      PARENT => $cur,
-                      rel_path => $value,
-                      url => $cur->{url} . '/' . $value,
+    my $subvolume = { CONTEXT       => "subvolume",
+                      PARENT        => $cur,
+                      # SUBSECTION    => [],  # handled by target propagation
+                      rel_path      => $value,
+                      url           => $cur->{url} . '/' . $value,
                       snapshot_name => $snapshot_name,
                      };
     $subvolume->{GLOB_CONTEXT} = 1 if($value =~ /\*/);
-    $cur->{SUBSECTION} //= [];
     push(@{$cur->{SUBSECTION}}, $subvolume);
     $cur = $subvolume;
   }
@@ -1884,10 +1884,6 @@ sub parse_config_line($$$$$)
     if($cur->{CONTEXT} eq "target") {
       $cur = $cur->{PARENT} || die;
       TRACE "config: context changed to: $cur->{CONTEXT}";
-    }
-    if($cur->{CONTEXT} ne "subvolume") {
-      ERROR "Target keyword outside subvolume context, in \"$file\" line $.";
-      return undef;
     }
     if($value =~ /^(\S+)\s+(\S+)$/)
     {
@@ -1901,15 +1897,15 @@ sub parse_config_line($$$$$)
 
       $droot =~ s/\/+$//;   # remove trailing slash
       $droot =~ s/^\/+/\//; # sanitize leading slash
-      TRACE "config: adding target \"$droot\" (type=$target_type) to subvolume context: $cur->{url}";
-      die unless($cur->{CONTEXT} eq "subvolume");
+      TRACE "config: adding target \"$droot\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "");
       my $target = { CONTEXT => "target",
                      PARENT => $cur,
                      target_type => $target_type,
                      url => $droot,
                    };
-      $cur->{SUBSECTION} //= [];
-      push(@{$cur->{SUBSECTION}}, $target);
+      # NOTE: target sections are propagated to the apropriate SUBSECTION in _config_propagate_target()
+      $cur->{TARGET} //= [];
+      push(@{$cur->{TARGET}}, $target);
       $cur = $target;
     }
     else
@@ -1927,9 +1923,56 @@ sub parse_config_line($$$$$)
 }
 
 
+sub _config_propagate_target
+{
+  my $cur = shift;
+  foreach my $subsection (@{$cur->{SUBSECTION}}) {
+    my @propagate_target;
+    foreach my $target (@{$cur->{TARGET}}) {
+      TRACE "propagating target \"$target->{url}\" from $cur->{CONTEXT} context to: $subsection->{CONTEXT} $subsection->{url}";
+      die if($target->{SUBSECTION});
+
+      # don't propagate if a target of same target_type and url already exists in subsection
+      if($subsection->{TARGET} &&
+         grep({ ($_->{url} eq $target->{url}) && ($_->{target_type} eq $target->{target_type}) } @{$subsection->{TARGET}}))
+      {
+        DEBUG "Skip propagation of \"target $target->{target_type} $target->{url}\" from $cur->{CONTEXT} context to \"$subsection->{CONTEXT} $subsection->{url}\": same target already exists";
+        next;
+      }
+
+      my %copy = ( %$target, PARENT => $cur );
+      # foreach my $key (keys %copy) {
+      #   # config keys which are strongly related to target section are
+      #   # superseded by their presence in later defined sections.
+      #   next unless($key =~ /^target_/);
+      #   next if($key eq "target_type");  # not really necessary, but make sure the target_type is not deleted
+      #   if(exists($subsection->{$key})) {
+      #     TRACE "delete superseded config option from target: $key=" . ($copy{$key} // "<undef>");
+      #     delete $copy{$key};
+      #   }
+      # }
+      push @propagate_target, \%copy;
+    }
+    $subsection->{TARGET} //= [];
+    unshift @{$subsection->{TARGET}}, @propagate_target;  # maintain config order: propagated targets go in front of already defined targets
+    if($subsection->{CONTEXT} eq "subvolume") {
+      # finally create missing SUBSECTION in subvolume context
+      die if($subsection->{SUBSECTION});
+      $subsection->{SUBSECTION} = $subsection->{TARGET};
+    }
+    else {
+      # recurse into SUBSECTION
+      _config_propagate_target($subsection);
+    }
+  }
+  delete $cur->{TARGET};
+  return $cur;
+}
+
+
 sub init_config(@)
 {
-  my %config_root = ( CONTEXT => "root", @_ );
+  my %config_root = ( CONTEXT => "root", SUBSECTION => [], @_ );
 
   # set defaults
   foreach (keys %config_options) {
@@ -1988,6 +2031,8 @@ sub parse_config(@)
     }
   }
   close FILE || ERROR "Failed to close configuration file: $!";
+
+  _config_propagate_target($root);
 
   return $root;
 }
