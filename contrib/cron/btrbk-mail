@@ -113,7 +113,7 @@ case $exitcode in
 	;;
     10) status="ERROR: At least one backup task aborted!"
 	;;
-    *)  status="ERROR: $btrbk failed with error code $exitcode"
+    *)  status="ERROR: btrbk failed with error code $exitcode"
 	;;
 esac
 
