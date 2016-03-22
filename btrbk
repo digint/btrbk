@@ -1008,7 +1008,7 @@ sub btrfs_send_to_file($$$$;@)
     };
   }
   push @cmd_pipe, {
-    cmd => [ 'dd', 'status=none', "of=$target_path/$target_filename" ],
+    cmd => [ 'dd', 'status=none', "of=${target_path}/${target_filename}.part" ],
     rsh => $target->{RSH},
     name => 'dd',
   };
@@ -1022,7 +1022,7 @@ sub btrfs_send_to_file($$$$;@)
   DEBUG "[btrfs] send-to-file" . ($parent ? " (incremental)" : " (complete)") . ":";
   DEBUG "[btrfs]   source: $source->{PRINT}";
   DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
-  DEBUG "[btrfs]   target: $target->{PRINT}";
+  DEBUG "[btrfs]   target: $target->{PRINT}/";
 
   start_transaction("send-to-raw",
                     vinfo_prefixed_keys("target", $vol_received),
@@ -1033,12 +1033,20 @@ sub btrfs_send_to_file($$$$;@)
   if(defined($ret)) {
     # Test target file for "exists and size > 0" after writing,
     # as we can not rely on the exit status of 'dd'
-    DEBUG "Testing target file (non-zero size): $target->{PRINT}";
+    DEBUG "Testing target file (non-zero size): $target->{PRINT}.part";
     $ret = run_cmd({
-      cmd => ['test', '-s', "$target_path/$target_filename"],
-      rsh => $target->{RSH},
+      cmd  => ['test', '-s', "${target_path}/${target_filename}.part"],
+      rsh  => $target->{RSH},
       name => "test",
     });
+    if(defined($ret)) {
+      DEBUG "Renaming target file (remove postfix '.part'): $target->{PRINT}";
+      $ret = run_cmd({
+        cmd  => ['mv', "${target_path}/${target_filename}.part", "${target_path}/${target_filename}"],
+        rsh  => $target->{RSH},
+        name => "mv",
+      });
+    }
   }
   end_transaction("send-to-raw", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
   unless(defined($ret)) {
@@ -1583,21 +1591,23 @@ sub check_file($$;$$)
 
 # returns { btrbk_date => [ yyyy, mm, dd, hh, mm, <date_ext> ] } or undef
 # fixed array length of 6, all individually defaulting to 0
-sub parse_filename($$;$)
+sub parse_filename($$;@)
 {
   my $file = shift;
   my $name_match = shift;
-  my $raw_format = shift || 0;
-  my %raw_info;
-  if($raw_format)
+  my %opts = @_;
+  my $raw_target = $opts{target_type} ? ($opts{target_type} eq "raw") : 0;  # assume normal target if not set
+  if($raw_target)
   {
-    return undef unless($file =~ /^\Q$name_match\E$timestamp_postfix_match$raw_postfix_match$/);
+    my $incomplete_match = $opts{incomplete_raw} ? qr/(\.(?<incomplete>part))?/ : "";
+    return undef unless($file =~ /^\Q$name_match\E$timestamp_postfix_match$raw_postfix_match$incomplete_match$/);
     die unless($+{YYYY} && $+{MM} && $+{DD});
     return { btrbk_date    => [ $+{YYYY}, $+{MM}, $+{DD}, ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ],
              received_uuid => $+{received_uuid} // die,
              REMOTE_PARENT_UUID => $+{parent_uuid} // '-',
              ENCRYPT       => $+{encrypt} // "",
              COMPRESS      => $+{compress} // "",
+             INCOMPLETE    => $+{incomplete} ? 1 : 0,
             };
   }
   else
@@ -2066,11 +2076,11 @@ sub macro_delete($$$$;@)
   my $result_vinfo = shift || die;
   my $schedule_options = shift || die;
   my %delete_options = @_;
-  my $raw_format = ($root_subvol->{CONFIG}->{CONTEXT} eq "target") ? ($root_subvol->{CONFIG}->{target_type} eq "raw") : undef;
+  my $target_type = ($root_subvol->{CONFIG}->{CONTEXT} eq "target") ? $root_subvol->{CONFIG}->{target_type} : undef;
 
   my @schedule;
   foreach my $vol (@{vinfo_subvol_list($root_subvol)}) {
-    my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $subvol_basename, $raw_format);
+    my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $subvol_basename, target_type => $target_type);
     unless($filename_info) {
       TRACE "Target subvolume does not match btrbk filename scheme, skipping: $vol->{PRINT}";
       next;
@@ -3088,9 +3098,7 @@ MAIN:
         {
           DEBUG "Creating raw subvolume list: $droot->{PRINT}";
           my $ret = run_cmd(
-            # NOTE: check for file size >0, which causes bad (zero-sized) images to be resumed
-            # TODO: fix btrfs_send_to_file() to never create bad images
-            cmd => [ 'find', $droot->{PATH} . '/', '-maxdepth', '1', '-type', 'f', '-size', '+0' ],
+            cmd => [ 'find', $droot->{PATH} . '/', '-maxdepth', '1', '-type', 'f' ],
             rsh => $droot->{RSH},
             # note: use something like this to get the real (link resolved) path
             # cmd => [ "find", $droot->{PATH} . '/', "-maxdepth", "1", "-name", "$snapshot_basename.\*.raw\*", '-printf', '%f\0', '-exec', 'realpath', '-z', '{}', ';' ],
@@ -3115,7 +3123,7 @@ MAIN:
               last;
             }
             my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-            my $filename_info = parse_filename($file, $snapshot_basename, 1);
+            my $filename_info = parse_filename($file, $snapshot_basename, target_type => "raw", incomplete_raw => 1);
             unless($filename_info) {
               DEBUG "Skipping file (filename scheme mismatch): \"$file\"";
               next;
@@ -3127,7 +3135,7 @@ MAIN:
             # "parent of the received subvolume".
             my $subvol = vinfo_child($droot, $file);
             $subvol->{node} = { uuid          => "FAKE_UUID:" . $subvol->{URL},
-                                received_uuid => $filename_info->{received_uuid},
+                                received_uuid => ($filename_info->{INCOMPLETE} ? '-' : $filename_info->{received_uuid}),  # empty received_uuid is detected as incomplete backup
                                 # parent_uuid   => '-',  # correct value gets inserted below
                                 readonly      => 1,    # fake subvolume readonly flag
                               };
@@ -3348,7 +3356,7 @@ MAIN:
               }
               else {
                 # don't display all subvolumes in $droot, only the ones matching snapshot_name
-                if(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, ($droot->{CONFIG}->{target_type} eq "raw"))) {
+                if(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, target_type => $droot->{CONFIG}->{target_type}, incomplete_raw => 1)) {
                   if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
                   push @data, { type => "received",
                                 status => ($incomplete_backup ? "incomplete" : "orphaned"),
@@ -3455,6 +3463,7 @@ MAIN:
             WARN "btrfs_progs_compat is set, skipping cleanup of target: $droot->{PRINT}";
             next;
           }
+          my $target_type = $droot->{CONFIG}->{target_type} || die;
 
           INFO "Cleaning incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
           push @out, "$droot->{PRINT}/$snapshot_name.*";
@@ -3462,13 +3471,25 @@ MAIN:
           foreach my $target_vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @{vinfo_subvol_list($droot)}) {
             # incomplete received (garbled) subvolumes have no received_uuid (as of btrfs-progs v4.3.1).
             # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
-            if(($target_vol->{node}{received_uuid} eq '-') && parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name)) {
+            next unless(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, target_type => $target_type, incomplete_raw => 1));
+            if($target_vol->{node}{received_uuid} eq '-') {
               DEBUG "Found incomplete target subvolume: $target_vol->{PRINT}";
               push(@delete, $target_vol);
               push @out, "--- $target_vol->{PRINT}";
             }
           }
-          my $ret = btrfs_subvolume_delete(\@delete, commit => config_key($droot, "btrfs_commit_delete"), type => "delete_garbled");
+          my $ret;
+          if($target_type eq "raw") {
+            DEBUG "[raw] delete:";
+            DEBUG "[raw]   file: $_->{PRINT}" foreach(@delete);
+            $ret = run_cmd({
+              cmd  => ['rm', (map { $_->{PATH} } @delete) ],
+              rsh  => $droot->{RSH},
+            });
+          }
+          else {
+            $ret = btrfs_subvolume_delete(\@delete, commit => config_key($droot, "btrfs_commit_delete"), type => "delete_garbled");
+          }
           if(defined($ret)) {
             INFO "Deleted $ret incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
             $droot->{SUBVOL_DELETED} //= [];
@@ -3649,7 +3670,7 @@ MAIN:
 
               my @receive_targets = get_receive_targets($droot, $child);
               foreach(@receive_targets) {
-                unless(parse_filename($_->{SUBVOL_PATH}, $snapshot_basename, ($droot->{CONFIG}->{target_type} eq "raw"))) {
+                unless(parse_filename($_->{SUBVOL_PATH}, $snapshot_basename, target_type => $droot->{CONFIG}->{target_type})) {
                   WARN "Receive target of resume candidate \"$child->{PRINT}\" exists at unexpected location \"$_->{PRINT}\", skipping";
                 }
               }
@@ -3674,7 +3695,7 @@ MAIN:
               # add all present backups to schedule, with no value
               # these are needed for correct results of schedule()
               foreach my $vol (@{vinfo_subvol_list($droot)}) {
-                my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, ($droot->{CONFIG}->{target_type} eq "raw"));
+                my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, target_type => $droot->{CONFIG}->{target_type});
                 unless($filename_info) {
                   TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                   next;
