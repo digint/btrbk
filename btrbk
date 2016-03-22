@@ -1487,13 +1487,12 @@ sub get_latest_common($$$;$)
   my $debug_src = $svol->{URL};
   $debug_src .= "#" . $threshold_gen if($threshold_gen);
 
-  # prefer latest received subvolume as latest common
+  # keep track of already received subvolumes
+  my %receive_target_present;
   if($droot->{SUBVOL_RECEIVED}) {
-    foreach(reverse @{$droot->{SUBVOL_RECEIVED}}) {
-      TRACE "get_latest_common: checking previously received subvolume: $_->{source}->{PRINT}";
+    foreach(@{$droot->{SUBVOL_RECEIVED}}) {
       next if($_->{ERROR});
-      DEBUG("Latest common subvolumes for: $debug_src: src=$_->{source}->{PRINT}  target=$_->{received_subvolume}->{PRINT} (previously received)");
-      return ($_->{source}, $_->{received_subvolume});
+      $receive_target_present{$_->{source}->{node}{uuid}} = $_->{received_subvolume};
     }
   }
 
@@ -1503,6 +1502,12 @@ sub get_latest_common($$$;$)
     if($threshold_gen && ($child->{node}{cgen} >= $threshold_gen)) {
       TRACE "get_latest_common: skipped gen=$child->{node}{cgen} >= $threshold_gen: $child->{SUBVOL_PATH}";
       next;
+    }
+
+    if(my $received_subvol = $receive_target_present{$child->{node}{uuid}}) {
+      # subvolume has been previously received
+      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=$received_subvol->{PRINT} (previously received)");
+      return ($child, $received_subvol);
     }
 
     foreach (get_receive_targets($droot, $child)) {
