@@ -95,6 +95,7 @@ my %config_options = (
   ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   ssh_compression             => { default => undef,     accept => [ "yes", "no" ] },
   ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
+  rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgt]?$/, require_bin => '/usr/bin/pv' },
   transaction_log             => { default => undef,     accept_file => { absolute => 1 } },
 
   raw_target_compress         => { default => undef,     accept => [ "no", "gzip", "bzip2", "xz" ] },
@@ -417,6 +418,25 @@ sub run_cmd(@)
     DEBUG "Command execution successful";
   }
   return $ret;
+}
+
+
+sub add_pv_command($@)
+{
+  my $cmd_pipe = shift || die;
+  my %opts = @_;
+  my $rate_limit = $opts{rate_limit};
+
+  if($opts{show_progress}) {
+    if($rate_limit) {
+      push @$cmd_pipe, { cmd => [ '/usr/bin/pv', '-trab', '-L', $rate_limit ] };
+    } else {
+      push @$cmd_pipe, { cmd => [ '/usr/bin/pv', '-trab' ] };
+    }
+  }
+  elsif($rate_limit) {
+    push @$cmd_pipe, { cmd => [ '/usr/bin/pv', '-q', '-L', $rate_limit ] };
+  }
 }
 
 
@@ -832,12 +852,13 @@ sub btrfs_subvolume_delete($@)
 }
 
 
-sub btrfs_send_receive($$$$)
+sub btrfs_send_receive($$$$;@)
 {
   my $snapshot = shift || die;
   my $target = shift || die;
   my $parent = shift;
   my $ret_vol_received = shift;
+  my %opts = @_;
   my $snapshot_path = $snapshot->{PATH} // die;
   my $target_path = $target->{PATH} // die;
   my $parent_path = $parent ? $parent->{PATH} : undef;
@@ -866,9 +887,7 @@ sub btrfs_send_receive($$$$)
     name => "btrfs send",
     catch_stderr => 1, # hack for shell-based run_cmd()
   };
-  push @cmd_pipe, {
-    cmd => [ '/usr/bin/pv', '-trab' ],
-  } if($show_progress);
+  add_pv_command(\@cmd_pipe, show_progress => $show_progress, rate_limit => $opts{rate_limit});
   push @cmd_pipe, {
     cmd => [ qw(btrfs receive), @receive_options, $target_path . '/' ],
     rsh => $target->{RSH},
@@ -964,9 +983,7 @@ sub btrfs_send_to_file($$$$;@)
     rsh => $source->{RSH},
     name => "btrfs send",
   };
-  push @cmd_pipe, {
-    cmd => [ '/usr/bin/pv', '-trab' ],
-  } if($show_progress);
+  add_pv_command(\@cmd_pipe, show_progress => $show_progress, rate_limit => $opts{rate_limit});
   if($opts{compress}) {
     die unless($compress{$opts{compress}});
     $target_filename .= $compress{$opts{compress}}->{postfix};
@@ -1785,6 +1802,11 @@ sub append_config_option($$$$;$)
     TRACE "splitted option \"$key\": " . join(',', @$value);
   }
 
+  if($opt->{require_bin} && (not -e $opt->{require_bin})) {
+    WARN "Found option \"$key\"$config_file_statement, but \"$opt->{require_bin}\" does not exist on your system, ignoring";
+    $value = "no";
+  }
+
   if($opt->{deprecated}) {
     WARN "Found deprecated option \"$key $value\"" . $config_file_statement . ": " .
            ($opt->{deprecated}->{$value}->{warn} // $opt->{deprecated}->{DEFAULT}->{warn});
@@ -2022,7 +2044,7 @@ sub macro_send_receive(@)
   my $vol_received;
   if($target_type eq "send-receive")
   {
-    $ret = btrfs_send_receive($source, $target, $parent, \$vol_received);
+    $ret = btrfs_send_receive($source, $target, $parent, \$vol_received, rate_limit => config_key($config_target, "rate_limit"));
     ABORTED($config_target, "Failed to send/receive subvolume") unless($ret);
   }
   elsif($target_type eq "raw")
@@ -2050,7 +2072,8 @@ sub macro_send_receive(@)
                               compress         => config_key($config_target, "raw_target_compress"),
                               compress_level   => config_key($config_target, "raw_target_compress_level"),
                               compress_threads => config_key($config_target, "raw_target_compress_threads"),
-                              encrypt          => $encrypt
+                              encrypt          => $encrypt,
+                              rate_limit       => config_key($config_target, "rate_limit"),
                              );
     ABORTED($config_target, "Failed to send subvolume to raw file") unless($ret);
   }
@@ -2531,7 +2554,7 @@ MAIN:
 
   # check command line options
   if($show_progress && (not -e '/usr/bin/pv')) {
-    WARN 'found option "--progress", but "pv" is not present: (please install "pv")';
+    WARN 'Found option "--progress", but "pv" is not present: (please install "pv")';
     $show_progress = 0;
   }
   my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean);

@@ -1,4 +1,4 @@
-.TH "btrbk.conf" "5" "2016-02-29" "btrbk v0.23.0-dev" ""
+.TH "btrbk.conf" "5" "2016-03-23" "btrbk v0.23.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -222,6 +222,13 @@ Selects the cipher specification for encrypting the session
 (comma-separated list of ciphers in order of preference). See the "-c
 cipher_spec" option in ssh(1) for more information. Defaults to
 \[lq]default\[rq] (the ciphers specified in \fIssh_config\fR).
+.RE
+.PP
+\fBrate_limit\fR  <rate>|no
+.RS 4
+Limit the transfer to a maximum of \fI<rate>\fR bytes per second. A
+suffix of "k", "m", "g", or "t" can be added to denote kilobytes
+(*1024), megabytes, and so on. Defaults to \[lq]no\[rq].
 .RE
 .PP
 \fBbtrfs_commit_delete\fR  after|each|no
