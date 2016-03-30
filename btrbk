@@ -3474,7 +3474,7 @@ MAIN:
         # check for duplicate snapshot locations
         my $snapshot_backup_target = ($symlink{$droot->{URL}} // $droot->{URL}) . '/' . $snapshot_basename;
         if(my $prev = $backup_check{$snapshot_backup_target}) {
-          ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same backup target: $snapshot_target";
+          ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same backup target: $snapshot_backup_target";
           ERROR "Please fix \"snapshot_name\" or \"target\" configuration options!";
           exit 1;
         }
