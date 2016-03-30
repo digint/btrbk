@@ -168,9 +168,10 @@ my %table_formats = (
                  },
 );
 
-my %url_cache;   # map URL to btr_tree node
-my %uuid_cache;  # map UUID to btr_tree node
-my %symlink;     # map URL to REAL_URL (symlink target)
+my %url_cache;       # map URL to btr_tree node
+my %fstab_cache;     # map HOST to btrfs mount points
+my %uuid_cache;      # map UUID to btr_tree node
+my %symlink;         # map URL to REAL_URL (symlink target)
 
 my $dryrun;
 my $loglevel = 1;
@@ -1071,6 +1072,137 @@ sub btrfs_send_to_file($$$$;@)
     return undef;
   }
   return 1;
+}
+
+
+sub system_list_mounts($)
+{
+  my $vol = shift // die;
+  my $file = '/proc/self/mounts';
+  my $ret = run_cmd(cmd => [ qw(cat), $file ],
+                    rsh => $vol->{RSH},
+                    non_destructive => 1,
+                    catch_stderr => 1, # hack for shell-based run_cmd()
+                   );
+  return undef unless(defined($ret));
+
+  my @mounts;
+  foreach (split(/\n/, $ret))
+  {
+    # from fstab(5)
+    unless(/^(\S+) (\S+) (\S+) (\S+) (\S+) (\S+)$/) {
+      ERROR "Failed to parse \"$file\" on " . ($vol->{HOST} || "localhost");
+      DEBUG "Offending line: $_";
+      return undef;
+    }
+    my %line = (
+      spec    => $1,
+      file    => $2,
+      vfstype => $3,
+      mntops  => $4,
+      freq    => $5,
+      passno  => $6,
+    );
+    foreach (split(',', $line{mntops})) {
+      if(/^(.+?)=(.+)$/) {
+        $line{MNTOPS}->{$1} = $2;
+      } else {
+        $line{MNTOPS}->{$_} = 1;
+      }
+    }
+    push @mounts, \%line;
+  }
+  # TRACE(Data::Dumper->Dump([\@mounts], ["mounts"])) if($loglevel >= 4);
+  return \@mounts;
+}
+
+
+sub system_realpath($)
+{
+  my $vol = shift // die;
+
+  my $path = $vol->{PATH} // die;;
+  my @quiet = ($loglevel < 3) ? ('-q') : ();
+  my $ret = run_cmd(cmd => [ qw(realpath), '-e', @quiet, $path ],
+                    rsh => $vol->{RSH},
+                    non_destructive => 1,
+                   );
+  return undef unless(defined($ret));
+
+  unless($ret =~ /^$file_match$/) {
+    ERROR "Failed to parse output of `realpath` for \"$vol->{PRINT}\": \"$ret\"";
+    return undef;
+  }
+  DEBUG "Real path for \"$vol->{PRINT}\" is: $ret";
+  return $ret;
+}
+
+
+sub btrfs_mountpoint($)
+{
+  my $vol = shift // die;
+
+  DEBUG "Resolving btrfs mount point for: $vol->{PRINT}";
+  my $host = $vol->{HOST} || "localhost";
+  my $mounts = $fstab_cache{$host};
+  TRACE "fstab_cache " . ($mounts ? "HIT" : "MISS") . ": $host";
+
+  # get real path
+  my $path = $symlink{$vol->{URL}};
+  if($path) {
+    die unless($path =~ s/^\Q$vol->{URL_PREFIX}\E//);
+  }
+  else {
+    $path = system_realpath($vol);
+    $symlink{$vol->{URL}} = $vol->{URL_PREFIX} . $path;
+  }
+  return (undef, undef, undef) unless($path);
+
+  unless($mounts) {
+    $mounts = [];
+    my $all_mounts = system_list_mounts($vol);
+
+    foreach my $mnt (@$all_mounts) {
+      if($mnt->{vfstype} ne 'btrfs') {
+        TRACE "non-btrfs mount point: $mnt->{spec} $mnt->{file} $mnt->{vfstype}";
+        next;
+      }
+      my $file = $mnt->{file} // die;
+      unless($file =~ /^$file_match$/) {
+        WARN "Skipping non-parseable file in btrfs mounts of $host: \"$file\"";
+        next;
+      }
+      my $id = $mnt->{MNTOPS}->{subvolid};
+      unless($id) {
+        WARN "No subvolid provided in btrfs mounts of $host for: $file";
+        next;
+      }
+      unless($id >= 5) {
+        WARN "Ambiguous subvolid=$id in btrfs mounts of $host for: $file";
+        next;
+      }
+
+      TRACE "btrfs mount point (spec=$mnt->{spec}, subvolid=$id): $file";
+      push @$mounts, $mnt;
+    }
+    $fstab_cache{$host} = $mounts;
+  }
+
+  # find longest match
+  $path .= '/' unless($path =~ /\/$/);  # correctly handle root path="/"
+  my $len = 0;
+  my $longest_match;
+  foreach(@$mounts) {
+    my $mnt_path = $_->{file};
+    $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # correctly handle root path="/"
+    $longest_match = $_ if((length($mnt_path) > $len) && ($path =~ /^\Q$mnt_path\E/));
+  }
+  unless($longest_match) {
+    DEBUG "No btrfs mount point found for: $vol->{PRINT}";
+    return (undef, undef, undef);
+  }
+  DEBUG "Found btrfs mount point for \"$vol->{PRINT}\": $longest_match->{file} (subvolid=$longest_match->{MNTOPS}->{subvolid})";
+  return ($longest_match->{file}, $path, $longest_match->{MNTOPS}->{subvolid});
 }
 
 
