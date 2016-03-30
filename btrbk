@@ -1294,14 +1294,36 @@ sub _fill_url_cache
 {
   my $node = shift;
   my $abs_path = shift;
+  my $node_subdir = shift;  # if set, MUST have a trailing slash
   # TRACE "_fill_url_cache: $abs_path";
 
   # traverse tree from given node and update tree cache
-  $url_cache{$abs_path} = $node;
+  $url_cache{$abs_path} = $node unless(defined($node_subdir));
   foreach(@{$node->{SUBTREE}}) {
-    _fill_url_cache($_, $abs_path . '/' . $_->{REL_PATH});
+    my $rel_path = $_->{REL_PATH};
+    if(defined($node_subdir)) {
+      next unless($rel_path =~ s/^\Q$node_subdir\E//);
+    }
+    _fill_url_cache($_, $abs_path . '/' . $rel_path, undef);
   }
   return undef;
+}
+
+
+sub _get_longest_match
+{
+  my $node = shift;
+  my $path = shift;
+  my $check_path = shift;  # MUST have a trailing slash
+  $path .= '/' unless($path =~ /\/$/);  # correctly handle root path="/"
+
+  return undef unless($check_path =~ /^\Q$path\E/);
+  foreach(@{$node->{SUBTREE}}) {
+    my $ret = _get_longest_match($_, $path . $_->{REL_PATH}, $check_path);
+    return $ret if($ret);
+  }
+  return { node => $node,
+           path => $path };
 }
 
 
@@ -1380,22 +1402,11 @@ sub vinfo($;$)
 }
 
 
-sub vinfo_child($$;$)
+sub vinfo_copy_flags($$)
 {
-  my $parent = shift || die;
-  my $rel_path = shift // die;
-
-  my $name = $rel_path;
-  $name =~ s/^.*\///;
-  my %info = (
-    NAME         => $name,
-    URL          => "$parent->{URL}/$rel_path",
-    PATH         => "$parent->{PATH}/$rel_path",
-    PRINT        => "$parent->{PRINT}/$rel_path",
-    SUBVOL_PATH  => $rel_path,
-   );
+  my $vinfo = shift // die;
+  my $copy_src = shift // die;
   foreach (qw( HOST
-               URL_PREFIX
                RSH_TYPE
                SSH_USER
                SSH_IDENTITY
@@ -1403,17 +1414,37 @@ sub vinfo_child($$;$)
                RSH
                BTRFS_PROGS_COMPAT ) )
   {
-    $info{$_} = $parent->{$_} if(exists $parent->{$_});
+    $vinfo->{$_} = $copy_src->{$_} if(exists $copy_src->{$_});
   }
-
-  # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
-  return \%info;
 }
 
 
-sub vinfo_init_root($)
+sub vinfo_child($$;$)
+{
+  my $parent = shift || die;
+  my $rel_path = shift // die;
+
+  my $name = $rel_path;
+  $name =~ s/^.*\///;
+  my $vinfo = {
+    NAME         => $name,
+    URL          => "$parent->{URL}/$rel_path",
+    PATH         => "$parent->{PATH}/$rel_path",
+    PRINT        => "$parent->{PRINT}/$rel_path",
+    URL_PREFIX   => $parent->{URL_PREFIX},
+    SUBVOL_PATH  => $rel_path,
+   };
+  vinfo_copy_flags($vinfo, $parent);
+
+  # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
+  return $vinfo;
+}
+
+
+sub vinfo_init_root($;@)
 {
   my $vol = shift || die;
+  my %opts = @_;
   my $tree_root;
   my @fill_cache;
 
@@ -1427,23 +1458,52 @@ sub vinfo_init_root($)
     }
   }
 
+  # TODO: replace the subvolume_show part as soon as resolve_subdir stuff has stabilized
   unless($tree_root) {
     # url_cache miss, read the subvolume detail
     my $detail = btrfs_subvolume_show($vol);
-    return undef unless $detail;
-    my $real_url = $symlink{$vol->{URL}};
-    push @fill_cache, $vol->{URL};
-    push @fill_cache, $real_url if($real_url && (not $url_cache{$real_url}));
+    if($detail) {
+      my $real_url = $symlink{$vol->{URL}};
+      push @fill_cache, $vol->{URL};
+      push @fill_cache, $real_url if($real_url && (not $url_cache{$real_url}));
 
-    # check uuid_cache
-    if($detail->{uuid}) {
-      $tree_root = $uuid_cache{$detail->{uuid}};
-      TRACE "uuid_cache " . ($tree_root ? "HIT" : "MISS") . ": UUID=$detail->{uuid}";
+      # check uuid_cache
+      if($detail->{uuid}) {
+        $tree_root = $uuid_cache{$detail->{uuid}};
+        TRACE "uuid_cache " . ($tree_root ? "HIT" : "MISS") . ": UUID=$detail->{uuid}";
+      }
+      unless($tree_root) {
+        # cache miss, read the fresh tree
+        $tree_root = btr_tree($vol, $detail->{id});
+      }
     }
+    elsif($opts{resolve_subdir}) {
+      # $vol is not a subvolume, read btrfs tree from mount point
+      my ($mnt_path, $real_path, $id) = btrfs_mountpoint($vol);
+      return undef unless($mnt_path && $real_path && $id);
 
-    unless($tree_root) {
-      # cache miss, read the fresh tree
-      $tree_root = btr_tree($vol, $detail->{id});
+      my $mnt_tree_root = $url_cache{$vol->{URL_PREFIX} . $mnt_path};
+      unless($mnt_tree_root) {
+        # read btrfs tree for the mount point
+        my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path);
+        vinfo_copy_flags($mnt_vol, $vol);
+        $mnt_tree_root = btr_tree($mnt_vol, $id);
+        TRACE "url_cache fill: $mnt_vol->{PRINT}";
+        _fill_url_cache($mnt_tree_root, $mnt_vol->{URL});
+      }
+
+      # find longest match in tree
+      my $ret = _get_longest_match($mnt_tree_root, $mnt_path, $real_path) // die;
+      my $node_subdir = $real_path;
+      die unless($node_subdir =~ s/^\Q$ret->{path}\E//);
+      $vol->{NODE_SUBDIR} = $node_subdir if($node_subdir ne '');  # NOTE: this always has a trailing slash!
+      $tree_root = $ret->{node};
+
+      TRACE "url_cache fill: $vol->{PRINT}" . ($vol->{NODE_SUBDIR} ? " (subdir=$vol->{NODE_SUBDIR})" : "");
+      _fill_url_cache($tree_root, $vol->{URL}, $vol->{NODE_SUBDIR});
+    }
+    else {
+      return undef;
     }
   }
   return undef unless($tree_root);
@@ -1464,16 +1524,21 @@ sub _vinfo_subtree_list
 {
   my $tree = shift;
   my $vinfo_parent = shift;
+  my $node_subdir = shift;  # if set, MUST have a trailing slash
   my $list = shift // [];
   my $path_prefix = shift // "";
 
   foreach(@{$tree->{SUBTREE}}) {
-    my $path = $path_prefix . $_->{REL_PATH};
+    my $rel_path = $_->{REL_PATH};
+    if(defined($node_subdir)) {
+      next unless($rel_path =~ s/^\Q$node_subdir\E//);
+    }
+    my $path = $path_prefix . $rel_path;
     my $vinfo = vinfo_child($vinfo_parent, $path);
     $vinfo->{node} = $_;
     push(@$list, $vinfo);
 
-    _vinfo_subtree_list($_, $vinfo_parent, $list, $path . '/');
+    _vinfo_subtree_list($_, $vinfo_parent, undef, $list, $path . '/');
   }
   return $list;
 }
@@ -1489,7 +1554,7 @@ sub vinfo_subvol_list($)
   my $tree_root = $vol->{node} || die;
 
   # recurse into $tree_root, returns array of vinfo
-  return _vinfo_subtree_list($tree_root, $vol);
+  return _vinfo_subtree_list($tree_root, $vol, $vol->{NODE_SUBDIR});
 }
 
 
@@ -2027,7 +2092,7 @@ sub parse_config_line($$$$$)
       # be very strict about file options, for security sake
       return undef unless(check_file($droot, { absolute => 1, ssh => 1 }, $key, $file));
 
-      $droot =~ s/\/+$//;   # remove trailing slash
+      $droot =~ s/\/+$// unless($droot =~ /^\/+$/);   # remove trailing slash
       $droot =~ s/^\/+/\//; # sanitize leading slash
       TRACE "config: adding target \"$droot\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "");
       my $target = { CONTEXT => "target",
@@ -3293,7 +3358,7 @@ MAIN:
         my $target_type = $droot->{CONFIG}->{target_type} || die;
         if($target_type eq "send-receive")
         {
-          unless(vinfo_init_root($droot)) {
+          unless(vinfo_init_root($droot, resolve_subdir => 1)) {
             ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
             WARN "Skipping target \"$droot->{PRINT}\": $abrt";
             next;
