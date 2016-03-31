@@ -9,6 +9,7 @@ enable_log=
 use_sudo=
 restrict_path_list=
 allow_list=
+allow_exact_list=
 
 log_cmd()
 {
@@ -20,6 +21,11 @@ log_cmd()
 allow_cmd()
 {
     allow_list="${allow_list}|$1"
+}
+
+allow_exact_cmd()
+{
+    allow_exact_list="${allow_exact_list}|$1"
 }
 
 reject_and_die()
@@ -54,9 +60,16 @@ reject_filtered_cmd()
     # allow multiple paths (e.g. "btrfs subvolume snapshot <src> <dst>")
     btrfs_cmd_match="^(${allow_list})( ${option_match})*( $path_match)+$"
 
-    if [[ ! $SSH_ORIGINAL_COMMAND =~ $btrfs_cmd_match ]] ; then
-	reject_and_die "disallowed command${restrict_path_list:+ (restrict-path: \"${restrict_path_list//|/\", \"}\")}"
+    if [[ $SSH_ORIGINAL_COMMAND =~ $btrfs_cmd_match ]] ; then
+        return 0
     fi
+
+    exact_cmd_match="^${allow_exact_list}$";
+    if [[ $SSH_ORIGINAL_COMMAND =~ $exact_cmd_match ]] ; then
+        return 0
+    fi
+
+    reject_and_die "disallowed command${restrict_path_list:+ (restrict-path: \"${restrict_path_list//|/\", \"}\")}"
 }
 
 
@@ -88,6 +101,9 @@ while [[ "$#" -ge 1 ]]; do
 
       -t|--target)
 	  allow_cmd "btrfs receive"
+          # the following are needed if targets point to a directory
+	  allow_cmd "realpath"
+          allow_exact_cmd "cat /proc/self/mounts"
 	  ;;
 
       -d|--delete)
@@ -121,6 +137,7 @@ done
 
 # remove leading "|" on alternation lists
 allow_list=${allow_list#\|}
+allow_exact_list=${allow_exact_list#\|}
 restrict_path_list=${restrict_path_list#\|}
 
 
