@@ -1,6 +1,9 @@
 btrbk-current
 
   * Allow wildcards in subvolume section (close: #71).
+  * Allow regular directories for send-receive targets.
+  * Propagate targets defined in "volume" or "root" context to all
+    "subvolume" sections.
   * Added "{snapshot,target}_preserve NNd NNw NNm NNy" shortcut.
   * Added yearly retention policies (close: #69).
   * Added configuration option "rate_limit" (close: #72).

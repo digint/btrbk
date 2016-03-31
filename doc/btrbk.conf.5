@@ -1,4 +1,4 @@
-.TH "btrbk.conf" "5" "2016-03-23" "btrbk v0.23.0-dev" ""
+.TH "btrbk.conf" "5" "2016-03-31" "btrbk v0.23.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -41,7 +41,11 @@ sections are allowed within \fIvolume\fR sections.
 Target type and directory where the backup subvolumes are to be
 created. See the TARGET TYPES section for supported
 \fI<type>\fR. Multiple \fItarget\fR sections are allowed within
-\fIsubvolume\fR sections.
+\fIsubvolume\fR sections. A \fItarget\fR section defined in the global
+context or in a \fIvolume\fR section is propagated (mulitplied) to all
+underlying \fIsubvolume\fR sections, unless a target with the same
+declaration already exists (hint: run "btrbk config print" to see the
+resulting configuration).
 .RE
 .PP
 For the \fIvolume\fR and \fItarget\fR sections, you can specify a
@@ -255,8 +259,8 @@ treated as comments.
 .RS 4
 Backup to a btrfs filesystem, using "btrfs send/receive". This is the
 recommended (standard) target type. The \fI<target-directory>\fR must
-be an absolute path and point to a btrfs volume (or subvolume). See
-btrfs-send(8), btrfs-receive(8).
+be an absolute path and point to a btrfs volume (or subvolume), or to
+a directory within a subvolume. See btrfs-send(8), btrfs-receive(8).
 .RE
 .PP
 \fBraw\fR  \fI*experimental*\fR
