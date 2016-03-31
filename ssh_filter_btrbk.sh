@@ -82,55 +82,55 @@ while [[ "$#" -ge 1 ]]; do
 
     case $key in
       -l|--log)
-	  enable_log=1
-	  ;;
+          enable_log=1
+          ;;
 
       --sudo)
-	  use_sudo="sudo"
-	  ;;
+          use_sudo="sudo"
+          ;;
 
       -p|--restrict-path)
-	  restrict_path_list="${restrict_path_list}|${2%/}"  # add to list while removing trailing slash
-	  shift # past argument
-	  ;;
+          restrict_path_list="${restrict_path_list}|${2%/}"  # add to list while removing trailing slash
+          shift # past argument
+          ;;
 
       -s|--source)
-	  allow_cmd "btrfs subvolume snapshot"
-	  allow_cmd "btrfs send"
-	  ;;
+          allow_cmd "btrfs subvolume snapshot"
+          allow_cmd "btrfs send"
+          ;;
 
       -t|--target)
-	  allow_cmd "btrfs receive"
+          allow_cmd "btrfs receive"
           # the following are needed if targets point to a directory
-	  allow_cmd "realpath"
+          allow_cmd "realpath"
           allow_exact_cmd "cat /proc/self/mounts"
-	  ;;
+          ;;
 
       -d|--delete)
-	  allow_cmd "btrfs subvolume delete"
-	  ;;
+          allow_cmd "btrfs subvolume delete"
+          ;;
 
       -i|--info)
-	  allow_cmd "btrfs subvolume find-new"
-	  allow_cmd "btrfs filesystem usage"
-	  ;;
+          allow_cmd "btrfs subvolume find-new"
+          allow_cmd "btrfs filesystem usage"
+          ;;
 
       --snapshot)
-	  allow_cmd "btrfs subvolume snapshot"
-	  ;;
+          allow_cmd "btrfs subvolume snapshot"
+          ;;
 
       --send)
-	  allow_cmd "btrfs send"
-	  ;;
+          allow_cmd "btrfs send"
+          ;;
 
       --receive)
-	  allow_cmd "btrfs receive"
-	  ;;
+          allow_cmd "btrfs receive"
+          ;;
 
       *)
-	  echo "ERROR: ssh_filter_btrbk.sh: failed to parse command line option: $key" 1>&2
-	  exit 1
-	  ;;
+          echo "ERROR: ssh_filter_btrbk.sh: failed to parse command line option: $key" 1>&2
+          exit 1
+          ;;
     esac
     shift
 done
