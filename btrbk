@@ -1129,12 +1129,13 @@ sub system_realpath($)
                    );
   return undef unless(defined($ret));
 
-  unless($ret =~ /^$file_match$/) {
+  unless($ret =~ /^($file_match)$/) {
     ERROR "Failed to parse output of `realpath` for \"$vol->{PRINT}\": \"$ret\"";
     return undef;
   }
-  DEBUG "Real path for \"$vol->{PRINT}\" is: $ret";
-  return $ret;
+  my $realpath = $1; # untaint argument
+  DEBUG "Real path for \"$vol->{PRINT}\" is: $realpath";
+  return $realpath;
 }
 
 
