@@ -65,6 +65,7 @@ my $timestamp_postfix_match = qr/\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2
 my $raw_postfix_match = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uuid_match))?\.btrfs?(\.(?<compress>(gz|bz2|xz)))?(\.(?<encrypt>gpg))?/;  # matches ".btrfs_<received_uuid>[@<parent_uuid>][.gz|bz2|xz][.gpg]"
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
+my $safe_cmd_match = $file_match;  # good enough for our purpose
 
 my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6, sunday => 7 );
 
@@ -345,6 +346,17 @@ sub end_transaction($$)
   $current_transaction = undef;
 }
 
+sub safe_cmd($)
+{
+  my $aref = shift;
+  foreach(@$aref) {
+    unless(/^$safe_cmd_match$/) {
+      ERROR "Unsafe command `" . join(' ', @$aref) . "` (offending string: \"$_\")";
+      return undef;
+    }
+  }
+  return 1;
+}
 
 sub run_cmd(@)
 {
@@ -362,7 +374,8 @@ sub run_cmd(@)
   foreach (@commands) {
     $_->{rsh} //= [];
     $_->{cmd} = [ @{$_->{rsh}}, @{$_->{cmd}} ];
-    $_->{cmd_text} = join(' ', map { s/\n/\\n/g; "'$_'" } @{$_->{cmd}});  # ugly escape of \n, do we need to escape others?
+    return undef unless(safe_cmd($_->{cmd}));
+    $_->{cmd_text} = join(' ', map { "'$_'" } @{$_->{cmd}});
     $catch_stderr = 1 if($_->{catch_stderr});
     $filter_stderr = $_->{filter_stderr} if($_->{filter_stderr});  # NOTE: last filter wins!
     $destructive = 1 unless($_->{non_destructive});
