@@ -1305,7 +1305,7 @@ sub _fill_url_cache
 {
   my $node = shift;
   my $abs_path = shift;
-  my $node_subdir = shift;  # if set, MUST have a trailing slash
+  my $node_subdir = shift;
   # TRACE "_fill_url_cache: $abs_path";
 
   # traverse tree from given node and update tree cache
@@ -1313,7 +1313,7 @@ sub _fill_url_cache
   foreach(@{$node->{SUBTREE}}) {
     my $rel_path = $_->{REL_PATH};
     if(defined($node_subdir)) {
-      next unless($rel_path =~ s/^\Q$node_subdir\E//);
+      next unless($rel_path =~ s/^\Q$node_subdir\E\///);
     }
     _fill_url_cache($_, $abs_path . '/' . $rel_path, undef);
   }
@@ -1507,8 +1507,12 @@ sub vinfo_init_root($;@)
       # find longest match in tree
       my $ret = _get_longest_match($mnt_tree_root, $mnt_path, $real_path) // die;
       my $node_subdir = $real_path;
-      die unless($node_subdir =~ s/^\Q$ret->{path}\E//);
-      $vol->{NODE_SUBDIR} = $node_subdir if($node_subdir ne '');  # NOTE: this always has a trailing slash!
+      die unless($node_subdir =~ s/^\Q$ret->{path}\E//);  # NOTE: $ret->{path} has trailing slash!
+      $node_subdir =~ s/\/+$//;
+
+      # NODE_SUBDIR: if set, then PATH points to a regular (non-subvolume) directory.
+      #              in other words, "PATH=<path_to_subvolume>/NODE_SUBDIR"
+      $vol->{NODE_SUBDIR} = $node_subdir if($node_subdir ne '');
       $tree_root = $ret->{node};
 
       TRACE "url_cache fill: $vol->{PRINT}" . ($vol->{NODE_SUBDIR} ? " (subdir=$vol->{NODE_SUBDIR})" : "");
@@ -1536,14 +1540,14 @@ sub _vinfo_subtree_list
 {
   my $tree = shift;
   my $vinfo_parent = shift;
-  my $node_subdir = shift;  # if set, MUST have a trailing slash
+  my $node_subdir_filter = shift;
   my $list = shift // [];
   my $path_prefix = shift // "";
 
   foreach(@{$tree->{SUBTREE}}) {
     my $rel_path = $_->{REL_PATH};
-    if(defined($node_subdir)) {
-      next unless($rel_path =~ s/^\Q$node_subdir\E//);
+    if(defined($node_subdir_filter)) {
+      next unless($rel_path =~ s/^\Q$node_subdir_filter\E\///);
     }
     my $path = $path_prefix . $rel_path;
     my $vinfo = vinfo_child($vinfo_parent, $path);
