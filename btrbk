@@ -3394,12 +3394,13 @@ MAIN:
 
           my @subvol_list;
           my %child_uuid_list;
-          foreach my $file (split("\n", $ret))
+          foreach (split("\n", $ret))
           {
-            unless($file =~ /^$file_match$/) {
-              DEBUG "Skipping non-parseable file: \"$file\"";
+            unless(/^($file_match)$/) {
+              DEBUG "Skipping non-parseable file: \"$_\"";
               next;
             }
+            my $file = $1; # untaint argument
             unless($file =~ s/^\Q$droot->{PATH}\E\///) {
               ABORTED($droot, "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
               last;
