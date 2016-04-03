@@ -258,7 +258,7 @@ sub VINFO {
 }
 sub SUBVOL_LIST {
   my $vol = shift; my $t = shift // "SUBVOL_LIST"; my $svl = vinfo_subvol_list($vol);
-  print STDERR "$t:\n" . join("\n", map { "$vol->{PRINT}/./$_->{SUBVOL_PATH}  $_->{id}" } @$svl) . "\n";
+  print STDERR "$t:\n" . join("\n", map { "$vol->{PRINT}/./$_->{SUBVOL_PATH}\t$_->{node}{id}" } @$svl) . "\n";
 }
 sub URL_CACHE {
   print STDERR "URL_CACHE:\n" . join("\n", (sort keys %url_cache)) . "\n";
@@ -1436,7 +1436,9 @@ sub vinfo_child($$;$)
   my $rel_path = shift // die;
 
   my $name = $rel_path;
-  $name =~ s/^.*\///;
+  my $subvol_dir = "";
+  $subvol_dir = $1 if($name =~ s/^(.*)\///);
+
   my $vinfo = {
     NAME         => $name,
     URL          => "$parent->{URL}/$rel_path",
@@ -1444,6 +1446,7 @@ sub vinfo_child($$;$)
     PRINT        => "$parent->{PRINT}/$rel_path",
     URL_PREFIX   => $parent->{URL_PREFIX},
     SUBVOL_PATH  => $rel_path,
+    SUBVOL_DIR   => $subvol_dir,  # SUBVOL_PATH=SUBVOL_DIR/NAME
    };
   vinfo_copy_flags($vinfo, $parent);
 
@@ -1543,34 +1546,61 @@ sub _vinfo_subtree_list
   my $node_subdir_filter = shift;
   my $list = shift // [];
   my $path_prefix = shift // "";
+  my $depth = shift // 0;
 
-  foreach(@{$tree->{SUBTREE}}) {
-    my $rel_path = $_->{REL_PATH};
+  foreach my $node (@{$tree->{SUBTREE}}) {
+    my $rel_path = $node->{REL_PATH};
     if(defined($node_subdir_filter)) {
       next unless($rel_path =~ s/^\Q$node_subdir_filter\E\///);
     }
     my $path = $path_prefix . $rel_path;
     my $vinfo = vinfo_child($vinfo_parent, $path);
-    $vinfo->{node} = $_;
-    push(@$list, $vinfo);
+    $vinfo->{node} = $node;
 
-    _vinfo_subtree_list($_, $vinfo_parent, undef, $list, $path . '/');
+    # add some additional information to vinfo
+    # NOTE: make sure to also set those in raw tree readin!
+    $vinfo->{subtree_depth} = $depth;
+    $vinfo->{direct_leaf} = 1 if(($depth == 0) && ($rel_path !~ /\//));
+    if($vinfo->{NAME} =~ /^(?<name>$file_match)$timestamp_postfix_match$/) {
+      $vinfo->{btrbk_basename} = $+{name} // die;
+      $vinfo->{btrbk_date} = [ ($+{YYYY} // die), ($+{MM} // die), ($+{DD} // die), ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ];
+      $vinfo->{btrbk_direct_leaf} = 1 if($vinfo->{direct_leaf});
+    }
+
+    push(@$list, $vinfo);
+    _vinfo_subtree_list($node, $vinfo_parent, undef, $list, $path . '/', $depth + 1);
   }
   return $list;
 }
 
 
-sub vinfo_subvol_list($)
+sub vinfo_subvol_list($;@)
 {
   my $vol = shift || die;
+  my %opts = @_;
 
-  # return cached subvolume list if present
-  return $vol->{SUBVOL_LIST} if($vol->{SUBVOL_LIST});
+  # use cached subvolume list if present
+  my $subvol_list = $vol->{SUBVOL_LIST};
 
-  my $tree_root = $vol->{node} || die;
+  unless($subvol_list) {
+    # recurse into tree from $vol->{node}, returns arrayref of vinfo
+    $subvol_list = _vinfo_subtree_list($vol->{node}, $vol, $vol->{NODE_SUBDIR});
+    my @sorted = sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @$subvol_list;
 
-  # recurse into $tree_root, returns array of vinfo
-  return _vinfo_subtree_list($tree_root, $vol, $vol->{NODE_SUBDIR});
+    # cache sorted list
+    $subvol_list = \@sorted;
+    $vol->{SUBVOL_LIST} = $subvol_list;
+  }
+
+  if($opts{sort}) {
+    if($opts{sort} eq 'path') {
+      # already sorted by path, see above
+    }
+    else {
+      die;
+    }
+  }
+  return $subvol_list;
 }
 
 
@@ -1824,33 +1854,20 @@ sub check_file($$;$$)
 }
 
 
-# returns { btrbk_date => [ yyyy, mm, dd, hh, mm, <date_ext> ] } or undef
-# fixed array length of 6, all individually defaulting to 0
-sub parse_filename($$;@)
+sub parse_raw_filename($)
 {
   my $file = shift;
-  my $name_match = shift;
-  my %opts = @_;
-  my $raw_target = $opts{target_type} ? ($opts{target_type} eq "raw") : 0;  # assume normal target if not set
-  if($raw_target)
-  {
-    my $incomplete_match = $opts{incomplete_raw} ? qr/(\.(?<incomplete>part))?/ : "";
-    return undef unless($file =~ /^\Q$name_match\E$timestamp_postfix_match$raw_postfix_match$incomplete_match$/);
-    die unless($+{YYYY} && $+{MM} && $+{DD});
-    return { btrbk_date    => [ $+{YYYY}, $+{MM}, $+{DD}, ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ],
-             received_uuid => $+{received_uuid} // die,
-             REMOTE_PARENT_UUID => $+{parent_uuid} // '-',
-             ENCRYPT       => $+{encrypt} // "",
-             COMPRESS      => $+{compress} // "",
-             INCOMPLETE    => $+{incomplete} ? 1 : 0,
-            };
-  }
-  else
-  {
-    return undef unless($file =~ /^\Q$name_match\E$timestamp_postfix_match$/);
-    die unless($+{YYYY} && $+{MM} && $+{DD});
-    return { btrbk_date => [ $+{YYYY}, $+{MM}, $+{DD}, ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ] };
-  }
+  my $incomplete_match = qr/(\.(?<incomplete>part))?/;
+  return undef unless($file =~ /^(?<name>$file_match)$timestamp_postfix_match$raw_postfix_match$incomplete_match$/);
+  die unless($+{YYYY} && $+{MM} && $+{DD});
+  return { date => [ $+{YYYY}, $+{MM}, $+{DD}, ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ],
+           basename => $+{name} // die,
+           received_uuid => $+{received_uuid} // die,
+           REMOTE_PARENT_UUID => $+{parent_uuid} // '-',
+           ENCRYPT       => $+{encrypt} // "",
+           COMPRESS      => $+{compress} // "",
+           INCOMPLETE    => $+{incomplete} ? 1 : 0,
+         };
 }
 
 
@@ -2355,19 +2372,21 @@ sub macro_send_receive(@)
 
 # sets $result_vinfo->{CONFIG}->{ABORTED} on failure
 # sets $result_vinfo->{SUBVOL_DELETED}
-sub macro_delete($$$$;@)
+sub macro_delete($$$$$;@)
 {
   my $root_subvol = shift || die;
-  my $subvol_basename = shift // die;  # relative "path/to/snapshot_name"
+  my $subvol_dir = shift // die;
+  my $subvol_basename = shift // die;
   my $result_vinfo = shift || die;
   my $schedule_options = shift || die;
   my %delete_options = @_;
-  my $target_type = ($root_subvol->{CONFIG}->{CONTEXT} eq "target") ? $root_subvol->{CONFIG}->{target_type} : undef;
+  $subvol_dir =~ s/\/+$//;
 
   my @schedule;
   foreach my $vol (@{vinfo_subvol_list($root_subvol)}) {
-    my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $subvol_basename, target_type => $target_type);
-    unless($filename_info) {
+    unless($vol->{btrbk_date} &&
+           ($vol->{SUBVOL_DIR} eq $subvol_dir) &&
+           ($vol->{btrbk_basename} eq $subvol_basename)) {
       TRACE "Target subvolume does not match btrbk filename scheme, skipping: $vol->{PRINT}";
       next;
     }
@@ -2379,7 +2398,7 @@ sub macro_delete($$$$;@)
     # }
     push(@schedule, { value      => $vol,
                       # name       => $vol->{PRINT},  # only for logging
-                      btrbk_date => $filename_info->{btrbk_date},
+                      btrbk_date => $vol->{btrbk_date},
                       preserve   => $vol->{FORCE_PRESERVE},
                      });
   }
@@ -2389,7 +2408,8 @@ sub macro_delete($$$$;@)
    );
   my $ret = btrfs_subvolume_delete($delete, %delete_options);
   if(defined($ret)) {
-    INFO "Deleted $ret subvolumes in: $root_subvol->{PRINT}/$subvol_basename.*";
+    $subvol_dir .= '/' if($subvol_dir ne "");
+    INFO "Deleted $ret subvolumes in: $root_subvol->{PRINT}/$subvol_dir$subvol_basename.*";
     $result_vinfo->{SUBVOL_DELETED} //= [];
     push @{$result_vinfo->{SUBVOL_DELETED}}, @$delete;
     return $delete;
@@ -3066,7 +3086,7 @@ MAIN:
         my $match = join('[^\/]*', map(quotemeta($_), split(/\*+/, $globs, -1)));
         TRACE "translated globs \"$globs\" to regex \"$match\"";
         my $expand_count = 0;
-        foreach my $vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @{vinfo_subvol_list($sroot)})
+        foreach my $vol (@{vinfo_subvol_list($sroot, sort => 'path')})
         {
           if($vol->{node}{readonly}) {
             TRACE "skipping readonly subvolume: $vol->{PRINT}";
@@ -3410,8 +3430,8 @@ MAIN:
               last;
             }
             my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-            my $filename_info = parse_filename($file, $snapshot_basename, target_type => "raw", incomplete_raw => 1);
-            unless($filename_info) {
+            my $filename_info = parse_raw_filename($file);
+            unless($filename_info && ($filename_info->{basename} eq $snapshot_basename)) {
               DEBUG "Skipping file (filename scheme mismatch): \"$file\"";
               next;
             }
@@ -3419,13 +3439,20 @@ MAIN:
             # Set btrfs subvolume information (received_uuid, parent_uuid) from filename info.
             #
             # NOTE: REMOTE_PARENT_UUID in $filename_info is the "parent of the source subvolume", NOT the
-            # "parent of the received subvolume".
+            #       "parent of the received subvolume".
             my $subvol = vinfo_child($droot, $file);
             $subvol->{node} = { uuid          => "FAKE_UUID:" . $subvol->{URL},
                                 received_uuid => ($filename_info->{INCOMPLETE} ? '-' : $filename_info->{received_uuid}),  # empty received_uuid is detected as incomplete backup
                                 # parent_uuid   => '-',  # correct value gets inserted below
-                                readonly      => 1,    # fake subvolume readonly flag
+                                readonly      => ($filename_info->{INCOMPLETE} ? 0 : 1),    # fake subvolume readonly flag (incomplete backups have readonly=0)
                               };
+            # NOTE: make sure to have all the flags set by _vinfo_subtree_list()
+            $subvol->{subtree_depth}     = 0;
+            $subvol->{direct_leaf}       = 1;
+            $subvol->{btrbk_direct_leaf} = 1;
+            $subvol->{btrbk_basename}    = $snapshot_basename;
+            $subvol->{btrbk_date}        = $filename_info->{date};
+            $subvol->{btrbk_fake}        = 'raw';
             $uuid_cache{$subvol->{node}{uuid}} = $subvol;
 
             push @subvol_list, $subvol;
@@ -3439,7 +3466,8 @@ MAIN:
             next;
           }
           DEBUG "Found " . scalar(@subvol_list) . " raw subvolume backups of: $svol->{PRINT}";
-          $droot->{SUBVOL_LIST} = \@subvol_list;
+          my @sorted = sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @subvol_list;
+          $droot->{SUBVOL_LIST} = \@sorted;
 
           # Make sure that incremental backup chains are never broken:
           foreach my $subvol (@subvol_list)
@@ -3477,9 +3505,9 @@ MAIN:
   foreach my $sroot (vinfo_subsection($config, 'volume')) {
     foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
       # check for duplicate snapshot locations
-      my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
+      my $snapdir_ts = config_key($svol, "snapshot_dir", postfix => '/') // "";
       my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-      my $snapshot_target = $sroot->{URL_PREFIX} . ($realpath_cache{$sroot->{URL}} // $sroot->{PATH}) . '/' . $snapdir . $snapshot_basename;
+      my $snapshot_target = $sroot->{URL_PREFIX} . ($realpath_cache{$sroot->{URL}} // $sroot->{PATH}) . '/' . $snapdir_ts . $snapshot_basename;
       if(my $prev = $snapshot_check{$snapshot_target}) {
         ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snapshot_target";
         ERROR "Please fix \"snapshot_name\" configuration options!";
@@ -3609,7 +3637,7 @@ MAIN:
             my $stats_received = 0;
             my $stats_orphaned = 0;
             my $stats_incomplete = 0;
-            foreach my $target_vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @{vinfo_subvol_list($droot)}) {
+            foreach my $target_vol (@{vinfo_subvol_list($droot, sort => 'path')}) {
               my $parent_snapshot;
               my $incomplete_backup;
               foreach (@snapshot_children) {
@@ -3643,7 +3671,7 @@ MAIN:
               }
               else {
                 # don't display all subvolumes in $droot, only the ones matching snapshot_name
-                if(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, target_type => $droot->{CONFIG}->{target_type}, incomplete_raw => 1)) {
+                if($target_vol->{btrbk_direct_leaf} && ($target_vol->{btrbk_basename} eq $snapshot_name)) {
                   if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
                   push @data, { type => "received",
                                 status => ($incomplete_backup ? "incomplete" : "orphaned"),
@@ -3755,10 +3783,10 @@ MAIN:
           INFO "Cleaning incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
           push @out, "$droot->{PRINT}/$snapshot_name.*";
           my @delete;
-          foreach my $target_vol (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @{vinfo_subvol_list($droot)}) {
+          foreach my $target_vol (@{vinfo_subvol_list($droot, sort => 'path')}) {
             # incomplete received (garbled) subvolumes have no received_uuid (as of btrfs-progs v4.3.1).
             # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
-            next unless(parse_filename($target_vol->{SUBVOL_PATH}, $snapshot_name, target_type => $target_type, incomplete_raw => 1));
+            next unless($target_vol->{btrbk_direct_leaf} && ($target_vol->{btrbk_basename} eq $snapshot_name));
             if($target_vol->{node}{received_uuid} eq '-') {
               DEBUG "Found incomplete target subvolume: $target_vol->{PRINT}";
               push(@delete, $target_vol);
@@ -3846,7 +3874,7 @@ MAIN:
       #
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
+          my $snapdir_ts = config_key($svol, "snapshot_dir", postfix => '/') // "";
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
 
           # check if we need to create a snapshot
@@ -3893,7 +3921,7 @@ MAIN:
                            sprintf("%04d%02d%02dT%02d%02d", @today_and_now[0..4]));
           my @unconfirmed_target_name;
           my @lookup = map { $_->{SUBVOL_PATH} } @{vinfo_subvol_list($sroot)};
-          @lookup = grep s/^\Q$snapdir\E// , @lookup;
+          @lookup = grep s/^\Q$snapdir_ts\E// , @lookup;
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
             if(ABORTED($droot)) {
               push(@unconfirmed_target_name, $droot);
@@ -3915,12 +3943,12 @@ MAIN:
 
           # finally create the snapshot
           INFO "Creating subvolume snapshot for: $svol->{PRINT}";
-          my $snapshot = vinfo_child($sroot, "$snapdir$snapshot_name");
+          my $snapshot = vinfo_child($sroot, "$snapdir_ts$snapshot_name");
           if(btrfs_subvolume_snapshot($svol, $snapshot)) {
             $svol->{SNAPSHOT_CREATED} = $snapshot;
           }
           else {
-            ABORTED($svol, "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir$snapshot_name");
+            ABORTED($svol, "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir_ts$snapshot_name");
             WARN "Skipping subvolume section: $abrt";
           }
         }
@@ -3932,7 +3960,7 @@ MAIN:
     #
     foreach my $sroot (vinfo_subsection($config, 'volume')) {
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-        my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
+        my $snapdir = config_key($svol, "snapshot_dir") // "";
         my $snapshot_basename = config_key($svol, "snapshot_name") // die;
         my $preserve_latest = $svol->{SNAPSHOT_CREATED} ? 0 : 1;
 
@@ -3949,15 +3977,16 @@ MAIN:
 
             foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_snapshot_children($sroot, $svol))
             {
-              my $filename_info = parse_filename($child->{SUBVOL_PATH}, $snapdir . $snapshot_basename);
-              unless($filename_info) {
+              unless($child->{btrbk_date} &&
+                     ($child->{SUBVOL_DIR} eq $snapdir) &&
+                     ($child->{btrbk_basename} eq $snapshot_basename)) {
                 TRACE "Resume candidate does not match btrbk filename scheme, skipping: $child->{PRINT}";
                 next;
               }
 
               my @receive_targets = get_receive_targets($droot, $child);
               foreach(@receive_targets) {
-                unless(parse_filename($_->{SUBVOL_PATH}, $snapshot_basename, target_type => $droot->{CONFIG}->{target_type})) {
+                unless($_->{btrbk_direct_leaf} && ($_->{btrbk_basename} eq $snapshot_basename)) {
                   WARN "Receive target of resume candidate \"$child->{PRINT}\" exists at unexpected location \"$_->{PRINT}\", skipping";
                 }
               }
@@ -3970,7 +3999,7 @@ MAIN:
 
                 # check if the target would be preserved
                 push(@schedule, { value      => $child,
-                                  btrbk_date => $filename_info->{btrbk_date},
+                                  btrbk_date => $child->{btrbk_date},
                                   preserve   => $child->{FORCE_PRESERVE},
                                  });
               }
@@ -3982,13 +4011,13 @@ MAIN:
               # add all present backups to schedule, with no value
               # these are needed for correct results of schedule()
               foreach my $vol (@{vinfo_subvol_list($droot)}) {
-                my $filename_info = parse_filename($vol->{SUBVOL_PATH}, $snapshot_basename, target_type => $droot->{CONFIG}->{target_type});
-                unless($filename_info) {
+                next unless($vol->{node}{readonly});
+                unless($vol->{btrbk_direct_leaf} && ($vol->{btrbk_basename} eq $snapshot_basename)) {
                   TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                   next;
                 }
                 push(@schedule, { value      => undef,
-                                  btrbk_date => $filename_info->{btrbk_date},
+                                  btrbk_date => $vol->{btrbk_date},
                                   preserve   => $vol->{FORCE_PRESERVE},
                                  });
               }
@@ -4058,7 +4087,7 @@ MAIN:
     {
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $snapdir = config_key($svol, "snapshot_dir", postfix => '/') // "";
+          my $snapdir_ts = config_key($svol, "snapshot_dir", postfix => '/') // "";
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my $preserve_latest_snapshot = $svol->{SNAPSHOT_CREATED} ? 0 : "preserve forced: latest in list";
           my $preserve_latest_backup = $preserve_latest_snapshot;
@@ -4090,7 +4119,7 @@ MAIN:
             # delete backups
             #
             INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
-            unless(macro_delete($droot, $snapshot_basename, $droot,
+            unless(macro_delete($droot, "", $snapshot_basename, $droot,
                                 { today           => \@today,
                                   config_preserve_hash($droot, "target"),
                                   preserve_latest => $preserve_latest_backup,
@@ -4116,8 +4145,8 @@ MAIN:
             }
             next;
           }
-          INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir$snapshot_basename.*";
-          macro_delete($sroot, $snapdir . $snapshot_basename, $svol,
+          INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir_ts$snapshot_basename.*";
+          macro_delete($sroot, $snapdir_ts, $snapshot_basename, $svol,
                        { today           => \@today,
                          config_preserve_hash($svol, "snapshot"),
                          preserve_latest => $preserve_latest_snapshot,
