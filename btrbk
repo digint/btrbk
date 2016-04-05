@@ -1708,6 +1708,15 @@ sub get_receive_targets($$)
   my $droot_subvols = vinfo_subvol_list($droot);
   my @ret;
 
+  if($src_vol->{node}{is_root}) {
+    DEBUG "Skip search for targets: source subvolume is btrfs root: $src_vol->{PRINT}";
+    return @ret;
+  }
+  unless($src_vol->{node}{readonly}) {
+    DEBUG "Skip search for targets: source subvolume is not read-only: $src_vol->{PRINT}";
+    return @ret;
+  }
+
   if($droot->{BTRFS_PROGS_COMPAT})
   {
     # guess matches by subvolume name (node->received_uuid is not available if BTRFS_PROGS_COMPAT is set)
@@ -1724,12 +1733,23 @@ sub get_receive_targets($$)
   {
     # find matches by comparing uuid / received_uuid
     my $uuid = $src_vol->{node}{uuid};
+    my $received_uuid;
+    if($src_vol->{node}{received_uuid} ne '-') {
+      TRACE "get_receive_targets: source subvolume has received_uuid";
+      $received_uuid = $src_vol->{node}{received_uuid};
+    }
+
     die("subvolume info not present: $uuid") unless($uuid_cache{$uuid});
     foreach (@$droot_subvols) {
       next unless($_->{node}{readonly});
-      next unless($_->{node}{received_uuid} eq $uuid);
-      TRACE "get_receive_targets: by-uuid: Found receive target: $_->{SUBVOL_PATH}";
-      push(@ret, $_);
+      if($_->{node}{received_uuid} eq $uuid) {
+        TRACE "get_receive_targets: by-uuid: Found receive target: $_->{SUBVOL_PATH}";
+        push(@ret, $_);
+      }
+      elsif(defined($received_uuid) && ($_->{node}{received_uuid} eq $received_uuid)) {
+        TRACE "get_receive_targets: by-received_uuid: Found receive target: $_->{SUBVOL_PATH}";
+        push(@ret, $_);
+      }
     }
   }
   DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
