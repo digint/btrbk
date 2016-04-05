@@ -1236,12 +1236,24 @@ sub btr_tree($$)
   my %id = ( 5 => \%tree );
 
   $tree{TREE_ROOT} = \%tree;
+  $tree{ID_HASH} = \%id;
 
   my $node_list = btrfs_subvolume_list($vol);
   return undef unless(ref($node_list) eq "ARRAY");
+  my $vol_root;
 
   TRACE "btr_tree: processing subvolume list of: $vol->{PRINT}";
 
+  # check if we already know this tree
+  if((scalar @$node_list) && $uuid_cache{$node_list->[0]->{uuid}}) {
+    TRACE "uuid_cache HIT: $node_list->[0]->{uuid}";
+    $vol_root = $uuid_cache{$node_list->[0]->{uuid}}->{TREE_ROOT}->{ID_HASH}->{$vol_root_id};
+    die "Duplicate UUID on different file systems"  unless($vol_root);
+    TRACE "btr_tree: returning already parsed tree at id=$vol_root->{id}";
+    return $vol_root;
+  }
+
+  # fill ID_HASH and uuid_cache
   foreach my $node (@$node_list)
   {
     die if exists($id{$node->{id}});
@@ -1251,7 +1263,6 @@ sub btr_tree($$)
   }
 
   # note: it is possible that id < top_level, e.g. after restoring
-  my $vol_root;
   foreach my $node (@$node_list)
   {
     # set SUBTREE / TOP_LEVEL node
