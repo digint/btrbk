@@ -1773,36 +1773,48 @@ sub get_latest_common($$$;$)
   my $sroot = shift || die;
   my $svol = shift // die;
   my $droot = shift || die;
-  my $threshold_gen = shift;  # skip all snapshot children with generation (cgen) >= $threshold_gen
+  my $snapshot_dir = shift;  # if not set, skip search for btrbk basename (set to empty string to enable at current dir)
+  my $sroot_subvol_list = vinfo_subvol_list($sroot);
 
-  my $debug_src = $svol->{URL};
-  $debug_src .= "#" . $threshold_gen if($threshold_gen);
-
-  TRACE "get_latest_common: resolving latest common for subvolume: $svol->{PATH}  (sroot=$sroot->{PRINT}, droot=$droot->{PRINT})";
+  TRACE "get_latest_common: resolving latest common for subvolume: $svol->{PATH}  (sroot=$sroot->{PRINT}, droot=$droot->{PRINT}, snapdir=\"" . ($snapshot_dir // '<undef>') . "\")";
   my @candidate;
   if($svol->{node}{readonly}) {
-    my $sroot_subvol_list = vinfo_subvol_list($sroot);
-    if($svol->{node}{received_uuid} ne '-') {
-      if($svol->{node}{parent_uuid} ne '-') {
-        @candidate = grep { $_->{node}{uuid} eq $svol->{node}{parent_uuid} } @$sroot_subvol_list;
-        TRACE "get_latest_common: subvolume is a read-only receive target and has parents, add " . scalar(@candidate) . " parent candidates";
-      }
-      else {
-        TRACE "get_latest_common: subvolume is a read-only receive target without parent_uuid";
-      }
+    if($svol->{node}{parent_uuid} ne '-') {
+      # add readonly parent
+      @candidate = grep { $_->{node}{readonly} && ($_->{node}{uuid} eq $svol->{node}{parent_uuid}) } @$sroot_subvol_list;
+      die "multiple parents for $svol->{node}{parent_uuid}" if(scalar(@candidate) > 1);
+      TRACE "get_latest_common: subvolume has a read-only parent, add parent candidate" if(scalar(@candidate) > 0);
+
+      # add snapshots with same parent_uuid
+      my @brothers = grep { $_->{node}{readonly} && ($_->{node}{parent_uuid} eq $svol->{node}{parent_uuid}) } @$sroot_subvol_list;
+      my @brothers_older = grep { $_->{node}{cgen} <= $svol->{node}{cgen} } @brothers;
+      my @brothers_newer = grep { $_->{node}{cgen} >  $svol->{node}{cgen} } @brothers;
+      push @candidate, sort { $b->{node}{cgen} <=> $a->{node}{cgen} } @brothers_older; # older first, descending by cgen
+      push @candidate, sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @brothers_newer; # then newer, ascending by cgen
+      TRACE "get_latest_common: subvolume has brothers (same parent_uuid), add " . scalar(@brothers_older) . " older and " . scalar(@brothers_newer) . " newer (by cgen) candidates";
     }
-    # add all subvolumes in same directory matching btrbk file name scheme
-    my @naming_match = grep { $_->{node}{readonly} && $_->{btrbk_direct_leaf} && ($_->{btrbk_basename} eq $svol->{btrbk_basename}) } @$sroot_subvol_list;
-    my @naming_match_older = grep { cmp_date($_->{btrbk_date}, $svol->{btrbk_date}) < 0 } @naming_match;
-    my @naming_match_newer = grep { cmp_date($_->{btrbk_date}, $svol->{btrbk_date}) > 0 } @naming_match;
-    push @candidate, sort { cmp_date($b->{btrbk_date}, $a->{btrbk_date}) } @naming_match_older;
-    push @candidate, sort { cmp_date($a->{btrbk_date}, $b->{btrbk_date}) } @naming_match_newer;
-    TRACE "get_latest_common: subvolume is a receive target, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer candidates with btrbk naming scheme: $sroot->{PRINT}/$svol->{btrbk_basename}.*";
-    die if($threshold_gen);
+
+    if(defined($snapshot_dir) && defined($svol->{btrbk_basename})) {
+      # add subvolumes in same directory matching btrbk file name scheme
+      my @naming_match = grep { $_->{node}{readonly} && defined($_->{btrbk_basename}) && ($_->{SUBVOL_DIR} eq $snapshot_dir) && ($_->{btrbk_basename} eq $svol->{btrbk_basename}) } @$sroot_subvol_list;
+      my @naming_match_older = grep { cmp_date($_->{btrbk_date}, $svol->{btrbk_date}) < 0 } @naming_match;
+      my @naming_match_newer = grep { cmp_date($_->{btrbk_date}, $svol->{btrbk_date}) > 0 } @naming_match;
+      push @candidate, sort { cmp_date($b->{btrbk_date}, $a->{btrbk_date}) } @naming_match_older;
+      push @candidate, sort { cmp_date($a->{btrbk_date}, $b->{btrbk_date}) } @naming_match_newer;
+      TRACE "get_latest_common: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{btrbk_basename}.*";
+    }
   }
-  else {
+  else
+  {
     @candidate = sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($sroot, $svol);
     TRACE "get_latest_common: subvolume is read-write, add " . scalar(@candidate) . " snapshot children, sorted by cgen: $svol->{PATH}";
+
+    if(defined($snapshot_dir)) {
+      # add subvolumes in same directory matching btrbk file name scheme
+      my @naming_match = grep { $_->{node}{readonly} && defined($_->{btrbk_basename}) && ($_->{SUBVOL_DIR} eq $snapshot_dir) && ($_->{btrbk_basename} eq $svol->{NAME}) } @$sroot_subvol_list;
+      push @candidate, sort { cmp_date($b->{btrbk_date}, $a->{btrbk_date}) } @naming_match;
+      TRACE "get_latest_common: snapshot_dir is set, add " . scalar(@naming_match) . " candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{NAME}.*";
+    }
   }
 
 
@@ -1816,25 +1828,21 @@ sub get_latest_common($$$;$)
   }
 
   foreach my $child (@candidate) {
-    TRACE "get_latest_common: checking candidate: $child->{PRINT}";
-    if($threshold_gen && ($child->{node}{cgen} >= $threshold_gen)) {
-      TRACE "get_latest_common: skipped candidate gen=$child->{node}{cgen} >= $threshold_gen";
+    if($child->{node}{id} == $svol->{node}{id}) {
+      TRACE "get_latest_common: skip self: $child->{PRINT}";
       next;
     }
-
     if(my $received_subvol = $receive_target_present{$child->{node}{uuid}}) {
       # subvolume has been previously received
-      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=$received_subvol->{PRINT} (previously received)");
+      DEBUG("Latest common subvolumes for: $svol->{PRINT}: src=$child->{PRINT}  target=$received_subvol->{PRINT} (previously received)");
       return ($child, $received_subvol);
     }
-
     foreach (get_receive_targets($droot, $child)) {
-      DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=$_->{PRINT}");
+      DEBUG("Latest common subvolumes for: $svol->{PRINT}: src=$child->{PRINT}  target=$_->{PRINT}");
       return ($child, $_);
     }
-    TRACE "get_latest_common: no matching target found for candidate: $child->{PRINT}";
   }
-  DEBUG("No common subvolumes of \"$debug_src\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
+  DEBUG("No common subvolumes of \"$svol->{PRINT}\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
   return (undef, undef);
 }
 
@@ -4097,7 +4105,7 @@ MAIN:
               foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @resume)
               {
                 INFO "Resuming subvolume backup (send-receive) for: $child->{PRINT}";
-                my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $child->{node}{cgen});
+                my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $child, $droot, $snapdir);
                 if(macro_send_receive(source => $child,
                                       target => $droot,
                                       parent => $latest_common_src,  # this is <undef> if no common found
@@ -4129,7 +4137,7 @@ MAIN:
 
             # finally receive the previously created snapshot
             INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
-            my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
+            my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $snapdir);
             macro_send_receive(source => $svol->{SNAPSHOT_CREATED},
                                target => $droot,
                                parent => $latest_common_src,  # this is <undef> if no common found
