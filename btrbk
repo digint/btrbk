@@ -1778,6 +1778,34 @@ sub get_latest_common($$$;$)
   my $debug_src = $svol->{URL};
   $debug_src .= "#" . $threshold_gen if($threshold_gen);
 
+  TRACE "get_latest_common: resolving latest common for subvolume: $svol->{PATH}  (sroot=$sroot->{PRINT}, droot=$droot->{PRINT})";
+  my @candidate;
+  if($svol->{node}{readonly}) {
+    my $sroot_subvol_list = vinfo_subvol_list($sroot);
+    if($svol->{node}{received_uuid} ne '-') {
+      if($svol->{node}{parent_uuid} ne '-') {
+        @candidate = grep { $_->{node}{uuid} eq $svol->{node}{parent_uuid} } @$sroot_subvol_list;
+        TRACE "get_latest_common: subvolume is a read-only receive target and has parents, add " . scalar(@candidate) . " parent candidates";
+      }
+      else {
+        TRACE "get_latest_common: subvolume is a read-only receive target without parent_uuid";
+      }
+    }
+    # add all subvolumes in same directory matching btrbk file name scheme
+    my @naming_match = grep { $_->{node}{readonly} && $_->{btrbk_direct_leaf} && ($_->{btrbk_basename} eq $svol->{btrbk_basename}) } @$sroot_subvol_list;
+    my @naming_match_older = grep { cmp_date($_->{btrbk_date}, $svol->{btrbk_date}) < 0 } @naming_match;
+    my @naming_match_newer = grep { cmp_date($_->{btrbk_date}, $svol->{btrbk_date}) > 0 } @naming_match;
+    push @candidate, sort { cmp_date($b->{btrbk_date}, $a->{btrbk_date}) } @naming_match_older;
+    push @candidate, sort { cmp_date($a->{btrbk_date}, $b->{btrbk_date}) } @naming_match_newer;
+    TRACE "get_latest_common: subvolume is a receive target, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer candidates with btrbk naming scheme: $sroot->{PRINT}/$svol->{btrbk_basename}.*";
+    die if($threshold_gen);
+  }
+  else {
+    @candidate = sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($sroot, $svol);
+    TRACE "get_latest_common: subvolume is read-write, add " . scalar(@candidate) . " snapshot children, sorted by cgen: $svol->{PATH}";
+  }
+
+
   # keep track of already received subvolumes
   my %receive_target_present;
   if($droot->{SUBVOL_RECEIVED}) {
@@ -1787,11 +1815,10 @@ sub get_latest_common($$$;$)
     }
   }
 
-  # sort children of svol descending by generation
-  foreach my $child (sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($sroot, $svol)) {
-    TRACE "get_latest_common: checking source snapshot: $child->{SUBVOL_PATH}";
+  foreach my $child (@candidate) {
+    TRACE "get_latest_common: checking candidate: $child->{PRINT}";
     if($threshold_gen && ($child->{node}{cgen} >= $threshold_gen)) {
-      TRACE "get_latest_common: skipped gen=$child->{node}{cgen} >= $threshold_gen: $child->{SUBVOL_PATH}";
+      TRACE "get_latest_common: skipped candidate gen=$child->{node}{cgen} >= $threshold_gen";
       next;
     }
 
@@ -1805,7 +1832,7 @@ sub get_latest_common($$$;$)
       DEBUG("Latest common subvolumes for: $debug_src: src=$child->{PRINT}  target=$_->{PRINT}");
       return ($child, $_);
     }
-    TRACE "get_latest_common: no matching target found for: $child->{PRINT}";
+    TRACE "get_latest_common: no matching target found for candidate: $child->{PRINT}";
   }
   DEBUG("No common subvolumes of \"$debug_src\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
   return (undef, undef);
@@ -2452,6 +2479,18 @@ sub macro_delete($$$$$;@)
 }
 
 
+sub cmp_date($$)
+{
+  my ($a,$b) = @_;
+  return (($a->[0] <=> $b->[0]) ||
+          ($a->[1] <=> $b->[1]) ||
+          ($a->[2] <=> $b->[2]) ||
+          ($a->[3] <=> $b->[3]) ||
+          ($a->[4] <=> $b->[4]) ||
+          ($a->[5] <=> $b->[5]));
+}
+
+
 sub schedule(@)
 {
   my %args = @_;
@@ -2475,13 +2514,7 @@ sub schedule(@)
   DEBUG "Schedule: " . format_preserve_matrix(%preserve_matrix, format => "debug_text");
 
   # sort the schedule, ascending by date
-  my @sorted_schedule = sort { ($a->{btrbk_date}->[0] <=> $b->{btrbk_date}->[0]) ||
-                               ($a->{btrbk_date}->[1] <=> $b->{btrbk_date}->[1]) ||
-                               ($a->{btrbk_date}->[2] <=> $b->{btrbk_date}->[2]) ||
-                               ($a->{btrbk_date}->[3] <=> $b->{btrbk_date}->[3]) ||
-                               ($a->{btrbk_date}->[4] <=> $b->{btrbk_date}->[4]) ||
-                               ($a->{btrbk_date}->[5] <=> $b->{btrbk_date}->[5])
-                             } @$schedule;
+  my @sorted_schedule = sort { cmp_date($a->{btrbk_date}, $b->{btrbk_date} ) } @$schedule;
 
   # first, do our calendar calculations
   # note: our week starts on $preserve_day_of_week
