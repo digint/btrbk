@@ -288,16 +288,18 @@ sub ABORTED($;$)
 
 sub init_transaction_log($)
 {
-  my $file = shift // die;
-  if(open($tlog_fh, ">> $file"))
-  {
-     # print headers and startup message
-    print_formatted("transaction", [ ], output_format => "tlog", outfile => $tlog_fh);
-    INFO "Using transaction log: $file";
-  } else {
-    $tlog_fh = undef;
-    ERROR "Failed to open transaction log '$file': $!";
+  my $file = shift;
+  if(defined($file) && (not $dryrun)) {
+    if(open($tlog_fh, ">> $file")) {
+      # print headers
+      print_formatted("transaction", [ ], output_format => "tlog", outfile => $tlog_fh);
+      INFO "Using transaction log: $file";
+    } else {
+      $tlog_fh = undef;
+      ERROR "Failed to open transaction log '$file': $!";
+    }
   }
+  action("startup", status => "v$VERSION", message => "$version_info");
 }
 
 sub close_transaction_log()
@@ -3217,15 +3219,6 @@ MAIN:
 
 
   #
-  # open transaction log
-  #
-  if(($action_run || $action_clean) && (not $dryrun) && config_key($config, "transaction_log")) {
-    init_transaction_log(config_key($config, "transaction_log"));
-  }
-  action("startup", status => "v$VERSION", message => "$version_info");
-
-
-  #
   # filter subvolumes matching command line arguments
   #
   if(($action_run || $action_clean || $action_resolve || $action_usage || $action_list || $action_config_print) && scalar(@filter_args))
@@ -3840,6 +3833,8 @@ MAIN:
     #
     # identify and delete incomplete backups
     #
+    init_transaction_log(config_key($config, "transaction_log"));
+
     my @out;
     foreach my $sroot (vinfo_subsection($config, 'volume')) {
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
@@ -3935,6 +3930,8 @@ MAIN:
 
   if($action_run)
   {
+    init_transaction_log(config_key($config, "transaction_log"));
+
     if($resume_only) {
       INFO "Skipping snapshot creation (option \"-r\" present)";
     }
