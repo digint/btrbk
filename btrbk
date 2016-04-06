@@ -3861,12 +3861,16 @@ MAIN:
           }
           my $ret;
           if($target_type eq "raw") {
-            DEBUG "[raw] delete:";
-            DEBUG "[raw]   file: $_->{PRINT}" foreach(@delete);
-            $ret = run_cmd({
-              cmd  => ['rm', (map { $_->{PATH} } @delete) ],
-              rsh  => $droot->{RSH},
-            });
+            if(scalar(@delete)) {
+              DEBUG "[raw] delete:";
+              DEBUG "[raw]   file: $_->{PRINT}" foreach(@delete);
+              $ret = run_cmd({
+                cmd  => ['rm', (map { $_->{PATH} } @delete) ],
+                rsh  => $droot->{RSH},
+              });
+            } else {
+              $ret = 0;
+            }
           }
           else {
             $ret = btrfs_subvolume_delete(\@delete, commit => config_key($droot, "btrfs_commit_delete"), type => "delete_garbled");
