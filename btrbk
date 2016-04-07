@@ -1302,6 +1302,14 @@ sub btr_tree($$)
 }
 
 
+sub _fs_path
+{
+  my $node = shift // die;
+  return '<BTRFS_ROOT>' if($node->{is_root});
+  return _fs_path($node->{TOP_LEVEL}) . '/' . $node->{REL_PATH};
+}
+
+
 sub _is_child_of
 {
   my $node = shift;
@@ -1733,20 +1741,23 @@ sub get_snapshot_children($$)
 }
 
 
-sub get_receive_targets($$)
+sub get_receive_targets($$;@)
 {
   my $droot = shift || die;
   my $src_vol = shift || die;
+  my %opts = @_;
   my $droot_subvols = vinfo_subvol_list($droot);
-  my @ret;
+  my @ret_receive_targets;
+  my @all_receive_targets;
+  my $unexpected_count = 0;
 
   if($src_vol->{node}{is_root}) {
     DEBUG "Skip search for targets: source subvolume is btrfs root: $src_vol->{PRINT}";
-    return @ret;
+    return @ret_receive_targets;
   }
   unless($src_vol->{node}{readonly}) {
     DEBUG "Skip search for targets: source subvolume is not read-only: $src_vol->{PRINT}";
-    return @ret;
+    return @ret_receive_targets;
   }
 
   if($droot->{BTRFS_PROGS_COMPAT})
@@ -1757,7 +1768,7 @@ sub get_receive_targets($$)
       next unless($target->{node}{readonly});
       if($target->{NAME} eq $src_vol->{NAME}) {
         TRACE "get_receive_targets: by-name: Found receive target: $target->{SUBVOL_PATH}";
-        push(@ret, $target);
+        push(@ret_receive_targets, $target);
       }
     }
   }
@@ -1774,18 +1785,51 @@ sub get_receive_targets($$)
     die("subvolume info not present: $uuid") unless($uuid_cache{$uuid});
     foreach (@$droot_subvols) {
       next unless($_->{node}{readonly});
+      my $matched = undef;
       if($_->{node}{received_uuid} eq $uuid) {
-        TRACE "get_receive_targets: by-uuid: Found receive target: $_->{SUBVOL_PATH}";
-        push(@ret, $_);
+        $matched = 'by-uuid';
       }
       elsif(defined($received_uuid) && ($_->{node}{received_uuid} eq $received_uuid)) {
-        TRACE "get_receive_targets: by-received_uuid: Found receive target: $_->{SUBVOL_PATH}";
-        push(@ret, $_);
+        $matched = 'by-received_uuid';
+      }
+      if($matched) {
+        push(@all_receive_targets, $_);
+        if($opts{exact_match}) {
+          unless($_->{direct_leaf} && ($_->{NAME} eq $src_vol->{NAME})) {
+            TRACE "get_receive_targets: $matched: skip non-exact match: $_->{PRINT}";
+            WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $_->{PRINT}" if($opts{warn_unexpected});
+            $unexpected_count++;
+            next;
+          }
+        }
+        TRACE "get_receive_targets: $matched: Found receive target: $_->{SUBVOL_PATH}";
+        push(@ret_receive_targets, $_);
       }
     }
+
+    if($opts{warn_unexpected}) {
+      # search in filesystem for matching received_uuid
+      my @fs_match = grep({ (not $_->{is_root}) &&
+                            (($_->{received_uuid} eq $uuid) ||
+                             (defined($received_uuid) && ($_->{received_uuid} eq $received_uuid)))
+                           } values(%{$droot->{node}{TREE_ROOT}{ID_HASH}}) );
+      foreach my $node (@fs_match) {
+        next if(scalar grep( { $_->{node}{id} == $node->{id} } @all_receive_targets));
+        my $text;
+        my @url = get_cached_url_by_uuid($node->{uuid});
+        if(scalar(@url)) {
+          $text = vinfo($url[0])->{PRINT};
+        } else {
+          $text = '"' . _fs_path($node) . "\" (in filesystem at \"$droot->{PRINT}\")";
+        }
+        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $text";
+        $unexpected_count++;
+      }
+    }
+    ${$opts{ret_unexpected}} = $unexpected_count if(ref $opts{ret_unexpected});
   }
-  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
-  return @ret;
+  DEBUG "Found " . scalar(@ret_receive_targets) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
+  return @ret_receive_targets;
 }
 
 
@@ -4055,26 +4099,17 @@ MAIN:
                 TRACE "Resume candidate does not match btrbk filename scheme, skipping: $child->{PRINT}";
                 next;
               }
+              next if(scalar(get_receive_targets($droot, $child, exact_match => 1, warn_unexpected => 1)));
 
-              my @receive_targets = get_receive_targets($droot, $child);
-              foreach(@receive_targets) {
-                unless($_->{btrbk_direct_leaf} && ($_->{BTRBK_BASENAME} eq $snapshot_basename)) {
-                  WARN "Receive target of resume candidate \"$child->{PRINT}\" exists at unexpected location \"$_->{PRINT}\", skipping";
-                }
+              if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
+                WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
               }
-              unless(scalar @receive_targets) {
-                DEBUG "Adding resume candidate: $child->{PRINT}";
 
-                if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
-                  WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
-                }
-
-                # check if the target would be preserved
-                push(@schedule, { value      => $child,
-                                  btrbk_date => $child->{BTRBK_DATE},
-                                  preserve   => $child->{FORCE_PRESERVE},
-                                 });
-              }
+              DEBUG "Adding resume candidate: $child->{PRINT}";
+              push(@schedule, { value      => $child,
+                                btrbk_date => $child->{BTRBK_DATE},
+                                preserve   => $child->{FORCE_PRESERVE},
+                              });
             }
 
             if(scalar @schedule)
