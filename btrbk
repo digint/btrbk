@@ -1398,6 +1398,8 @@ sub vinfo($;$)
       PATH       => $path,
       PRINT      => "$host:$path",
       URL_PREFIX => "ssh://$host",
+      RSH_TYPE   => "UNKNOWN",
+      RSH        => [ '/bin/false' ],
      );
     if($config) {
       my $ssh_port        = config_key($config, "ssh_port");
