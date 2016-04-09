@@ -1,4 +1,4 @@
-.TH "btrbk" "1" "2016-02-03" "btrbk v0.22.2" ""
+.TH "btrbk" "1" "2016-04-09" "btrbk v0.23.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -11,7 +11,7 @@ btrbk \- backup tool for btrfs volumes
       [\-n|\-\-dry\-run] [\-p|\-\-preserve] [\-r|\-\-resume\-only]
       [\-v|\-\-verbose] [\-q|\-\-quiet] [\-l|\-\-loglevel <level>]
       [\-t|\-\-table] [\-\-format <output\-format>]
-      [\-\-progress]
+      [\-\-progress] [\-\-print\-schedule]
       <command> [<args>]
 .fi
 .SH DESCRIPTION
@@ -74,8 +74,7 @@ set to \[lq]yes\[rq] in the configuration file.
 .PP
 \-v, \-\-verbose
 .RS 4
-Verbose output. Sets "\-l info", and prints detailed scheduler
-information on "run" and "dryrun" commands.
+Verbose output (shortcut for "\-\-loglevel=info").
 .RE
 .PP
 \-q, \-\-quiet
@@ -106,6 +105,13 @@ commands. Useful for further exporting/scripting.
 \-\-progress
 .RS 4
 Show progress bar on send-receive operation.
+.RE
+.PP
+\-\-print\-schedule
+.RS 4
+Print detailed scheduler information on "run" and "dryrun"
+commands. Use the \fI\-\-format\fR command line option to switch
+between different output formats.
 .RE
 .SH COMMANDS
 .PP
