@@ -2634,11 +2634,11 @@ sub schedule(@)
     $href->{preserve} ||= $preserve_latest;
   }
 
-  my %last_in_delta_hours;
-  my %last_in_delta_days;
+  my %first_in_delta_hours;
+  my %first_in_delta_days;
   my %first_in_delta_weeks;
-  my %last_weekly_in_delta_months;
-  my %last_monthly_in_delta_years;
+  my %first_weekly_in_delta_months;
+  my %first_monthly_in_delta_years;
 
   # filter "preserve all within N days/weeks/..."
   foreach my $href (@sorted_schedule) {
@@ -2657,21 +2657,21 @@ sub schedule(@)
         $href->{preserve} ||= "preserve all: $href->{delta_years} years ago"   if($href->{delta_years}  <= $preserve_all_n);
       }
     }
-    $last_in_delta_hours{$href->{delta_hours}} = $href;
+    $first_in_delta_hours{$href->{delta_hours}} //= $href;
   }
 
   # filter hourly, daily, weekly, monthly, yearly
-  foreach (sort {$b <=> $a} keys %last_in_delta_hours) {
-    my $href = $last_in_delta_hours{$_} || die;
+  foreach (sort {$b <=> $a} keys %first_in_delta_hours) {
+    my $href = $first_in_delta_hours{$_} || die;
     if($preserve_hourly && (($preserve_hourly eq 'all') || $href->{delta_hours} <= $preserve_hourly)) {
-      $href->{preserve} ||= "preserved hourly: last present of hour, $href->{delta_hours} hours ago";
+      $href->{preserve} ||= "preserved hourly: first present of hour, $href->{delta_hours} hours ago";
     }
-    $last_in_delta_days{$href->{delta_days}} = $href;
+    $first_in_delta_days{$href->{delta_days}} //= $href;
   }
-  foreach (sort {$b <=> $a} keys %last_in_delta_days) {
-    my $href = $last_in_delta_days{$_} || die;
+  foreach (sort {$b <=> $a} keys %first_in_delta_days) {
+    my $href = $first_in_delta_days{$_} || die;
     if($preserve_daily && (($preserve_daily eq 'all') || ($href->{delta_days} <= $preserve_daily))) {
-      $href->{preserve} ||= "preserved daily: last present of day, $href->{delta_days} days ago";
+      $href->{preserve} ||= "preserved daily: first present of day, $href->{delta_days} days ago";
     }
     $first_in_delta_weeks{$href->{delta_weeks}} //= $href;
   }
@@ -2681,19 +2681,19 @@ sub schedule(@)
     if($preserve_weekly && (($preserve_weekly eq 'all') || ($href->{delta_weeks} <= $preserve_weekly))) {
       $href->{preserve} ||= "preserved weekly: $href->{delta_weeks} weeks ago, $href->{err_days_text}";
     }
-    $last_weekly_in_delta_months{$href->{delta_months}} = $href;
+    $first_weekly_in_delta_months{$href->{delta_months}} //= $href;
   }
-  foreach (sort {$b <=> $a} keys %last_weekly_in_delta_months) {
-    my $href = $last_weekly_in_delta_months{$_} || die;
+  foreach (sort {$b <=> $a} keys %first_weekly_in_delta_months) {
+    my $href = $first_weekly_in_delta_months{$_} || die;
     if($preserve_monthly && (($preserve_monthly eq 'all') || ($href->{delta_months} <= $preserve_monthly))) {
-      $href->{preserve} ||= "preserved monthly: last present weekly of month $href->{month} ($href->{delta_months} months ago, $href->{err_days_text})";
+      $href->{preserve} ||= "preserved monthly: first present weekly of month $href->{month} ($href->{delta_months} months ago, $href->{err_days_text})";
     }
-    $last_monthly_in_delta_years{$href->{delta_years}} = $href;
+    $first_monthly_in_delta_years{$href->{delta_years}} //= $href;
   }
-  foreach (sort {$b <=> $a} keys %last_monthly_in_delta_years) {
-    my $href = $last_monthly_in_delta_years{$_} || die;
+  foreach (sort {$b <=> $a} keys %first_monthly_in_delta_years) {
+    my $href = $first_monthly_in_delta_years{$_} || die;
     if($preserve_yearly && (($preserve_yearly eq 'all') || ($href->{delta_years} <= $preserve_yearly))) {
-      $href->{preserve} ||= "preserved yearly: last present weekly of year $href->{year} ($href->{delta_years} years ago, $href->{err_days_text})";
+      $href->{preserve} ||= "preserved yearly: first present weekly of year $href->{year} ($href->{delta_years} years ago, $href->{err_days_text})";
     }
   }
 
@@ -2747,13 +2747,13 @@ sub format_preserve_matrix($@)
     }
     else {
       push @out, "preserving all within $preserve->{all_n} $trans{$preserve->{all_q}}" if($preserve->{all_n} && $preserve->{all_q});
-      push @out, "last present daily for $preserve->{d} days" if($preserve->{d});
+      push @out, "first present daily for $preserve->{d} days" if($preserve->{d});
       unless($preserve->{d} && ($preserve->{d} eq 'all')) {
         push @out, "first daily in week (starting on $preserve->{dow}) for $preserve->{w} weeks" if($preserve->{w});
         unless($preserve->{w} && ($preserve->{w} eq 'all')) {
-          push @out, "last weekly of month for $preserve->{m} months" if($preserve->{m});
+          push @out, "first weekly of month for $preserve->{m} months" if($preserve->{m});
           unless($preserve->{m} && ($preserve->{m} eq 'all')) {
-            push @out, "last weekly of year for $preserve->{y} years" if($preserve->{y});
+            push @out, "first weekly of year for $preserve->{y} years" if($preserve->{y});
           }
         }
       }

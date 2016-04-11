@@ -1,4 +1,4 @@
-.TH "btrbk.conf" "5" "2016-03-31" "btrbk v0.23.0-dev" ""
+.TH "btrbk.conf" "5" "2016-04-12" "btrbk v0.23.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -247,7 +247,7 @@ With the following semantics:
 .B hourly
 .RS 4
 Defines how many hours back hourly backups should be preserved. The
-last backup of an hour is considered an hourly backup. Note that if
+first backup of an hour is considered an hourly backup. Note that if
 you use <hourly> scheduling, make sure to also set
 \fItimestamp_format\fR to \[lq]long\[rq], or the scheduler will
 interpret the time as "00:00" (midnight).
@@ -256,7 +256,7 @@ interpret the time as "00:00" (midnight).
 .B daily
 .RS 4
 Defines how many days back daily backups should be preserved. The
-last backup of a day is considered a daily backup.
+first backup of a day is considered a daily backup.
 .RE
 .PP
 .B weekly
@@ -270,14 +270,14 @@ as a weekly backup.
 .B monthly
 .RS 4
 Defines how many months back monthly backups should be
-preserved. Every last weekly backup in a month is considered a
+preserved. Every first weekly backup in a month is considered a
 monthly backup.
 .RE
 .PP
 .B yearly
 .RS 4
 Defines for how many years back yearly backups should be
-preserved. Every last monthly backup in a year is considered a yearly
+preserved. Every first monthly backup in a year is considered a yearly
 backup.
 .RE
 .PP
