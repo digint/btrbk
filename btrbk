@@ -4261,7 +4261,7 @@ MAIN:
     #
     my $schedule_results = [];
     if($preserve_backups || $resume_only) {
-      INFO "Preserving all backups (option \"-p\" or \"-r\" present)";
+      INFO "Preserving all snapshots and backups (option \"-p\" or \"-r\" present)";
     }
     else
     {
@@ -4450,7 +4450,7 @@ MAIN:
           print "\nNOTE: No snapshots created (option -r present)\n";
         }
         if($preserve_backups || $resume_only) {
-          print "\nNOTE: Preserved all backups (option -p or -r present)\n";
+          print "\nNOTE: Preserved all snapshots and backups (option -p or -r present)\n";
         }
         if($exit_status) {
           print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
