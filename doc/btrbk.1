@@ -1,4 +1,4 @@
-.TH "btrbk" "1" "2016-04-09" "btrbk v0.23.0-dev" ""
+.TH "btrbk" "1" "2016-04-11" "btrbk v0.23.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -17,8 +17,8 @@ btrbk \- backup tool for btrfs volumes
 .SH DESCRIPTION
 \fBbtrbk\fR is a backup tool for btrfs subvolumes, taking advantage of
 btrfs specific capabilities to create atomic snapshots and transfer
-them incrementally to target volumes. It is able to perform backups
-from one source to multiple destinations.
+them incrementally to a target btrfs filesystem. It is able to perform
+backups from one source to multiple destinations.
 .PP
 Snapshots as well as backup subvolume names are created in form:
 .PP
@@ -33,7 +33,7 @@ unless the configuration option \fIsnapshot_name\fR is set. The
 year, "MM" is the month, "DD" is the day, "hh" is the hour and "mm" is
 the minute of the creation time (local time of the host running
 btrbk). If multiple snapshots/backups are created on the same
-date/time, N will be incremented on each backup, starting at 1.
+date/time, N will be incremented on each snapshot, starting at 1.
 .SH OPTIONS
 .PP
 \-h, \-\-help
@@ -61,8 +61,8 @@ Read the configuration from <file>.
 .PP
 \-p, \-\-preserve
 .RS 4
-Preserve all backups. Skips deletion of old backups, even if specified
-in the configuration file.
+Preserve all snapshots and backups. Skips deletion of any snapshots
+and backups, even if specified in the configuration file.
 .RE
 .PP
 \-r, \-\-resume-only
@@ -118,10 +118,10 @@ between different output formats.
 .B run
 [filter...]
 .RS 4
-Perform backup operations as specified in the configuration file. If
-the optional [filter...] arguments are present, backups are only
-performed for the subvolumes/targets matching a \fIFILTER STATEMENT\fR
-(see below).
+Perform snapshot and backup operations as specified in the
+configuration file. If the optional [filter...] arguments are present,
+snapshots and backups are only performed for the subvolumes/targets
+matching a \fIFILTER STATEMENT\fR (see below).
 .PP
 First, btrbk reads information from the source and target btrfs
 filesystems in order to perform sanity checks and identify
@@ -133,17 +133,18 @@ subvolumes specified in the configuration file.
 Then, for each specified target, btrbk creates the backups as follows:
 If the \fIresume_missing\fR option is set (the default), btrbk
 transfers all missing snapshots needed to satisfy the configured
-\fItarget_preserve_{daily,weekly,monthly}\fR retention policy, always
-incrementally from the latest common parent subvolume found. If no
-common parent subvolume is found, a full backup is created for the
-first transfer. Note that the latest snapshot (the one created in the
-first step) is always transferred, regardless of the retention policy.
-.PP
-As a last step, unless the -p (preserve backups) option is set,
-snapshots and backup subvolumes that are not preserved by their
-configured retention policy will be deleted. Note that the latest
-snapshot as well as the latest backup is always preserved, regardless
+\fItarget_preserve\fR retention policy, incrementally from the latest
+common parent subvolume found. If no common parent subvolume is found
+(or if the \fIincremental\fR option is set to \[lq]no\[rq]), a full
+(non-incremental) backup is created. Note that the latest snapshot
+(the one created in the first step) is always transferred, regardless
 of the retention policy.
+.PP
+As a last step, unless the \-p (\-\-preserve) option is set, snapshots
+and backup subvolumes that are not preserved by their configured
+retention policy will be deleted. Note that the latest snapshot as
+well as the latest backup is always preserved, regardless of the
+retention policy.
 .PP
 Use the \fI\-\-format\fR command line option to switch between
 different output formats.
