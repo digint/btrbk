@@ -80,9 +80,9 @@ my %config_options = (
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   snapshot_preserve           => { default => undef,     accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
-  snapshot_preserve_min       => { default => '12h',     accept => [ "all", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
   target_preserve             => { default => undef,     accept_preserve_matrix => 1 },
-  target_preserve_min         => { default => undef,     accept => [ "all", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
+  snapshot_preserve_min       => { default => '12h',     accept => [ "all", "latest"       ], accept_regexp => qr/^[0-9]+[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
+  target_preserve_min         => { default => undef,     accept => [ "all", "latest", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
@@ -2089,8 +2089,8 @@ sub config_preserve_hash($$)
   my $preserve_min = config_key($config, $prefix . "_preserve_min");
   if(defined($preserve_min)) {
     $ret->{min} = $preserve_min;  # used for raw schedule output
-    if($preserve_min eq 'all') {
-      $ret->{min_n} = 'all';
+    if(($preserve_min eq 'all') || ($preserve_min eq 'latest')) {
+      $ret->{min_q} = $preserve_min;
     }
     elsif($preserve_min =~ /^([0-9]+)([hdwmy])$/) {
       $ret->{min_n} = $1;
@@ -2712,8 +2712,8 @@ sub schedule(@)
 
   # filter "preserve all within N days/weeks/..."
   foreach my $href (@sorted_schedule) {
-    if($preserve_min_n) {
-      if($preserve_min_n eq 'all') {
+    if($preserve_min_q) {
+      if($preserve_min_q eq 'all') {
         $href->{preserve} ||= "preserve min: all";
       } elsif($preserve_min_q eq 'h') {
         $href->{preserve} ||= "preserve min: $href->{delta_hours} hours ago"   if($href->{delta_hours}  <= $preserve_min_n);
@@ -2728,6 +2728,10 @@ sub schedule(@)
       }
     }
     $first_in_delta_hours{$href->{delta_hours}} //= $href;
+  }
+  if($preserve_min_q && ($preserve_min_q eq 'latest') && (scalar @sorted_schedule)) {
+    my $href = $sorted_schedule[-1];
+    $href->{preserve} ||= 'preserve min: latest';
   }
 
   # filter hourly, daily, weekly, monthly, yearly
@@ -2812,7 +2816,7 @@ sub format_preserve_matrix($@)
   if($format eq "debug_text") {
     my @out;
     my %trans = ( h => 'hours', d => 'days', w => 'weeks', m => 'months', y => 'years' );
-    if($preserve->{min_n} && $preserve->{min_n} eq 'all') {
+    if($preserve->{min_q} && ($preserve->{min_q} eq 'all')) {
       push @out, "preserving all forever";
     }
     else {
@@ -2832,7 +2836,7 @@ sub format_preserve_matrix($@)
   }
 
   my $s = "";
-  if($preserve->{min_n} && ($preserve->{min_n} eq 'all')) {
+  if($preserve->{min_q} && ($preserve->{min_q} eq 'all')) {
     $s = '*d+';
   }
   else {

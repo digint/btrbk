@@ -126,11 +126,13 @@ non-incremental (initial) backups are never created. Defaults to
 Set retention policy for snapshots (see RETENTION POLICY below).
 .RE
 .PP
-\fBsnapshot_preserve_min\fR  all|no|<number>{h,d,w,m,y}
+\fBsnapshot_preserve_min\fR  all|latest|<number>{h,d,w,m,y}
 .RS 4
 Preserve all snapshots for a minimum amount of hours (h), days (d),
 weeks (w), months (m) or years (y), regardless of how many there
-are. Defaults to \[lq]12h\[rq].
+are. If set to \[lq]all\[rq], preserve all snapshots forever. If set
+to \[lq]latest\[rq], keep latest snapshot (useful only in conjunction
+with "snapshot_create no"). Defaults to \[lq]12h\[rq].
 .RE
 .PP
 \fBtarget_preserve\fR  <retention_policy>
@@ -138,11 +140,15 @@ are. Defaults to \[lq]12h\[rq].
 Set retention policy for backups (see RETENTION POLICY below).
 .RE
 .PP
-\fBtarget_preserve_min\fR  all|no|<number>{h,d,w,m,y}
+\fBtarget_preserve_min\fR  all|latest|no|<number>{h,d,w,m,y}
 .RS 4
 Preserve all backups for a minimum amount of hours (h), days (d),
 weeks (w), months (m) or years (y), regardless of how many there
-are. Defaults to \[lq]no\[rq].
+are. If set to \[lq]all\[rq], preserve all backups forever. If set to
+\[lq]latest\[rq], always preserve the latest backup (useful in
+conjunction with "target_preserve no", if you want to keep the latest
+backup only). If set to \[lq]no\[rq], only the backups following the
+\fItarget_preserve\fR policy are created. Defaults to \[lq]no\[rq].
 .RE
 .PP
 \fBpreserve_day_of_week\fR  monday|tuesday|...|sunday
