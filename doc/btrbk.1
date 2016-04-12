@@ -67,9 +67,8 @@ and backups, even if specified in the configuration file.
 .PP
 \-r, \-\-resume-only
 .RS 4
-Resume only. Skips snapshot creation, only resumes missing
-backups. This only makes sense if the \fIresume_missing\fR option is
-set to \[lq]yes\[rq] in the configuration file.
+Resume only. Skips snapshot creation, only resumes missing backups to
+satisfy the target retention policy.
 .RE
 .PP
 \-v, \-\-verbose
@@ -131,19 +130,17 @@ If the checks succeed, btrbk creates snapshots for all the source
 subvolumes specified in the configuration file.
 .PP
 Then, for each specified target, btrbk creates the backups as follows:
-If the \fIresume_missing\fR option is set (the default), btrbk
-transfers all missing snapshots needed to satisfy the configured
-\fItarget_preserve\fR retention policy, incrementally from the latest
+After the backups in the target directory are compared to the source
+snapshots, btrbk transfers all missing snapshots needed to satisfy the
+configured target retention policy, incrementally from the latest
 common parent subvolume found. If no common parent subvolume is found
 (or if the \fIincremental\fR option is set to \[lq]no\[rq]), a full
-(non-incremental) backup is created. Note that the latest snapshot
-(the one created in the first step) is always transferred, regardless
-of the retention policy.
+(non-incremental) backup is created.
 .PP
 As a last step, unless the \-p (\-\-preserve) option is set, snapshots
 and backup subvolumes that are not preserved by their configured
-retention policy will be deleted. Note that the latest snapshot as
-well as the latest backup is always preserved, regardless of the
+retention policy will be deleted. Note that the latest snapshot (the
+one created in the first step) is always preserved, regardless of the
 retention policy.
 .PP
 Use the \fI\-\-format\fR command line option to switch between

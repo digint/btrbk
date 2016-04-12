@@ -262,7 +262,6 @@ to only fetch the snapshots.
         snapshot_dir             btrbk_snapshots
         snapshot_preserve_all    forever
         snapshot_create          no
-        resume_missing           yes
 
         target_preserve          0d 10w *m
 

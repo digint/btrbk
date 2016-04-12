@@ -78,7 +78,6 @@ my %config_options = (
   snapshot_name               => { default => undef,     accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
-  resume_missing              => { default => "yes",     accept => [ "yes", "no" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   snapshot_preserve           => { default => undef,     accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
   snapshot_preserve_all       => { default => '12h',     accept => [ "forever", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
@@ -111,11 +110,17 @@ my %config_options = (
   snapshot_preserve_monthly   => { default => 'all',     accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
                                    deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
   target_preserve_daily       => { default => 'all',     accept => [ "all" ], accept_numeric => 1,
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_all"' } } },
   target_preserve_weekly      => { default => 0,         accept => [ "all" ], accept_numeric => 1,
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_all"' } } },
   target_preserve_monthly     => { default => 'all',     accept => [ "all" ], accept_numeric => 1,
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_all"' } } },
+  resume_missing              => { default => "yes",     accept => [ "yes", "no" ],
+                                   deprecated => { yes => { warn => 'ignoring' },
+                                                   no  => { warn => 'Please use "target_preserve_all latest" and "target_preserve no"',
+                                                            replace_key   => 'target_preserve',
+                                                            replace_value => 'no',
+                                                          } } },
   snapshot_create_always      => { default => undef, accept => [ "yes", "no" ],
                                    deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
                                                             replace_key   => "snapshot_create",
@@ -4221,89 +4226,82 @@ MAIN:
         my $preserve_latest = $svol->{SNAPSHOT_CREATED} ? 0 : 1;
 
         foreach my $droot (vinfo_subsection($svol, 'target')) {
-          #
-          # resume missing backups (resume_missing)
-          #
-          if(config_key($droot, "resume_missing"))
-          {
-            INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
-            my @schedule;
-            my $resume_total = 0;
-            my $resume_success = 0;
+          INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
+          my @schedule;
+          my $resume_total = 0;
+          my $resume_success = 0;
 
-            foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_snapshot_children($sroot, $svol))
-            {
-              unless($child->{BTRBK_DATE} &&
-                     ($child->{SUBVOL_DIR} eq $snapdir) &&
-                     ($child->{BTRBK_BASENAME} eq $snapshot_basename)) {
-                TRACE "Resume candidate does not match btrbk filename scheme, skipping: $child->{PRINT}";
+          foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_snapshot_children($sroot, $svol))
+          {
+            unless($child->{BTRBK_DATE} &&
+                   ($child->{SUBVOL_DIR} eq $snapdir) &&
+                   ($child->{BTRBK_BASENAME} eq $snapshot_basename)) {
+              TRACE "Backup candidate does not match btrbk filename scheme, skipping: $child->{PRINT}";
+              next;
+            }
+            next if(scalar(get_receive_targets($droot, $child, exact_match => 1, warn_unexpected => 1)));
+
+            if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
+              WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
+            }
+
+            DEBUG "Adding backup candidate: $child->{PRINT}";
+            push(@schedule, { value      => $child,
+                              btrbk_date => $child->{BTRBK_DATE},
+                              # not enforcing resuming of latest snapshot anymore (since v0.23.0)
+                              # preserve   => $child->{node}{FORCE_PRESERVE},
+                            });
+          }
+
+          if(scalar @schedule)
+          {
+            DEBUG "Checking schedule for backup candidates";
+            # add all present backups to schedule, with no value
+            # these are needed for correct results of schedule()
+            foreach my $vol (@{vinfo_subvol_list($droot)}) {
+              next unless($vol->{node}{readonly});
+              unless($vol->{btrbk_direct_leaf} && ($vol->{BTRBK_BASENAME} eq $snapshot_basename)) {
+                TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                 next;
               }
-              next if(scalar(get_receive_targets($droot, $child, exact_match => 1, warn_unexpected => 1)));
-
-              if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
-                WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
-              }
-
-              DEBUG "Adding resume candidate: $child->{PRINT}";
-              push(@schedule, { value      => $child,
-                                btrbk_date => $child->{BTRBK_DATE},
-                                # not enforcing resuming of latest snapshot anymore (since v0.23.0)
-                                # preserve   => $child->{node}{FORCE_PRESERVE},
+              push(@schedule, { value      => undef,
+                                btrbk_date => $vol->{BTRBK_DATE},
+                                preserve   => $vol->{node}{FORCE_PRESERVE},
                               });
             }
+            my ($preserve, undef) = schedule(
+              schedule         => \@schedule,
+              preserve         => config_preserve_hash($droot, "target"),
+              preserve_latest  => $preserve_latest,
+             );
+            my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
+            $resume_total = scalar @resume;
 
-            if(scalar @schedule)
+            foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @resume)
             {
-              DEBUG "Checking schedule for resume candidates";
-              # add all present backups to schedule, with no value
-              # these are needed for correct results of schedule()
-              foreach my $vol (@{vinfo_subvol_list($droot)}) {
-                next unless($vol->{node}{readonly});
-                unless($vol->{btrbk_direct_leaf} && ($vol->{BTRBK_BASENAME} eq $snapshot_basename)) {
-                  TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
-                  next;
-                }
-                push(@schedule, { value      => undef,
-                                  btrbk_date => $vol->{BTRBK_DATE},
-                                  preserve   => $vol->{node}{FORCE_PRESERVE},
-                                 });
-              }
-              my ($preserve, undef) = schedule(
-                schedule         => \@schedule,
-                preserve         => config_preserve_hash($droot, "target"),
-                preserve_latest  => $preserve_latest,
-               );
-              my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
-              $resume_total = scalar @resume;
-
-              foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @resume)
+              INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
+              my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $child, $droot, $snapdir);
+              if(macro_send_receive(source => $child,
+                                    target => $droot,
+                                    parent => $latest_common_src,  # this is <undef> if no common found
+                                    latest_common_target => $latest_common_target,
+                                   ))
               {
-                INFO "Resuming subvolume backup (send-receive) for: $child->{PRINT}";
-                my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $child, $droot, $snapdir);
-                if(macro_send_receive(source => $child,
-                                      target => $droot,
-                                      parent => $latest_common_src,  # this is <undef> if no common found
-                                      latest_common_target => $latest_common_target,
-                                      resume => 1,     # propagated to $droot->{SUBVOL_RECEIVED}
-                                     ))
-                {
-                  $resume_success++;
-                }
-                else {
-                  # note: ABORTED flag is already set by macro_send_receive()
-                  ERROR("Error while resuming backups, aborting");
-                  last;
-                }
+                $resume_success++;
+              }
+              else {
+                # note: ABORTED flag is already set by macro_send_receive()
+                ERROR("Error while resuming backups, aborting");
+                last;
               }
             }
+          }
 
-            if($resume_total) {
-              INFO "Resumed $resume_success/$resume_total missing backups";
-            } else {
-              INFO "No missing backups found";
-            }
-          } # /resume_missing
+          if($resume_total) {
+            INFO "Created $resume_success/$resume_total missing backups";
+          } else {
+            INFO "No missing backups found";
+          }
         }
       }
     }
@@ -4493,7 +4491,6 @@ MAIN:
                        "---  deleted subvolume",
                        "***  received subvolume (non-incremental)",
                        ">>>  received subvolume (incremental)",
-                       # "%>>  received subvolume (incremental, resume_missing)",
                       ],
                     );
 

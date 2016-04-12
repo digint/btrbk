@@ -110,9 +110,8 @@ if the source subvolume has changed since the last snapshot (more
 precisely: if the btrfs generation has been increased since the last
 snapshot). If set to \[lq]always\[rq], snapshots are always
 created. If set to \[lq]no\[rq], the snapshots are never created
-(useful in conjunction with the \fIresume_missing\fR option if another
-instance of btrbk is taking care of snapshot creation). Defaults to
-\[lq]always\[rq].
+(useful if another instance of btrbk is taking care of snapshot
+creation). Defaults to \[lq]always\[rq].
 .RE
 .PP
 \fBincremental\fR  yes|no|strict
@@ -120,13 +119,6 @@ instance of btrbk is taking care of snapshot creation). Defaults to
 If set, incremental backups are created. If set to \[lq]strict\[rq],
 non-incremental (initial) backups are never created. Defaults to
 \[lq]yes\[rq].
-.RE
-.PP
-\fBresume_missing\fR  yes|no
-.RS 4
-If set, the backups in the target directory are compared to the source
-snapshots, and missing backups are created if needed (complying to the
-target preserve matrix). Defaults to \[lq]yes\[rq].
 .RE
 .PP
 \fBsnapshot_preserve\fR  <retention_policy>
