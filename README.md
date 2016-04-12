@@ -144,7 +144,7 @@ Retention policy:
 
 /etc/btrbk/btrbk-mylaptop.conf:
 
-    snapshot_preserve_all       2d
+    snapshot_preserve_min       2d
     snapshot_preserve          14d
     target_preserve            20d 10w *m
 
@@ -260,7 +260,7 @@ to only fetch the snapshots.
     volume ssh://192.168.0.42/mnt/btr_pool
       subvolume home
         snapshot_dir             btrbk_snapshots
-        snapshot_preserve_all    forever
+        snapshot_preserve_min    all
         snapshot_create          no
 
         target_preserve          0d 10w *m
@@ -270,7 +270,7 @@ to only fetch the snapshots.
 If the server runs btrbk with this config, the latest snapshot (which
 is *always* transferred), 10 weeklies and all monthlies are received
 from 192.168.0.42. The source filesystem is never altered because of
-`snapshot_preserve_all forever`.
+`snapshot_preserve_min all`.
 
 
 Example: backup from non-btrfs source
@@ -375,7 +375,7 @@ ssh:
     # example backup target (also allowing deletion of old snapshots)
     command="/backup/scripts/ssh_filter_btrbk.sh -l --target --delete" <pubkey>...
 
-    # example fetch-only backup source (snapshot_preserve_all=forever, snapshot_create=no),
+    # example fetch-only backup source (snapshot_preserve_min=all, snapshot_create=no),
     # restricted to subvolumes within /home or /data
     command="/backup/scripts/ssh_filter_btrbk.sh -l --send -p /home -p /data" <pubkey>...
 

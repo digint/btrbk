@@ -126,9 +126,9 @@ non-incremental (initial) backups are never created. Defaults to
 Set retention policy for snapshots (see RETENTION POLICY below).
 .RE
 .PP
-\fBsnapshot_preserve_all\fR  forever|no|<number>{h,d,w,m,y}
+\fBsnapshot_preserve_min\fR  all|no|<number>{h,d,w,m,y}
 .RS 4
-Preserve all snapshots for the given amount of hours (h), days (d),
+Preserve all snapshots for a minimum amount of hours (h), days (d),
 weeks (w), months (m) or years (y), regardless of how many there
 are. Defaults to \[lq]12h\[rq].
 .RE
@@ -138,9 +138,9 @@ are. Defaults to \[lq]12h\[rq].
 Set retention policy for backups (see RETENTION POLICY below).
 .RE
 .PP
-\fBtarget_preserve_all\fR  forever|no|<number>{h,d,w,m,y}
+\fBtarget_preserve_min\fR  all|no|<number>{h,d,w,m,y}
 .RS 4
-Preserve all backups for the given amount of hours (h), days (d),
+Preserve all backups for a minimum amount of hours (h), days (d),
 weeks (w), months (m) or years (y), regardless of how many there
 are. Defaults to \[lq]no\[rq].
 .RE
@@ -219,8 +219,8 @@ Lines that contain a hash character (#) in the first column are
 treated as comments.
 .SH RETENTION POLICY
 btrbk uses separate retention policy for snapshots and backups, which
-are defined by the \fIsnapshot_preserve_all\fR,
-\fIsnapshot_preserve\fR, \fItarget_preserve_all\fR,
+are defined by the \fIsnapshot_preserve_min\fR,
+\fIsnapshot_preserve\fR, \fItarget_preserve_min\fR,
 \fItarget_preserve\fR, and the \fIpreserve_day_of_week\fR
 configuration options.
 .PP

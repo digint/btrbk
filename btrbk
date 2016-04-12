@@ -80,9 +80,9 @@ my %config_options = (
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   snapshot_preserve           => { default => undef,     accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
-  snapshot_preserve_all       => { default => '12h',     accept => [ "forever", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
+  snapshot_preserve_min       => { default => '12h',     accept => [ "all", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
   target_preserve             => { default => undef,     accept_preserve_matrix => 1 },
-  target_preserve_all         => { default => undef,     accept => [ "forever", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
+  target_preserve_min         => { default => undef,     accept => [ "all", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
@@ -104,20 +104,20 @@ my %config_options = (
 
   # deprecated options
   snapshot_preserve_daily     => { default => 'all',     accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
   snapshot_preserve_weekly    => { default => 0,         accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
   snapshot_preserve_monthly   => { default => 'all',     accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
   target_preserve_daily       => { default => 'all',     accept => [ "all" ], accept_numeric => 1,
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_all"' } } },
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
   target_preserve_weekly      => { default => 0,         accept => [ "all" ], accept_numeric => 1,
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_all"' } } },
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
   target_preserve_monthly     => { default => 'all',     accept => [ "all" ], accept_numeric => 1,
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_all"' } } },
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
   resume_missing              => { default => "yes",     accept => [ "yes", "no" ],
                                    deprecated => { yes => { warn => 'ignoring' },
-                                                   no  => { warn => 'Please use "target_preserve_all latest" and "target_preserve no"',
+                                                   no  => { warn => 'Please use "target_preserve_min latest" and "target_preserve no"',
                                                             replace_key   => 'target_preserve',
                                                             replace_value => 'no',
                                                           } } },
@@ -2086,15 +2086,15 @@ sub config_preserve_hash($$)
   my $config = shift || die;
   my $prefix = shift || die;
   my $ret = config_key($config, $prefix . "_preserve") // {};
-  my $preserve_all = config_key($config, $prefix . "_preserve_all");
-  if(defined($preserve_all)) {
-    $ret->{all} = $preserve_all;  # used for raw schedule output
-    if($preserve_all eq 'forever') {
-      $ret->{all_n} = 'forever';
+  my $preserve_min = config_key($config, $prefix . "_preserve_min");
+  if(defined($preserve_min)) {
+    $ret->{min} = $preserve_min;  # used for raw schedule output
+    if($preserve_min eq 'all') {
+      $ret->{min_n} = 'all';
     }
-    elsif($preserve_all =~ /^([0-9]+)([hdwmy])$/) {
-      $ret->{all_n} = $1;
-      $ret->{all_q} = $2;
+    elsif($preserve_min =~ /^([0-9]+)([hdwmy])$/) {
+      $ret->{min_n} = $1;
+      $ret->{min_q} = $2;
     }
     else { die; }
   }
@@ -2247,8 +2247,8 @@ sub append_config_option($$$$;$)
       WARN "Using \"$key $value\"";
     }
     if($opt->{deprecated}->{COMPAT_PRESERVE_ALL}) {
-      $config_override{snapshot_preserve_all} = 'forever';
-      $config_override{target_preserve_all} = 'forever';
+      $config_override{snapshot_preserve_min} = 'all';
+      $config_override{target_preserve_min} = 'all';
       WARN "Refusing to delete anything!";
     }
   }
@@ -2656,8 +2656,8 @@ sub schedule(@)
   my $result_hints    = $args{result_hints} // {};
 
   my $preserve_day_of_week = $preserve->{dow} || die;
-  my $preserve_all_n       = $preserve->{all_n};
-  my $preserve_all_q       = $preserve->{all_q};
+  my $preserve_min_n       = $preserve->{min_n};
+  my $preserve_min_q       = $preserve->{min_q};
   my $preserve_hourly      = $preserve->{h};
   my $preserve_daily       = $preserve->{d};
   my $preserve_weekly      = $preserve->{w};
@@ -2712,19 +2712,19 @@ sub schedule(@)
 
   # filter "preserve all within N days/weeks/..."
   foreach my $href (@sorted_schedule) {
-    if($preserve_all_n) {
-      if($preserve_all_n eq 'forever') {
-        $href->{preserve} ||= "preserve all: forever";
-      } elsif($preserve_all_q eq 'h') {
-        $href->{preserve} ||= "preserve all: $href->{delta_hours} hours ago"   if($href->{delta_hours}  <= $preserve_all_n);
-      } elsif($preserve_all_q eq 'd') {
-        $href->{preserve} ||= "preserve all: $href->{delta_days} days ago"     if($href->{delta_days}   <= $preserve_all_n);
-      } elsif($preserve_all_q eq 'w') {
-        $href->{preserve} ||= "preserve all: $href->{delta_weeks} weeks ago"   if($href->{delta_weeks}  <= $preserve_all_n);
-      } elsif($preserve_all_q eq 'm') {
-        $href->{preserve} ||= "preserve all: $href->{delta_months} months ago" if($href->{delta_months} <= $preserve_all_n);
-      } elsif($preserve_all_q eq 'y') {
-        $href->{preserve} ||= "preserve all: $href->{delta_years} years ago"   if($href->{delta_years}  <= $preserve_all_n);
+    if($preserve_min_n) {
+      if($preserve_min_n eq 'all') {
+        $href->{preserve} ||= "preserve min: all";
+      } elsif($preserve_min_q eq 'h') {
+        $href->{preserve} ||= "preserve min: $href->{delta_hours} hours ago"   if($href->{delta_hours}  <= $preserve_min_n);
+      } elsif($preserve_min_q eq 'd') {
+        $href->{preserve} ||= "preserve min: $href->{delta_days} days ago"     if($href->{delta_days}   <= $preserve_min_n);
+      } elsif($preserve_min_q eq 'w') {
+        $href->{preserve} ||= "preserve min: $href->{delta_weeks} weeks ago"   if($href->{delta_weeks}  <= $preserve_min_n);
+      } elsif($preserve_min_q eq 'm') {
+        $href->{preserve} ||= "preserve min: $href->{delta_months} months ago" if($href->{delta_months} <= $preserve_min_n);
+      } elsif($preserve_min_q eq 'y') {
+        $href->{preserve} ||= "preserve min: $href->{delta_years} years ago"   if($href->{delta_years}  <= $preserve_min_n);
       }
     }
     $first_in_delta_hours{$href->{delta_hours}} //= $href;
@@ -2812,11 +2812,11 @@ sub format_preserve_matrix($@)
   if($format eq "debug_text") {
     my @out;
     my %trans = ( h => 'hours', d => 'days', w => 'weeks', m => 'months', y => 'years' );
-    if($preserve->{all_n} && $preserve->{all_n} eq 'forever') {
+    if($preserve->{min_n} && $preserve->{min_n} eq 'all') {
       push @out, "preserving all forever";
     }
     else {
-      push @out, "preserving all within $preserve->{all_n} $trans{$preserve->{all_q}}" if($preserve->{all_n} && $preserve->{all_q});
+      push @out, "preserving all within $preserve->{min_n} $trans{$preserve->{min_q}}" if($preserve->{min_n} && $preserve->{min_q});
       push @out, "first present daily for $preserve->{d} days" if($preserve->{d});
       unless($preserve->{d} && ($preserve->{d} eq 'all')) {
         push @out, "first daily in week (starting on $preserve->{dow}) for $preserve->{w} weeks" if($preserve->{w});
@@ -2832,11 +2832,11 @@ sub format_preserve_matrix($@)
   }
 
   my $s = "";
-  if($preserve->{all_n} && ($preserve->{all_n} eq 'forever')) {
+  if($preserve->{min_n} && ($preserve->{min_n} eq 'all')) {
     $s = '*d+';
   }
   else {
-    $s .= $preserve->{all_n} . $preserve->{all_q} . '+' if($preserve->{all_n} && $preserve->{all_q});
+    $s .= $preserve->{min_n} . $preserve->{min_q} . '+' if($preserve->{min_n} && $preserve->{min_q});
     foreach (qw(h d w m y)) {
       my $val = $preserve->{$_} // 0;
       next unless($val);
