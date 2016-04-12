@@ -72,8 +72,8 @@ space-separated table format.
 .PP
 \fBtimestamp_format\fR  short|long
 .RS 4
-Timestamp format used as postfix for new snapshot subvolume names.
-Defaults to \[lq]short\[rq].
+Timestamp format used as postfix for new snapshot subvolume
+names. Defaults to \[lq]short\[rq].
 .PP
 .IP \fBshort\fR
 YYYYMMDD[_N]  (e.g. "20150825", "20150825_1")
@@ -129,57 +129,29 @@ snapshots, and missing backups are created if needed (complying to the
 target preserve matrix). Defaults to \[lq]yes\[rq].
 .RE
 .PP
-\fBtarget_preserve\fR  [<daily>d] [<weekly>w] [<monthly>m] [<yearly>y]
+\fBsnapshot_preserve\fR  <retention_policy>
 .RS 4
-Shortcut to set \fItarget_preserve_daily\fR,
-\fItarget_preserve_weekly\fR, \fItarget_preserve_monthly\fR and
-\fItarget_preserve_yearly\fR options (see below) on a single line. Use
-an asterisk for \[lq]all\[rq] (e.g. "target_preserve 60d *m" expands
-to "target_preserve_daily 60" and "target_preserve_monthly all").
+Set retention policy for snapshots (see RETENTION POLICY below).
 .RE
 .PP
-\fBtarget_preserve_daily\fR  all|<number>
+\fBsnapshot_preserve_all\fR  forever|no|<number>{h,d,w,m,y}
 .RS 4
-How many days of backups should be preserved. Defaults to \[lq]all\[rq].
+Preserve all snapshots for the given amount of hours (h), days (d),
+weeks (w), months (m) or years (y), regardless of how many there
+are. Defaults to \[lq]12h\[rq].
 .RE
 .PP
-\fBtarget_preserve_weekly\fR  all|<number>
+\fBtarget_preserve\fR  <retention_policy>
 .RS 4
-Defines for how many weeks back weekly backups should be
-preserved. Every backup created at \fIpreserve_day_of_week\fR (or
-the next backup in this week if none was made on the exact day) is
-considered as a weekly backup. Defaults to \[lq]0\[rq].
+Set retention policy for backups (see RETENTION POLICY below).
 .RE
 .PP
-\fBtarget_preserve_monthly\fR  all|<number>
+\fBtarget_preserve_all\fR  forever|no|<number>{h,d,w,m,y}
 .RS 4
-Defines for how many months back monthly backups should be
-preserved. Every last weekly backup in a month is considered a
-monthly backup. Defaults to \[lq]all\[rq].
+Preserve all backups for the given amount of hours (h), days (d),
+weeks (w), months (m) or years (y), regardless of how many there
+are. Defaults to \[lq]no\[rq].
 .RE
-.PP
-\fBtarget_preserve_yearly\fR  all|<number>
-.RS 4
-Defines for how many years back yearly backups should be
-preserved. Every last monthly backup in a year is considered a yearly
-backup. Defaults to \[lq]0\[rq].
-.RE
-.PP
-\fBsnapshot_preserve\fR
-.PD 0
-.PP
-\fBsnapshot_preserve_daily\fR
-.PP
-\fBsnapshot_preserve_weekly\fR
-.PP
-\fBsnapshot_preserve_monthly\fR
-.PP
-\fBsnapshot_preserve_yearly\fR
-.RS 4
-Defines retention policy for the snapshots, with same semantics as the
-\fItarget_preserve_*\fR options.
-.RE
-.PD
 .PP
 \fBpreserve_day_of_week\fR  monday|tuesday|...|sunday
 .RS 4
@@ -253,6 +225,65 @@ manipulated by hand (moved, deleted).
 .PP
 Lines that contain a hash character (#) in the first column are
 treated as comments.
+.SH RETENTION POLICY
+btrbk uses separate retention policy for snapshots and backups, which
+are defined by the \fIsnapshot_preserve_all\fR,
+\fIsnapshot_preserve\fR, \fItarget_preserve_all\fR,
+\fItarget_preserve\fR, and the \fIpreserve_day_of_week\fR
+configuration options.
+.PP
+Within this section, any statement about "backups" is always valid for
+backups as well as snapshots, referring to \fItarget_preserve\fR or
+\fIsnapshot_preserve\fR respectively.
+.PP
+The format for \fI<retention_policy>\fR is:
+.PP
+.RS 4
+[<hourly>h] [<daily>d] [<weekly>w] [<monthly>m] [<yearly>y]
+.RE
+.PP
+With the following semantics:
+.PP
+.B hourly
+.RS 4
+Defines how many hours back hourly backups should be preserved. The
+last backup of an hour is considered an hourly backup. Note that if
+you use <hourly> scheduling, make sure to also set
+\fItimestamp_format\fR to \[lq]long\[rq], or the scheduler will
+interpret the time as "00:00" (midnight).
+.RE
+.PP
+.B daily
+.RS 4
+Defines how many days back daily backups should be preserved. The
+last backup of a day is considered a daily backup.
+.RE
+.PP
+.B weekly
+.RS 4
+Defines how many weeks back weekly backups should be preserved. The
+first daily backup created at \fIpreserve_day_of_week\fR (or the first
+backup in this week if none was made on the exact day) is considered
+as a weekly backup.
+.RE
+.PP
+.B monthly
+.RS 4
+Defines how many months back monthly backups should be
+preserved. Every last weekly backup in a month is considered a
+monthly backup.
+.RE
+.PP
+.B yearly
+.RS 4
+Defines for how many years back yearly backups should be
+preserved. Every last monthly backup in a year is considered a yearly
+backup.
+.RE
+.PP
+Use an asterisk for \[lq]all\[rq] (e.g. "target_preserve 60d *m"
+states: "preserve daily backups for 60 days back, and all monthly
+backups").
 .SH TARGET TYPES
 .PP
 \fBsend-receive\fR

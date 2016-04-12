@@ -43,7 +43,7 @@ use strict;
 use warnings FATAL => qw( all );
 
 use Carp qw(confess);
-use Date::Calc qw(Today_and_Now Delta_Days Day_of_Week);
+use Date::Calc qw(Today_and_Now Delta_Days Delta_DHMS Day_of_Week);
 use Getopt::Long qw(GetOptions);
 use POSIX qw(strftime);
 use Data::Dumper;
@@ -80,16 +80,10 @@ my %config_options = (
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   resume_missing              => { default => "yes",     accept => [ "yes", "no" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
-  snapshot_preserve_daily     => { default => "all",     accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ]  },
-  snapshot_preserve_weekly    => { default => 0,         accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ]  },
-  snapshot_preserve_monthly   => { default => "all",     accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ]  },
-  snapshot_preserve_yearly    => { default => "0",       accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ]  },
-  snapshot_preserve           => { shortcut => 1,        accept_preserve_matrix => 1,              context => [ "root", "volume", "subvolume" ], },
-  target_preserve_daily       => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
-  target_preserve_weekly      => { default => 0,         accept => [ "all" ], accept_numeric => 1  },
-  target_preserve_monthly     => { default => "all",     accept => [ "all" ], accept_numeric => 1  },
-  target_preserve_yearly      => { default => "0",       accept => [ "all" ], accept_numeric => 1  },
-  target_preserve             => { shortcut => 1,        accept_preserve_matrix => 1, },
+  snapshot_preserve           => { default => undef,     accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
+  snapshot_preserve_all       => { default => '12h',     accept => [ "forever", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
+  target_preserve             => { default => undef,     accept_preserve_matrix => 1 },
+  target_preserve_all         => { default => undef,     accept => [ "forever", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
@@ -110,6 +104,18 @@ my %config_options = (
   group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
 
   # deprecated options
+  snapshot_preserve_daily     => { default => 'all',     accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+  snapshot_preserve_weekly    => { default => 0,         accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+  snapshot_preserve_monthly   => { default => 'all',     accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+  target_preserve_daily       => { default => 'all',     accept => [ "all" ], accept_numeric => 1,
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+  target_preserve_weekly      => { default => 0,         accept => [ "all" ], accept_numeric => 1,
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
+  target_preserve_monthly     => { default => 'all',     accept => [ "all" ], accept_numeric => 1,
+                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_all"' } } },
   snapshot_create_always      => { default => undef, accept => [ "yes", "no" ],
                                    deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
                                                             replace_key   => "snapshot_create",
@@ -153,7 +159,7 @@ my %table_formats = (
 
   schedule    => { table => [ qw( action host subvol scheme reason ) ],
                    long  => [ qw( action host root_path subvol_path scheme reason ) ],
-                   raw   => [ qw( topic action url host path dow d w m y) ],
+                   raw   => [ qw( topic action url host path dow min h d w m y) ],
                  },
 
   usage       => { table => [ qw( host path size used free ) ],
@@ -184,6 +190,7 @@ my $tlog_fh;
 my $current_transaction;
 my @transaction_log;
 my %config_override;
+my @today_and_now;
 
 
 $SIG{__DIE__} = sub {
@@ -2018,13 +2025,21 @@ sub config_preserve_hash($$)
 {
   my $config = shift || die;
   my $prefix = shift || die;
-  return (
-    preserve_day_of_week => config_key($config, "preserve_day_of_week"),
-    preserve_daily       => config_key($config, "${prefix}_preserve_daily"),
-    preserve_weekly      => config_key($config, "${prefix}_preserve_weekly"),
-    preserve_monthly     => config_key($config, "${prefix}_preserve_monthly"),
-    preserve_yearly      => config_key($config, "${prefix}_preserve_yearly"),
-   );
+  my $ret = config_key($config, $prefix . "_preserve") // {};
+  my $preserve_all = config_key($config, $prefix . "_preserve_all");
+  if(defined($preserve_all)) {
+    $ret->{all} = $preserve_all;  # used for raw schedule output
+    if($preserve_all eq 'forever') {
+      $ret->{all_n} = 'forever';
+    }
+    elsif($preserve_all =~ /^([0-9]+)([hdwmy])$/) {
+      $ret->{all_n} = $1;
+      $ret->{all_q} = $2;
+    }
+    else { die; }
+  }
+  $ret->{dow} = config_key($config, "preserve_day_of_week");
+  return $ret;
 }
 
 
@@ -2039,8 +2054,6 @@ sub config_dump_keys($;@)
   foreach my $key (sort keys %config_options)
   {
     my $val;
-    next if($config_options{$key}->{deprecated});
-    next if($config_options{$key}->{shortcut});
     if($opts{resolve}) {
       $val = config_key($config, $key);
     } else {
@@ -2054,6 +2067,9 @@ sub config_dump_keys($;@)
       if((not defined($config_options{$key}->{default})) && (not (defined($val)))) {
         next; # both undef, skip
       }
+    }
+    if($config_options{$key}->{accept_preserve_matrix}) {
+      $val = format_preserve_matrix($val);
     }
     if(ref($val) eq "ARRAY") {
       my $val2 = join(',', @$val);
@@ -2097,18 +2113,24 @@ sub append_config_option($$$$;$)
   }
 
   if($opt->{accept_preserve_matrix}) {
-    # special case: preserve matrix of form: "[NNd] [NNw] [NNm] [NNy]"
-    my $s = $value;
-    TRACE "option \"$key=$value\" is preserve matrix, parsing...";
-    if($s =~ s/([0-9*][0-9]*)\s*d\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_daily"}   = $v; TRACE "adding option \"${key}_daily=$v\" to $context context";   }
-    if($s =~ s/([0-9*][0-9]*)\s*w\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_weekly"}  = $v; TRACE "adding option \"${key}_weekly=$v\" to $context context";  }
-    if($s =~ s/([0-9*][0-9]*)\s*m\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_monthly"} = $v; TRACE "adding option \"${key}_monthly=$v\" to $context context"; }
-    if($s =~ s/([0-9*][0-9]*)\s*y\s*,?\s*//) { my $v = ($1 eq '*' ? 'all' : $1); $config->{$key . "_yearly"}  = $v; TRACE "adding option \"${key}_yearly=$v\" to $context context";  }
+    my %preserve;
+    my $s = ' ' . $value;
+    while($s =~ s/\s+(\*|[0-9]+)([hdwmyHDWMY])//) {
+      my $n = $1;
+      my $q = lc($2); # qw( h d w m y )
+      $n = 'all' if($n eq '*');
+      if(exists($preserve{$q})) {
+        ERROR "Value \"$value\" failed input validation for option \"$key\": multiple definitions of '$q'" . $config_file_statement;
+        return undef;
+      }
+      $preserve{$q} = $n;
+    }
     unless($s eq "") {
       ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
       return undef;
     }
-    TRACE "successfully parsed preserve matrix";
+    TRACE "adding preserve matrix $context context:" . Data::Dumper->new([\%preserve], [ $key ])->Indent(0)->Pad(' ')->Quotekeys(0)->Pair('=>')->Dump() if($loglevel >= 4);
+    $config->{$key} = \%preserve;
     return $config;
   }
 
@@ -2163,6 +2185,11 @@ sub append_config_option($$$$;$)
       $key = $replace_key;
       $value = $replace_value;
       WARN "Using \"$key $value\"";
+    }
+    if($opt->{deprecated}->{COMPAT_PRESERVE_ALL}) {
+      $config_override{snapshot_preserve_all} = 'forever';
+      $config_override{target_preserve_all} = 'forever';
+      WARN "Refusing to delete anything!";
     }
   }
 
@@ -2324,7 +2351,6 @@ sub init_config(@)
   # set defaults
   foreach (keys %config_options) {
     next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
-    next if $config_options{$_}->{shortcut};    # don't pollute hash with shortcuts
     $config_root{$_} = $config_options{$_}->{default};
   }
   return \%config_root;
@@ -2553,40 +2579,44 @@ sub cmp_date($$)
 sub schedule(@)
 {
   my %args = @_;
-  my $schedule             = $args{schedule}             || die;
-  my @today                = @{$args{today}};
-  my $preserve_day_of_week = $args{preserve_day_of_week} || die;
-  my $preserve_daily       = $args{preserve_daily}       // die;
-  my $preserve_weekly      = $args{preserve_weekly}      // die;
-  my $preserve_monthly     = $args{preserve_monthly}     // die;
-  my $preserve_yearly      = $args{preserve_yearly}      // die;
-  my $preserve_latest      = $args{preserve_latest}      || 0;
-  my $results_list         = $args{results};
-  my $result_hints         = $args{result_hints} // {};
+  my $schedule        = $args{schedule} || die;
+  my $preserve        = $args{preserve} || die;
+  my $preserve_latest = $args{preserve_latest} || 0;
+  my $results_list    = $args{results};
+  my $result_hints    = $args{result_hints} // {};
 
-  my %preserve_matrix = ( d   => $preserve_daily,
-                          w   => $preserve_weekly,
-                          m   => $preserve_monthly,
-                          y   => $preserve_yearly,
-                          dow => $preserve_day_of_week,
-                         );
-  DEBUG "Schedule: " . format_preserve_matrix(%preserve_matrix, format => "debug_text");
+  my $preserve_day_of_week = $preserve->{dow} || die;
+  my $preserve_all_n       = $preserve->{all_n};
+  my $preserve_all_q       = $preserve->{all_q};
+  my $preserve_hourly      = $preserve->{h};
+  my $preserve_daily       = $preserve->{d};
+  my $preserve_weekly      = $preserve->{w};
+  my $preserve_monthly     = $preserve->{m};
+  my $preserve_yearly      = $preserve->{y};
+
+  my @today_ymdhms    = ref($args{today_and_now}) ? @{$args{today_and_now}} : @today_and_now;
+  die unless(scalar(@today_ymdhms) == 6);
+
+  DEBUG "Schedule: " . format_preserve_matrix($preserve, format => "debug_text");
 
   # sort the schedule, ascending by date
   my @sorted_schedule = sort { cmp_date($a->{btrbk_date}, $b->{btrbk_date} ) } @$schedule;
 
   # first, do our calendar calculations
   # note: our week starts on $preserve_day_of_week
+  my @today = @today_ymdhms[0..2];
   my $delta_days_to_eow_from_today = $day_of_week_map{$preserve_day_of_week} - Day_of_Week(@today) - 1;
   $delta_days_to_eow_from_today = $delta_days_to_eow_from_today + 7 if($delta_days_to_eow_from_today < 0);
   TRACE "last day before next $preserve_day_of_week is in $delta_days_to_eow_from_today days";
   foreach my $href (@sorted_schedule)
   {
-    my @date = @{$href->{btrbk_date}}[0..2];  # Date::Calc takes: @date = ( yy, mm, dd )
-    my $delta_days = Delta_Days(@date, @today);
+    my @date = (@{$href->{btrbk_date}}[0..4], 0);  # btrbk_date: (y m d h m NN); @date: (y m d h m s)
+    my ($dd, $dh, undef, undef) = Delta_DHMS(@date, @today_ymdhms);
+    my $delta_days = Delta_Days(@date[0..2], @today);
     my $delta_days_to_eow = $delta_days + $delta_days_to_eow_from_today;
     {
       use integer; # do integer arithmetics
+      $href->{delta_hours}   = ($dd * 24) + $dh;
       $href->{delta_days}    = $delta_days;
       $href->{delta_weeks}   = $delta_days_to_eow / 7;
       $href->{delta_months}  = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
@@ -2604,33 +2634,65 @@ sub schedule(@)
     $href->{preserve} ||= $preserve_latest;
   }
 
-  # filter daily, weekly, monthly
+  my %last_in_delta_hours;
+  my %last_in_delta_days;
   my %first_in_delta_weeks;
   my %last_weekly_in_delta_months;
   my %last_monthly_in_delta_years;
+
+  # filter "preserve all within N days/weeks/..."
   foreach my $href (@sorted_schedule) {
-    if($preserve_daily && (($preserve_daily eq "all") || ($href->{delta_days} <= $preserve_daily))) {
-      $href->{preserve} ||= "preserved daily: $href->{delta_days} days ago";
+    if($preserve_all_n) {
+      if($preserve_all_n eq 'forever') {
+        $href->{preserve} ||= "preserve all: forever";
+      } elsif($preserve_all_q eq 'h') {
+        $href->{preserve} ||= "preserve all: $href->{delta_hours} hours ago"   if($href->{delta_hours}  <= $preserve_all_n);
+      } elsif($preserve_all_q eq 'd') {
+        $href->{preserve} ||= "preserve all: $href->{delta_days} days ago"     if($href->{delta_days}   <= $preserve_all_n);
+      } elsif($preserve_all_q eq 'w') {
+        $href->{preserve} ||= "preserve all: $href->{delta_weeks} weeks ago"   if($href->{delta_weeks}  <= $preserve_all_n);
+      } elsif($preserve_all_q eq 'm') {
+        $href->{preserve} ||= "preserve all: $href->{delta_months} months ago" if($href->{delta_months} <= $preserve_all_n);
+      } elsif($preserve_all_q eq 'y') {
+        $href->{preserve} ||= "preserve all: $href->{delta_years} years ago"   if($href->{delta_years}  <= $preserve_all_n);
+      }
+    }
+    $last_in_delta_hours{$href->{delta_hours}} = $href;
+  }
+
+  # filter hourly, daily, weekly, monthly, yearly
+  foreach (sort {$b <=> $a} keys %last_in_delta_hours) {
+    my $href = $last_in_delta_hours{$_} || die;
+    if($preserve_hourly && (($preserve_hourly eq 'all') || $href->{delta_hours} <= $preserve_hourly)) {
+      $href->{preserve} ||= "preserved hourly: last present of hour, $href->{delta_hours} hours ago";
+    }
+    $last_in_delta_days{$href->{delta_days}} = $href;
+  }
+  foreach (sort {$b <=> $a} keys %last_in_delta_days) {
+    my $href = $last_in_delta_days{$_} || die;
+    if($preserve_daily && (($preserve_daily eq 'all') || ($href->{delta_days} <= $preserve_daily))) {
+      $href->{preserve} ||= "preserved daily: last present of day, $href->{delta_days} days ago";
     }
     $first_in_delta_weeks{$href->{delta_weeks}} //= $href;
   }
+
   foreach (sort {$b <=> $a} keys %first_in_delta_weeks) {
     my $href = $first_in_delta_weeks{$_} || die;
-    if($preserve_weekly && (($preserve_weekly eq "all") || ($href->{delta_weeks} <= $preserve_weekly))) {
+    if($preserve_weekly && (($preserve_weekly eq 'all') || ($href->{delta_weeks} <= $preserve_weekly))) {
       $href->{preserve} ||= "preserved weekly: $href->{delta_weeks} weeks ago, $href->{err_days_text}";
     }
     $last_weekly_in_delta_months{$href->{delta_months}} = $href;
   }
   foreach (sort {$b <=> $a} keys %last_weekly_in_delta_months) {
     my $href = $last_weekly_in_delta_months{$_} || die;
-    if($preserve_monthly && (($preserve_monthly eq "all") || ($href->{delta_months} <= $preserve_monthly))) {
+    if($preserve_monthly && (($preserve_monthly eq 'all') || ($href->{delta_months} <= $preserve_monthly))) {
       $href->{preserve} ||= "preserved monthly: last present weekly of month $href->{month} ($href->{delta_months} months ago, $href->{err_days_text})";
     }
     $last_monthly_in_delta_years{$href->{delta_years}} = $href;
   }
   foreach (sort {$b <=> $a} keys %last_monthly_in_delta_years) {
     my $href = $last_monthly_in_delta_years{$_} || die;
-    if($preserve_yearly && (($preserve_yearly eq "all") || ($href->{delta_years} <= $preserve_yearly))) {
+    if($preserve_yearly && (($preserve_yearly eq 'all') || ($href->{delta_years} <= $preserve_yearly))) {
       $href->{preserve} ||= "preserved yearly: last present weekly of year $href->{year} ($href->{delta_years} years ago, $href->{err_days_text})";
     }
   }
@@ -2638,8 +2700,8 @@ sub schedule(@)
   # assemble results
   my @delete;
   my @preserve;
-  my %result_base = ( %preserve_matrix,
-                      scheme => format_preserve_matrix(%preserve_matrix, format => "short"),
+  my %result_base = ( %$preserve,
+                      scheme => format_preserve_matrix($preserve),
                       %$result_hints,
                      );
   my $count_defined = 0;
@@ -2671,40 +2733,49 @@ sub schedule(@)
 }
 
 
-sub format_preserve_matrix(@)
+sub format_preserve_matrix($@)
 {
-  my %args = @_;
-  my $dow = $args{dow} // $args{preserve_day_of_week};
-  my $d   = $args{d}   // $args{preserve_daily};
-  my $w   = $args{w}   // $args{preserve_weekly};
-  my $m   = $args{m}   // $args{preserve_monthly};
-  my $y   = $args{y}   // $args{preserve_yearly};
-  my $format = $args{format} // "long";
+  my $preserve = shift || die;
+  my %opts = @_;
+  my $format = $opts{format} // "short";
 
   if($format eq "debug_text") {
-    my $s = "preserving all within $d days";
-    unless($d eq 'all') {
-      $s .= "; first in week (starting on $dow), for $w weeks" if($w);
-      unless($w eq 'all') {
-        $s .= "; last weekly of month, for $m months" if($m);
-        unless($m eq 'all') {
-          $s .= "; last weekly of year, for $y years" if($y);
+    my @out;
+    my %trans = ( h => 'hours', d => 'days', w => 'weeks', m => 'months', y => 'years' );
+    if($preserve->{all_n} && $preserve->{all_n} eq 'forever') {
+      push @out, "preserving all forever";
+    }
+    else {
+      push @out, "preserving all within $preserve->{all_n} $trans{$preserve->{all_q}}" if($preserve->{all_n} && $preserve->{all_q});
+      push @out, "last present daily for $preserve->{d} days" if($preserve->{d});
+      unless($preserve->{d} && ($preserve->{d} eq 'all')) {
+        push @out, "first daily in week (starting on $preserve->{dow}) for $preserve->{w} weeks" if($preserve->{w});
+        unless($preserve->{w} && ($preserve->{w} eq 'all')) {
+          push @out, "last weekly of month for $preserve->{m} months" if($preserve->{m});
+          unless($preserve->{m} && ($preserve->{m} eq 'all')) {
+            push @out, "last weekly of year for $preserve->{y} years" if($preserve->{y});
+          }
         }
       }
     }
-    return $s;
+    return join('; ', @out);
   }
 
-  $d =~ s/^all$/\*/;
-  $w =~ s/^all$/\*/;
-  $m =~ s/^all$/\*/;
-  $y =~ s/^all$/\*/;
-  if($format eq "short") {
-    # short format
-    return sprintf("%2sd %2sw %2sm %2sy", $d, $w, $m, $y);
+  my $s = "";
+  if($preserve->{all_n} && ($preserve->{all_n} eq 'forever')) {
+    $s = '*d+';
   }
-  # long format
-  return sprintf("%2sd %2sw %2sm %2sy ($dow)", $d, $w, $m, $y);
+  else {
+    $s .= $preserve->{all_n} . $preserve->{all_q} . '+' if($preserve->{all_n} && $preserve->{all_q});
+    foreach (qw(h d w m y)) {
+      my $val = $preserve->{$_} // 0;
+      next unless($val);
+      $val = '*' if($val eq 'all');
+      $s .= ($s ? ' ' : '') . $val . $_;
+    }
+    $s .= " ($preserve->{dow})" if($preserve->{dow} && ($preserve->{w} || $preserve->{m} || $preserve->{y}));
+  }
+  return $s;
 }
 
 
@@ -2910,11 +2981,10 @@ MAIN:
 
   Getopt::Long::Configure qw(gnu_getopt);
   $Data::Dumper::Sortkeys = 1;
+  $Data::Dumper::Quotekeys = 0;
   my $start_time = time;
-  my @today_and_now = Today_and_Now();
-  my @today = @today_and_now[0..2];
+  @today_and_now = Today_and_Now();
   my %config_override_opts;
-
 
   my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only, $print_schedule);
   unless(GetOptions(
@@ -4037,7 +4107,7 @@ MAIN:
 
           # find unique snapshot name
           my $timestamp = ((config_key($svol, "timestamp_format") eq "short") ?
-                           sprintf("%04d%02d%02d", @today) :
+                           sprintf("%04d%02d%02d", @today_and_now[0..2]) :
                            sprintf("%04d%02d%02dT%02d%02d", @today_and_now[0..4]));
           my @unconfirmed_target_name;
           my @lookup = map { $_->{SUBVOL_PATH} } @{vinfo_subvol_list($sroot)};
@@ -4133,10 +4203,9 @@ MAIN:
                                  });
               }
               my ($preserve, undef) = schedule(
-                schedule             => \@schedule,
-                today                => \@today,
-                preserve_latest      => $preserve_latest,
-                config_preserve_hash($droot, "target"),
+                schedule         => \@schedule,
+                preserve         => config_preserve_hash($droot, "target"),
+                preserve_latest  => $preserve_latest,
                );
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
               $resume_total = scalar @resume;
@@ -4231,8 +4300,7 @@ MAIN:
             #
             INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
             unless(macro_delete($droot, "", $snapshot_basename, $droot,
-                                { today           => \@today,
-                                  config_preserve_hash($droot, "target"),
+                                { preserve        => config_preserve_hash($droot, "target"),
                                   preserve_latest => $preserve_latest_backup,
                                   results         => $schedule_results,
                                   result_hints    => { topic => "backup", root_path => $droot->{PATH} },
@@ -4258,8 +4326,7 @@ MAIN:
           }
           INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir_ts$snapshot_basename.*";
           macro_delete($sroot, $snapdir_ts, $snapshot_basename, $svol,
-                       { today           => \@today,
-                         config_preserve_hash($svol, "snapshot"),
+                       { preserve        => config_preserve_hash($svol, "snapshot"),
                          preserve_latest => $preserve_latest_snapshot,
                          results         => $schedule_results,
                          result_hints    => { topic => "snapshot", root_path => $sroot->{PATH} },
