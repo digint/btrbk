@@ -179,6 +179,7 @@ my %url_cache;       # map URL to btr_tree node
 my %fstab_cache;     # map HOST to btrfs mount points
 my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target)
+my $tree_inject_id = 0;  # fake subvolume id for injected nodes (negative)
 
 my $dryrun;
 my $loglevel = 1;
@@ -266,7 +267,7 @@ sub VINFO {
 }
 sub SUBVOL_LIST {
   my $vol = shift; my $t = shift // "SUBVOL_LIST"; my $svl = vinfo_subvol_list($vol);
-  print STDERR "$t:\n" . join("\n", map { "$vol->{PRINT}/./$_->{SUBVOL_PATH}\t$_->{node}{id}" } @$svl) . "\n";
+  print STDERR "$t:\n  " . join("\n  ", map { "$vol->{PRINT}/./$_->{SUBVOL_PATH}\t$_->{node}{id}" } @$svl) . "\n";
 }
 sub URL_CACHE {
   print STDERR "URL_CACHE:\n" . join("\n", (sort keys %url_cache)) . "\n";
@@ -839,8 +840,11 @@ sub btrfs_subvolume_snapshot($$)
                     rsh => $svol->{RSH},
                    );
   end_transaction("snapshot", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
-  ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path" unless(defined($ret));
-  return defined($ret) ? $target_path : undef;
+  unless(defined($ret)) {
+    ERROR "Failed to create btrfs subvolume snapshot: $svol->{PRINT} -> $target_path";
+    return undef;
+  }
+  return $target_vol;
 }
 
 
@@ -1264,13 +1268,17 @@ sub btr_tree($$)
   }
 
   # fill ID_HASH and uuid_cache
+  my $gen_max = 0;
   foreach my $node (@$node_list)
   {
+    die unless($node->{id} >= 0);
     die if exists($id{$node->{id}});
     $node->{SUBTREE} //= [];
     $id{$node->{id}} = $node;
     $uuid_cache{$node->{uuid}} = $node;
+    $gen_max = $node->{gen} if($node->{gen} > $gen_max);
   }
+  $tree{GEN_MAX} = $gen_max;
 
   # note: it is possible that id < top_level, e.g. after restoring
   foreach my $node (@$node_list)
@@ -1307,6 +1315,37 @@ sub btr_tree($$)
   VINFO($vol_root, "node") if($loglevel >= 4);
 
   return $vol_root;
+}
+
+
+sub btr_tree_inject_node
+{
+  my $top_node = shift;
+  my $detail = shift;
+  my $rel_path = shift;
+  my $subtree = $top_node->{SUBTREE} // die;
+  my $tree_root = $top_node->{TREE_ROOT};
+
+  $tree_inject_id -= 1;
+  $tree_root->{GEN_MAX} += 1;
+
+  my $uuid = "FAKE_UUID:" . $tree_inject_id;
+  my $node = {
+    %$detail, # make a copy
+    TREE_ROOT => $top_node->{TREE_ROOT},
+    SUBTREE   => [],
+    TOP_LEVEL => $top_node,
+    REL_PATH  => $rel_path,
+    INJECTED  => 1,
+    id        => $tree_inject_id,
+    uuid      => $uuid,
+    gen       => $tree_root->{GEN_MAX},
+    cgen      => $tree_root->{GEN_MAX},
+  };
+  push(@$subtree, $node);
+  $uuid_cache{$uuid} = $node;
+  $tree_root->{ID_HASH}->{$tree_inject_id} = $node;
+  return $node;
 }
 
 
@@ -1629,26 +1668,20 @@ sub vinfo_subvol_list($;@)
   my $vol = shift || die;
   my %opts = @_;
 
-  # use cached subvolume list if present
+  # use fake subvolume list if present
   my $subvol_list = $vol->{SUBVOL_LIST};
 
   unless($subvol_list) {
     # recurse into tree from $vol->{node}, returns arrayref of vinfo
     $subvol_list = _vinfo_subtree_list($vol->{node}, $vol, $vol->{NODE_SUBDIR});
-    my @sorted = sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @$subvol_list;
-
-    # cache sorted list
-    $subvol_list = \@sorted;
-    $vol->{SUBVOL_LIST} = $subvol_list;
   }
 
   if($opts{sort}) {
     if($opts{sort} eq 'path') {
-      # already sorted by path, see above
+      my @sorted = sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @$subvol_list;
+      $subvol_list = \@sorted;
     }
-    else {
-      die;
-    }
+    else { die; }
   }
   return $subvol_list;
 }
@@ -1662,6 +1695,19 @@ sub vinfo_subvol($$)
     return $_ if($_->{SUBVOL_PATH} eq $subvol_path);
   }
   return undef;
+}
+
+
+sub vinfo_inject_child
+{
+  my $vinfo = shift;
+  my $vinfo_child = shift;
+  my $detail = shift;
+  my $node_subdir = $vinfo->{NODE_SUBDIR} ? $vinfo->{NODE_SUBDIR} . '/' : "";
+  my $node = btr_tree_inject_node($vinfo->{node}, $detail, $node_subdir . $vinfo_child->{SUBVOL_PATH});
+  $vinfo_child->{node} = $node;
+  $url_cache{$vinfo_child->{URL}} = $node;
+  return $vinfo_child;
 }
 
 
@@ -1892,29 +1938,15 @@ sub get_latest_common($$$;$)
     }
   }
 
-
-  # keep track of already received subvolumes
-  my %receive_target_present;
-  if($droot->{SUBVOL_RECEIVED}) {
-    foreach(@{$droot->{SUBVOL_RECEIVED}}) {
-      next if($_->{ERROR});
-      $receive_target_present{$_->{source}->{node}{uuid}} = $_->{received_subvolume};
-    }
-  }
-
   foreach my $child (@candidate) {
     if($child->{node}{id} == $svol->{node}{id}) {
       TRACE "get_latest_common: skip self: $child->{PRINT}";
       next;
     }
-    if(my $received_subvol = $receive_target_present{$child->{node}{uuid}}) {
-      # subvolume has been previously received
-      DEBUG("Latest common subvolumes for: $svol->{PRINT}: src=$child->{PRINT}  target=$received_subvol->{PRINT} (previously received)");
-      return ($child, $received_subvol);
-    }
-    foreach (get_receive_targets($droot, $child)) {
-      DEBUG("Latest common subvolumes for: $svol->{PRINT}: src=$child->{PRINT}  target=$_->{PRINT}");
-      return ($child, $_);
+    my @receive_targets = get_receive_targets($droot, $child);
+    if(scalar @receive_targets) {
+      DEBUG("Latest common subvolumes for: $svol->{PRINT}: src=$child->{PRINT}  target=$receive_targets[0]->{PRINT}");
+      return ($child, $receive_targets[0]);
     }
   }
   DEBUG("No common subvolumes of \"$svol->{PRINT}\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
@@ -2500,6 +2532,22 @@ sub macro_send_receive(@)
     die "Illegal target type \"$target_type\"";
   }
 
+  # inject fake vinfo
+  vinfo_inject_child($target, $vol_received, {
+    # NOTE: this is not necessarily the correct parent_uuid (on
+    # receive, btrfs-progs picks the uuid of the first (lowest id)
+    # matching possible parent), whereas the target_parent is the
+    # first from get_receive_targets().
+    #
+    # NOTE: the parent_uuid of an injected receive target is not used
+    # anywhere in btrbk at the time of writing
+    parent_uuid    => $parent ? $info{latest_common_target}->{node}{uuid} : '-',
+    received_uuid  => $source->{node}{received_uuid} eq '-' ? $source->{node}{uuid} : $source->{node}{received_uuid},
+    readonly       => 1,
+    TARGET_TYPE    => $target_type,
+    FORCE_PRESERVE => 'preserve forced: created just now',
+  });
+
   # add info to $config->{SUBVOL_RECEIVED}
   $info{received_type} = $target_type || die;
   $info{received_subvolume} = $vol_received || die;
@@ -2533,16 +2581,10 @@ sub macro_delete($$$$$;@)
       TRACE "Target subvolume does not match btrbk filename scheme, skipping: $vol->{PRINT}";
       next;
     }
-
-    # NOTE: checking received_uuid does not make much sense, as this received_uuid is propagated to snapshots
-    # if($vol->{node}{received_uuid} && ($vol->{node}{received_uuid} eq '-')) {
-    #   INFO "Target subvolume is not a received backup, skipping deletion of: $vol->{PRINT}";
-    #   next;
-    # }
     push(@schedule, { value      => $vol,
                       # name       => $vol->{PRINT},  # only for logging
                       btrbk_date => $vol->{BTRBK_DATE},
-                      preserve   => $vol->{FORCE_PRESERVE},
+                      preserve   => $vol->{node}{FORCE_PRESERVE},
                      });
   }
   my (undef, $delete) = schedule(
@@ -3667,13 +3709,13 @@ MAIN:
               $child->{node}{parent_uuid} = $subvol->{node}{uuid};
 
               DEBUG "Found parent/child partners, forcing preserve of: \"$subvol->{PRINT}\", \"$child->{PRINT}\"";
-              $subvol->{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
-              $child->{FORCE_PRESERVE} ||= "preserve forced: child of another raw target";
+              $subvol->{node}{FORCE_PRESERVE}  = "preserve forced: parent of another raw target";
+              $child->{node}{FORCE_PRESERVE} ||= "preserve forced: child of another raw target";
             }
 
             # For now, always preserve all raw files.
             # TODO: remove this line as soon as incremental rotation is implemented.
-            $subvol->{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
+            $subvol->{node}{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
           }
           # TRACE(Data::Dumper->Dump([\@subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
         }
@@ -4134,7 +4176,14 @@ MAIN:
           # finally create the snapshot
           INFO "Creating subvolume snapshot for: $svol->{PRINT}";
           my $snapshot = vinfo_child($sroot, "$snapdir_ts$snapshot_name");
-          if(btrfs_subvolume_snapshot($svol, $snapshot)) {
+          if(btrfs_subvolume_snapshot($svol, $snapshot))
+          {
+            vinfo_inject_child($sroot, $snapshot, {
+              parent_uuid    => $svol->{node}{uuid},
+              received_uuid  => '-',
+              readonly       => 1,
+              FORCE_PRESERVE => 'preserve forced: created just now',
+            });
             $svol->{SNAPSHOT_CREATED} = $snapshot;
           }
           else {
@@ -4182,7 +4231,8 @@ MAIN:
               DEBUG "Adding resume candidate: $child->{PRINT}";
               push(@schedule, { value      => $child,
                                 btrbk_date => $child->{BTRBK_DATE},
-                                preserve   => $child->{FORCE_PRESERVE},
+                                # not enforcing resuming of latest snapshot anymore (since v0.23.0)
+                                # preserve   => $child->{node}{FORCE_PRESERVE},
                               });
             }
 
@@ -4199,7 +4249,7 @@ MAIN:
                 }
                 push(@schedule, { value      => undef,
                                   btrbk_date => $vol->{BTRBK_DATE},
-                                  preserve   => $vol->{FORCE_PRESERVE},
+                                  preserve   => $vol->{node}{FORCE_PRESERVE},
                                  });
               }
               my ($preserve, undef) = schedule(
@@ -4217,6 +4267,7 @@ MAIN:
                 if(macro_send_receive(source => $child,
                                       target => $droot,
                                       parent => $latest_common_src,  # this is <undef> if no common found
+                                      latest_common_target => $latest_common_target,
                                       resume => 1,     # propagated to $droot->{SUBVOL_RECEIVED}
                                      ))
                 {
@@ -4236,21 +4287,6 @@ MAIN:
               INFO "No missing backups found";
             }
           } # /resume_missing
-
-          unless($resume_only)
-          {
-            # skip creation if resume_missing failed
-            next if(ABORTED($droot));
-            next unless($svol->{SNAPSHOT_CREATED});
-
-            # finally receive the previously created snapshot
-            INFO "Creating subvolume backup (send-receive) for: $svol->{PRINT}";
-            my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, $snapdir);
-            macro_send_receive(source => $svol->{SNAPSHOT_CREATED},
-                               target => $droot,
-                               parent => $latest_common_src,  # this is <undef> if no common found
-                              );
-          }
         }
       }
     }
