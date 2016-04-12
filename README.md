@@ -134,21 +134,19 @@ In this example, we assume you have a laptop with:
 
 Retention policy:
 
-  * keep snapshots for 14 days (very handy if you are on the road and
-    the backup disk is not attached)
+  * keep all snapshots for 2 days, no matter how frequently you (or
+    your cron-job) run btrbk
+  * keep latest daily snapshots for 14 days (very handy if you are on
+    the road and the backup disk is not attached)
   * keep monthly backups forever
   * keep weekly backups for 10 weeks
   * keep daily backups for 20 days
 
 /etc/btrbk/btrbk-mylaptop.conf:
 
-    snapshot_preserve_daily    14
-    snapshot_preserve_weekly   0
-    snapshot_preserve_monthly  0
-
-    target_preserve_daily      20
-    target_preserve_weekly     10
-    target_preserve_monthly    all
+    snapshot_preserve_all       2d
+    snapshot_preserve          14d
+    target_preserve            20d 10w *m
 
     snapshot_dir               btrbk_snapshots
 
@@ -262,20 +260,18 @@ to only fetch the snapshots.
     volume ssh://192.168.0.42/mnt/btr_pool
       subvolume home
         snapshot_dir             btrbk_snapshots
-        snapshot_preserve_daily  all
+        snapshot_preserve_all    forever
         snapshot_create          no
         resume_missing           yes
 
-        target_preserve_daily    0
-        target_preserve_weekly   10
-        target_preserve_monthly  all
+        target_preserve          0d 10w *m
 
         target send-receive  /mnt/btr_backup/my-laptop.com
 
 If the server runs btrbk with this config, the latest snapshot (which
 is *always* transferred), 10 weeklies and all monthlies are received
 from 192.168.0.42. The source filesystem is never altered because of
-`snapshot_preserve_daily all`.
+`snapshot_preserve_all forever`.
 
 
 Example: backup from non-btrfs source
@@ -295,14 +291,12 @@ follows:
 
     volume /mnt/btr_backup
       subvolume myhost_sync
-        snapshot_name    myhost
+        snapshot_name        myhost
 
-        snapshot_preserve_daily    14
-        snapshot_preserve_weekly   20
-        snapshot_preserve_monthly  all
+        snapshot_preserve    14d 20w *m
 
 This will produce daily snapshots `/mnt/btr_backup/myhost.20150101`,
-with retention as defined with the snapshot_preserve_* options.
+with retention as defined with the snapshot_preserve option.
 
 Note that the provided script: "contrib/cron/btrbk-mail" has support
 for this!
@@ -382,7 +376,7 @@ ssh:
     # example backup target (also allowing deletion of old snapshots)
     command="/backup/scripts/ssh_filter_btrbk.sh -l --target --delete" <pubkey>...
 
-    # example fetch-only backup source (snapshot_preserve_daily=all, snapshot_create=no),
+    # example fetch-only backup source (snapshot_preserve_all=forever, snapshot_create=no),
     # restricted to subvolumes within /home or /data
     command="/backup/scripts/ssh_filter_btrbk.sh -l --send -p /home -p /data" <pubkey>...
 
