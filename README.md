@@ -20,10 +20,13 @@ Key Features:
   * Transfer via ssh
   * Resume of backups (if backup target was not reachable for a while)
   * Encrypted backups to non-btrfs destinations
+  * Wildcard subvolumes (useful for docker and lxc containers)
   * Transaction log
   * Display file changes between two backups
 
-btrbk is intended to be run as a cron job.
+btrbk is designed to run as a cron job for triggering periodic
+snapshots and backups, as well as from the command line (e.g. for
+instantly creating additional snapshots).
 
 
 Installation
@@ -40,11 +43,14 @@ Prerequisites
   * [btrfs-progs]: Btrfs filesystem utilities (use
     "btrfs_progs_compat" option for hosts running version prior to
     v3.17)
-  * Perl interpreter: probably already installed on your system
+  * [Perl interpreter]: probably already installed on your system
   * [Date::Calc]: Perl module
+  * [OpenSSH]: if you want to tranfer backups from/to remote locations
 
   [btrfs-progs]: http://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
+  [Perl interpreter]: https://www.perl.org
   [Date::Calc]:  http://search.cpan.org/perldoc?Date::Calc
+  [OpenSSH]: http://www.openssh.org
 
 
 Instructions
