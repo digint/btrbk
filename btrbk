@@ -179,7 +179,9 @@ my %url_cache;       # map URL to btr_tree node
 my %fstab_cache;     # map HOST to btrfs mount points
 my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target)
-my $tree_inject_id = 0;  # fake subvolume id for injected nodes (negative)
+
+my $tree_inject_id   = 0;  # fake subvolume id for injected nodes (negative)
+my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id
 
 my $dryrun;
 my $loglevel = 1;
@@ -987,7 +989,6 @@ sub btrfs_send_to_file($$$$;@)
   my $parent_path   = $parent ? $parent->{PATH} : undef;
   my $parent_uuid   = $parent ? $parent->{node}{uuid} : undef ;
   my $received_uuid = $source->{node}{uuid};
-  $received_uuid = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" if((not $received_uuid) && $dryrun);
   die unless($received_uuid);
   die if($parent && !$parent_uuid);
 
@@ -1329,7 +1330,7 @@ sub btr_tree_inject_node
   $tree_inject_id -= 1;
   $tree_root->{GEN_MAX} += 1;
 
-  my $uuid = "FAKE_UUID:" . $tree_inject_id;
+  my $uuid = sprintf("${fake_uuid_prefix}%012u", -($tree_inject_id));
   my $node = {
     %$detail, # make a copy
     TREE_ROOT => $top_node->{TREE_ROOT},
@@ -1703,8 +1704,30 @@ sub vinfo_inject_child
   my $vinfo = shift;
   my $vinfo_child = shift;
   my $detail = shift;
-  my $node_subdir = $vinfo->{NODE_SUBDIR} ? $vinfo->{NODE_SUBDIR} . '/' : "";
-  my $node = btr_tree_inject_node($vinfo->{node}, $detail, $node_subdir . $vinfo_child->{SUBVOL_PATH});
+  my $node;
+  my $subvol_list = $vinfo->{SUBVOL_LIST};
+  if($subvol_list)
+  {
+    # insert to a SUBVOL_LIST (raw targets)
+    $tree_inject_id -= 1;
+    my $uuid = sprintf("${fake_uuid_prefix}%012u", -($tree_inject_id));
+    $node = {
+      %$detail,
+      INJECTED  => 1,
+      id        => $tree_inject_id,
+      uuid      => $uuid,
+    };
+    # NOTE: make sure to have all the flags set by _vinfo_subtree_list()
+    $vinfo_child->{subtree_depth}     = 0;
+    $vinfo_child->{direct_leaf}       = 1;
+    $vinfo_child->{btrbk_direct_leaf} = 1;
+    $uuid_cache{$uuid} = $node;
+    push @$subvol_list, $vinfo_child;
+  }
+  else {
+    my $node_subdir = $vinfo->{NODE_SUBDIR} ? $vinfo->{NODE_SUBDIR} . '/' : "";
+    $node = btr_tree_inject_node($vinfo->{node}, $detail, $node_subdir . $vinfo_child->{SUBVOL_PATH});
+  }
   $vinfo_child->{node} = $node;
   $url_cache{$vinfo_child->{URL}} = $node;
   return $vinfo_child;
@@ -1850,7 +1873,7 @@ sub get_receive_targets($$;@)
       }
       if($matched) {
         push(@all_receive_targets, $_);
-        if($opts{exact_match}) {
+        if($opts{exact_match} && (not exists($_->{BTRBK_RAW}))) {
           unless($_->{direct_leaf} && ($_->{NAME} eq $src_vol->{NAME})) {
             TRACE "get_receive_targets: $matched: skip non-exact match: $_->{PRINT}";
             WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $_->{PRINT}" if($opts{warn_unexpected});
@@ -2501,7 +2524,7 @@ sub macro_send_receive(@)
   {
     unless($dryrun) {
       # make sure we know the source uuid
-      unless($source->{node}{uuid}) {
+      if($source->{node}{uuid} =~ /^$fake_uuid_prefix/) {
         DEBUG "Fetching uuid of new subvolume: $source->{PRINT}";
         my $detail = btrfs_subvolume_show($source);
         die unless($detail->{uuid});
@@ -3630,6 +3653,7 @@ MAIN:
         elsif($target_type eq "raw")
         {
           DEBUG "Creating raw subvolume list: $droot->{PRINT}";
+          $droot->{SUBVOL_LIST} = [];
           my $ret = run_cmd(
             cmd => [ 'find', $droot->{PATH} . '/', '-maxdepth', '1', '-type', 'f' ],
             rsh => $droot->{RSH},
@@ -3643,7 +3667,6 @@ MAIN:
             next;
           }
 
-          my @subvol_list;
           my %child_uuid_list;
           foreach (split("\n", $ret))
           {
@@ -3668,18 +3691,13 @@ MAIN:
             #
             # NOTE: remote_parent_uuid in BTRBK_RAW is the "parent of the source subvolume", NOT the
             #       "parent of the received subvolume".
-            $subvol->{node} = { uuid          => "FAKE_UUID:" . $subvol->{URL},
-                                received_uuid => ($subvol->{BTRBK_RAW}->{incomplete} ? '-' : $subvol->{BTRBK_RAW}->{received_uuid}),  # empty received_uuid is detected as incomplete backup
-                                parent_uuid   => undef,  # correct value gets inserted below
-                                readonly      => ($subvol->{BTRBK_RAW}->{incomplete} ? 0 : 1),    # fake subvolume readonly flag (incomplete backups have readonly=0)
-                              };
-            # NOTE: make sure to have all the flags set by _vinfo_subtree_list()
-            $subvol->{subtree_depth}     = 0;
-            $subvol->{direct_leaf}       = 1;
-            $subvol->{btrbk_direct_leaf} = 1;
-            $uuid_cache{$subvol->{node}{uuid}} = $subvol;
+            vinfo_inject_child($droot, $subvol, {
+              received_uuid => ($subvol->{BTRBK_RAW}->{incomplete} ? '-' : $subvol->{BTRBK_RAW}->{received_uuid}),  # empty received_uuid is detected as incomplete backup
+              parent_uuid   => undef,  # correct value gets inserted below
+              readonly      => ($subvol->{BTRBK_RAW}->{incomplete} ? 0 : 1),    # fake subvolume readonly flag (incomplete backups have readonly=0)
+              TARGET_TYPE   => 'raw',
+            });
 
-            push @subvol_list, $subvol;
             if($subvol->{BTRBK_RAW}->{remote_parent_uuid} ne '-') {
               $child_uuid_list{$subvol->{BTRBK_RAW}->{remote_parent_uuid}} //= [];
               push @{$child_uuid_list{$subvol->{BTRBK_RAW}->{remote_parent_uuid}}}, $subvol;
@@ -3689,9 +3707,8 @@ MAIN:
             WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED($droot);
             next;
           }
+          my @subvol_list = @{vinfo_subvol_list($droot, sort => 'path')};
           DEBUG "Found " . scalar(@subvol_list) . " raw subvolume backups of: $svol->{PRINT}";
-          my @sorted = sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @subvol_list;
-          $droot->{SUBVOL_LIST} = \@sorted;
 
           # Make sure that incremental backup chains are never broken:
           foreach my $subvol (@subvol_list)
