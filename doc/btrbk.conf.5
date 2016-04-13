@@ -100,16 +100,16 @@ valid in the \fIsubvolume\fR section. Defaults to
 \fI<subvolume-name>\fR.
 .RE
 .PP
-\fBsnapshot_create\fR  always|ondemand|onchange|no
+\fBsnapshot_create\fR  always|onchange|ondemand|no
 .RS 4
-If set to \[lq]ondemand\[rq], snapshots are only created if the target
-subvolume is reachable (useful if you are tight on disk space and you
-only need btrbk for backups to an external disk which is not always
-connected).  If set to \[lq]onchange\[rq], snapshots are only created
-if the source subvolume has changed since the last snapshot (more
-precisely: if the btrfs generation has been increased since the last
-snapshot). If set to \[lq]always\[rq], snapshots are always
-created. If set to \[lq]no\[rq], the snapshots are never created
+If set to \[lq]always\[rq], snapshots are always created. If set to
+\[lq]onchange\[rq], snapshots are only created if the source subvolume
+has changed since the last snapshot (more precisely: if the btrfs
+generation has been increased since the last snapshot). If set to
+\[lq]ondemand\[rq], snapshots are only created if the target subvolume
+is reachable (useful if you are tight on disk space and you only need
+btrbk for backups to an external disk which is not always
+connected). If set to \[lq]no\[rq], the snapshots are never created
 (useful if another instance of btrbk is taking care of snapshot
 creation). Defaults to \[lq]always\[rq].
 .RE

@@ -1807,20 +1807,30 @@ sub vinfo_subsection($$;$)
 }
 
 
-sub get_snapshot_children($$)
+sub get_snapshot_children($$;$$)
 {
   my $sroot = shift || die;
   my $svol = shift // die;
+  my $subvol_dir = shift // "";
+  my $btrbk_basename = shift;
   my @ret;
 
   my $sroot_subvols = vinfo_subvol_list($sroot);
   foreach (@$sroot_subvols) {
     next unless($_->{node}{readonly});
     next unless($_->{node}{parent_uuid} eq $svol->{node}{uuid});
+    if(defined($btrbk_basename) &&
+       ( (not exists($_->{BTRBK_BASENAME})) ||
+        ($_->{SUBVOL_DIR} ne $subvol_dir)   ||
+        ($_->{BTRBK_BASENAME} ne $btrbk_basename)) ) {
+      TRACE "get_snapshot_children: child does not match btrbk filename scheme, skipping: $_->{PRINT}";
+      next;
+    }
     TRACE "get_snapshot_children: found: $_->{PRINT}";
     push(@ret, $_);
   }
-  DEBUG "Found " . scalar(@ret) . " snapshot children of: $svol->{PRINT}";
+  $subvol_dir .= '/' if($subvol_dir);
+  DEBUG "Found " . scalar(@ret) . " snapshot children of \"$svol->{PRINT}\" in: $sroot->{PRINT}" . (defined($btrbk_basename) ? "/$subvol_dir$btrbk_basename.*" : "");
   return @ret;
 }
 
@@ -2651,7 +2661,6 @@ sub schedule(@)
   my %args = @_;
   my $schedule        = $args{schedule} || die;
   my $preserve        = $args{preserve} || die;
-  my $preserve_latest = $args{preserve_latest} || 0;
   my $results_list    = $args{results};
   my $result_hints    = $args{result_hints} // {};
 
@@ -2697,11 +2706,6 @@ sub schedule(@)
       $href->{month}         = "$date[0]-$date[1]";
       $href->{year}          = "$date[0]";
     }
-  }
-
-  if($preserve_latest && (scalar @sorted_schedule)) {
-    my $href = $sorted_schedule[-1];
-    $href->{preserve} ||= $preserve_latest;
   }
 
   my %first_in_delta_hours;
@@ -4229,7 +4233,8 @@ MAIN:
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
         my $snapdir = config_key($svol, "snapshot_dir") // "";
         my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-        my $preserve_latest = $svol->{SNAPSHOT_CREATED} ? 0 : 1;
+        my @snapshot_children = sort({ cmp_date($a->{BTRBK_DATE}, $b->{BTRBK_DATE}) }
+                                     get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
 
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
@@ -4237,14 +4242,8 @@ MAIN:
           my $resume_total = 0;
           my $resume_success = 0;
 
-          foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_snapshot_children($sroot, $svol))
+          foreach my $child (@snapshot_children)
           {
-            unless($child->{BTRBK_DATE} &&
-                   ($child->{SUBVOL_DIR} eq $snapdir) &&
-                   ($child->{BTRBK_BASENAME} eq $snapshot_basename)) {
-              TRACE "Backup candidate does not match btrbk filename scheme, skipping: $child->{PRINT}";
-              next;
-            }
             next if(scalar(get_receive_targets($droot, $child, exact_match => 1, warn_unexpected => 1)));
 
             if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
@@ -4272,13 +4271,13 @@ MAIN:
               }
               push(@schedule, { value      => undef,
                                 btrbk_date => $vol->{BTRBK_DATE},
-                                preserve   => $vol->{node}{FORCE_PRESERVE},
+                                # not enforcing resuming of latest snapshot anymore (since v0.23.0)
+                                # preserve   => $vol->{node}{FORCE_PRESERVE},
                               });
             }
             my ($preserve, undef) = schedule(
-              schedule         => \@schedule,
-              preserve         => config_preserve_hash($droot, "target"),
-              preserve_latest  => $preserve_latest,
+              schedule => \@schedule,
+              preserve => config_preserve_hash($droot, "target"),
              );
             my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
             $resume_total = scalar @resume;
@@ -4324,11 +4323,12 @@ MAIN:
     {
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+          my $snapdir = config_key($svol, "snapshot_dir") // "";
           my $snapdir_ts = config_key($svol, "snapshot_dir", postfix => '/') // "";
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-          my $preserve_latest_snapshot = $svol->{SNAPSHOT_CREATED} ? 0 : "preserve forced: latest in list (no snapshot created)";
-          my $preserve_latest_backup = $preserve_latest_snapshot;
           my $target_aborted = 0;
+          my @snapshot_children = sort({ cmp_date($b->{BTRBK_DATE}, $a->{BTRBK_DATE}) }  # sort descending
+                                       get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
 
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
             if(ABORTED($droot)) {
@@ -4339,16 +4339,18 @@ MAIN:
               }
               next;
             }
-            if($droot->{CONFIG}->{target_type} eq "raw") {
-              if(config_key($droot, "incremental")) {
-                # In incremental mode, the latest backup is most certainly our parent.
-                # (see note on FORCE_PRESERVE above)
-                $preserve_latest_backup ||= "preserve forced: possibly parent of latest backup";
-                # Note that we could check against $svol->{SNAPSHOT_CREATED}->{node}{parent_uuid} to be certain,
-                # but this information is not available in $dryrun:
-                #  foreach my $vol (@{vinfo_subvol_list($droot)}) {
-                #    $vol->{FORCE_PRESERVE} = 1 if($vol->{node}{received_uuid} eq $svol->{SNAPSHOT_CREATED}->{node}{parent_uuid});
-                #  }
+
+            # always preserve latest common snapshot/backup pair
+            foreach my $child (@snapshot_children) {
+              my @receive_targets = get_receive_targets($droot, $child);
+              if(scalar(@receive_targets)) {
+                DEBUG "Force preserve for latest common snapshot: $child->{PRINT}";
+                $child->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
+                foreach(@receive_targets) {
+                  DEBUG "Force preserve for latest common target: $_->{PRINT}";
+                  $_->{node}{FORCE_PRESERVE} = 'preserve forced: latest common target';
+                }
+                last;
               }
             }
 
@@ -4357,10 +4359,9 @@ MAIN:
             #
             INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
             unless(macro_delete($droot, "", $snapshot_basename, $droot,
-                                { preserve        => config_preserve_hash($droot, "target"),
-                                  preserve_latest => $preserve_latest_backup,
-                                  results         => $schedule_results,
-                                  result_hints    => { topic => "backup", root_path => $droot->{PATH} },
+                                { preserve     => config_preserve_hash($droot, "target"),
+                                  results      => $schedule_results,
+                                  result_hints => { topic => "backup", root_path => $droot->{PATH} },
                                 },
                                 commit => config_key($droot, "btrfs_commit_delete"),
                                 type   => "delete_target",
@@ -4382,11 +4383,10 @@ MAIN:
             next;
           }
           INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir_ts$snapshot_basename.*";
-          macro_delete($sroot, $snapdir_ts, $snapshot_basename, $svol,
-                       { preserve        => config_preserve_hash($svol, "snapshot"),
-                         preserve_latest => $preserve_latest_snapshot,
-                         results         => $schedule_results,
-                         result_hints    => { topic => "snapshot", root_path => $sroot->{PATH} },
+          macro_delete($sroot, $snapdir, $snapshot_basename, $svol,
+                       { preserve     => config_preserve_hash($svol, "snapshot"),
+                         results      => $schedule_results,
+                         result_hints => { topic => "snapshot", root_path => $sroot->{PATH} },
                        },
                        commit => config_key($svol, "btrfs_commit_delete"),
                        type   => "delete_snapshot",
