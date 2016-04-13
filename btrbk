@@ -80,8 +80,8 @@ my %config_options = (
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   snapshot_preserve           => { default => undef,     accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
+  snapshot_preserve_min       => { default => "1d",      accept => [ "all", "latest" ], accept_regexp => qr/^[1-9][0-9]*[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
   target_preserve             => { default => undef,     accept_preserve_matrix => 1 },
-  snapshot_preserve_min       => { default => '12h',     accept => [ "all", "latest"       ], accept_regexp => qr/^[0-9]+[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
   target_preserve_min         => { default => undef,     accept => [ "all", "latest", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
@@ -103,24 +103,21 @@ my %config_options = (
   group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
 
   # deprecated options
-  snapshot_preserve_daily     => { default => 'all',     accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  snapshot_preserve_weekly    => { default => 0,         accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  snapshot_preserve_monthly   => { default => 'all',     accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  target_preserve_daily       => { default => 'all',     accept => [ "all" ], accept_numeric => 1,
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  target_preserve_weekly      => { default => 0,         accept => [ "all" ], accept_numeric => 1,
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  target_preserve_monthly     => { default => 'all',     accept => [ "all" ], accept_numeric => 1,
-                                   deprecated => { COMPAT_PRESERVE_ALL => 1, DEFAULT => { warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  resume_missing              => { default => "yes",     accept => [ "yes", "no" ],
-                                   deprecated => { yes => { warn => 'ignoring' },
-                                                   no  => { warn => 'Please use "target_preserve_min latest" and "target_preserve no"',
-                                                            replace_key   => 'target_preserve',
-                                                            replace_value => 'no',
-                                                          } } },
+  snapshot_preserve_daily     => { default => 'all', accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
+                                   deprecated => { DEFAULT => { ABORT => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
+  snapshot_preserve_weekly    => { default => 0, accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
+                                   deprecated => { DEFAULT => { ABORT => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
+  snapshot_preserve_monthly   => { default => 'all', accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
+                                   deprecated => { DEFAULT => { ABORT => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
+  target_preserve_daily       => { default => 'all', accept => [ "all" ], accept_numeric => 1,
+                                   deprecated => { DEFAULT => { ABORT => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
+  target_preserve_weekly      => { default => 0, accept => [ "all" ], accept_numeric => 1,
+                                   deprecated => { DEFAULT => { ABORT => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
+  target_preserve_monthly     => { default => 'all', accept => [ "all" ], accept_numeric => 1,
+                                   deprecated => { DEFAULT => { ABORT => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
+  resume_missing              => { default => "yes", accept => [ "yes", "no" ],
+                                   deprecated => { yes => { warn => 'ignoring (missing backups are always resumed since btrbk v0.23.0)' },
+                                                   no  => { ABORT => 1, warn => 'Please use "target_preserve_min latest" and "target_preserve no" if you want to keep only the latest backup', } } },
   snapshot_create_always      => { default => undef, accept => [ "yes", "no" ],
                                    deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
                                                             replace_key   => "snapshot_create",
@@ -2249,17 +2246,16 @@ sub append_config_option($$$$;$)
   if($opt->{deprecated}) {
     WARN "Found deprecated option \"$key $value\"" . $config_file_statement . ": " .
            ($opt->{deprecated}->{$value}->{warn} // $opt->{deprecated}->{DEFAULT}->{warn});
+    if($opt->{deprecated}->{$value}->{ABORT} || $opt->{deprecated}->{DEFAULT}->{ABORT}) {
+      ERROR 'Deprecated (incompatible) option found, refusing to continue';
+      return undef;
+    }
     my $replace_key   = $opt->{deprecated}->{$value}->{replace_key};
     my $replace_value = $opt->{deprecated}->{$value}->{replace_value};
     if(defined($replace_key)) {
       $key = $replace_key;
       $value = $replace_value;
       WARN "Using \"$key $value\"";
-    }
-    if($opt->{deprecated}->{COMPAT_PRESERVE_ALL}) {
-      $config_override{snapshot_preserve_min} = 'all';
-      $config_override{target_preserve_min} = 'all';
-      WARN "Refusing to delete anything!";
     }
   }
 
