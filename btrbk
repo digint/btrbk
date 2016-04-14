@@ -1154,6 +1154,23 @@ sub system_realpath($)
 }
 
 
+sub system_mkdir($)
+{
+  my $vol = shift // die;
+  my $path = $vol->{PATH} // die;;
+  INFO "Creating directory: $vol->{PRINT}/";
+  my $ret = run_cmd(cmd => [ qw(mkdir), '-p', $path ],
+                    rsh => $vol->{RSH},
+                   );
+  action("mkdir",
+         vinfo_prefixed_keys("target", $vol),
+         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+        );
+  return undef unless(defined($ret));
+  return 1;
+}
+
+
 sub btrfs_mountpoint($)
 {
   my $vol = shift // die;
@@ -3435,9 +3452,8 @@ MAIN:
       my $subvol_dir = $vol->{SUBVOL_DIR};
       next if($name_uniq{"$subvol_dir/$snapshot_name"});
       $name_uniq{"$subvol_dir/$snapshot_name"} = 1;
-      $subvol_dir = '/' . $subvol_dir if($subvol_dir ne "");
-      my $droot_url = $target_url . $subvol_dir;
-      my $sroot_url = $src_url . $subvol_dir;
+      my $droot_url = $target_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
+      my $sroot_url = $src_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
       my $config_clone_src = { CONTEXT       => "clone_source",
                                PARENT        => $config,
                                url           => $sroot_url,     # ABORTED() needs this
@@ -3462,9 +3478,25 @@ MAIN:
       my $droot = vinfo($droot_url, $config_target);
       vinfo_assign_config($droot, $config_target);
       unless(vinfo_init_root($droot, resolve_subdir => 1)) {
-        ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-        WARN "Skipping clone target \"$droot->{PRINT}\": $abrt";
-        next;
+        DEBUG("Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
+        unless(system_mkdir($droot)) {
+          ABORTED($droot, "Failed to create directory: $droot->{PRINT}/");
+          WARN "Skipping clone target \"$droot->{PRINT}\": $abrt";
+          next;
+        }
+        if($dryrun) {
+          # we need to fake this directory on dryrun
+          $droot->{node} = $target_root->{node};
+          $droot->{NODE_SUBDIR} = $subvol_dir;
+        }
+        else {
+          # after directory is created, try to init again
+          unless(vinfo_init_root($droot, resolve_subdir => 1)) {
+            ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
+            WARN "Skipping clone target \"$droot->{PRINT}\": $abrt";
+            next;
+          }
+        }
       }
       if(_is_child_of($droot->{node}->{TREE_ROOT}, $vol->{node}{uuid})) {
         ERROR "Source and target subvolumes are on the same btrfs filesystem!";
