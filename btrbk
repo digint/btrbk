@@ -1726,11 +1726,12 @@ sub vinfo_inject_child
     push @$subvol_list, $vinfo_child;
   }
   else {
-    my $node_subdir = $vinfo->{NODE_SUBDIR} ? $vinfo->{NODE_SUBDIR} . '/' : "";
+    my $node_subdir = defined($vinfo->{NODE_SUBDIR}) ? $vinfo->{NODE_SUBDIR} . '/' : "";
     $node = btr_tree_inject_node($vinfo->{node}, $detail, $node_subdir . $vinfo_child->{SUBVOL_PATH});
   }
   $vinfo_child->{node} = $node;
   $url_cache{$vinfo_child->{URL}} = $node;
+  TRACE "vinfo_inject_child: injected child id=$node->{id} to $vinfo->{PRINT}";
   return $vinfo_child;
 }
 
