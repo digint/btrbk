@@ -1,4 +1,4 @@
-.TH "btrbk" "1" "2016-04-11" "btrbk v0.23.0-dev" ""
+.TH "btrbk" "1" "2016-04-14" "btrbk v0.23.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -143,6 +143,10 @@ and backup subvolumes that are not preserved by their configured
 retention policy will be deleted. Note that the latest snapshot (the
 one created in the first step) as well as the latest snapshot/backup
 pair are always preserved, regardless of the retention policy.
+.PP
+See section RETENTION POLICY in
+.BR btrbk.conf (5)
+for information on configuring the retention policy.
 .PP
 Use the \fI\-\-format\fR command line option to switch between
 different output formats.

@@ -79,9 +79,9 @@ my %config_options = (
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
-  snapshot_preserve           => { default => undef,     accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
+  snapshot_preserve           => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
   snapshot_preserve_min       => { default => "1d",      accept => [ "all", "latest" ], accept_regexp => qr/^[1-9][0-9]*[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
-  target_preserve             => { default => undef,     accept_preserve_matrix => 1 },
+  target_preserve             => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1 },
   target_preserve_min         => { default => undef,     accept => [ "all", "latest", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
@@ -2179,28 +2179,6 @@ sub append_config_option($$$$;$)
     return undef;
   }
 
-  if($opt->{accept_preserve_matrix}) {
-    my %preserve;
-    my $s = ' ' . $value;
-    while($s =~ s/\s+(\*|[0-9]+)([hdwmyHDWMY])//) {
-      my $n = $1;
-      my $q = lc($2); # qw( h d w m y )
-      $n = 'all' if($n eq '*');
-      if(exists($preserve{$q})) {
-        ERROR "Value \"$value\" failed input validation for option \"$key\": multiple definitions of '$q'" . $config_file_statement;
-        return undef;
-      }
-      $preserve{$q} = $n;
-    }
-    unless($s eq "") {
-      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
-      return undef;
-    }
-    TRACE "adding preserve matrix $context context:" . Data::Dumper->new([\%preserve], [ $key ])->Indent(0)->Pad(' ')->Quotekeys(0)->Pair('=>')->Dump() if($loglevel >= 4);
-    $config->{$key} = \%preserve;
-    return $config;
-  }
-
   if(grep(/^\Q$value\E$/, @{$opt->{accept}})) {
     TRACE "option \"$key=$value\" found in accept list";
   }
@@ -2226,6 +2204,27 @@ sub append_config_option($$$$;$)
       ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
       return undef;
     }
+  }
+  elsif($opt->{accept_preserve_matrix}) {
+    my %preserve;
+    my $s = ' ' . $value;
+    while($s =~ s/\s+(\*|[0-9]+)([hdwmyHDWMY])//) {
+      my $n = $1;
+      my $q = lc($2); # qw( h d w m y )
+      $n = 'all' if($n eq '*');
+      if(exists($preserve{$q})) {
+        ERROR "Value \"$value\" failed input validation for option \"$key\": multiple definitions of '$q'" . $config_file_statement;
+        return undef;
+      }
+      $preserve{$q} = $n;
+    }
+    unless($s eq "") {
+      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
+      return undef;
+    }
+    TRACE "adding preserve matrix $context context:" . Data::Dumper->new([\%preserve], [ $key ])->Indent(0)->Pad(' ')->Quotekeys(0)->Pair('=>')->Dump() if($loglevel >= 4);
+    $config->{$key} = \%preserve;
+    return $config;
   }
   else
   {
