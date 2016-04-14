@@ -1200,17 +1200,7 @@ sub btrfs_mountpoint($)
         WARN "Skipping non-parseable file in btrfs mounts of $host: \"$file\"";
         next;
       }
-      my $id = $mnt->{MNTOPS}->{subvolid};
-      unless($id) {
-        WARN "No subvolid provided in btrfs mounts of $host for: $file";
-        next;
-      }
-      unless($id >= 5) {
-        WARN "Ambiguous subvolid=$id in btrfs mounts of $host for: $file";
-        next;
-      }
-
-      TRACE "btrfs mount point (spec=$mnt->{spec}, subvolid=$id): $file";
+      TRACE "btrfs mount point (spec=$mnt->{spec}, subvolid=" . ($mnt->{MNTOPS}->{subvolid} // '<undef>') . "): $file";
       push @$mounts, $mnt;
     }
     $fstab_cache{$host} = $mounts;
@@ -1229,7 +1219,7 @@ sub btrfs_mountpoint($)
     DEBUG "No btrfs mount point found for: $vol->{PRINT}";
     return (undef, undef, undef);
   }
-  DEBUG "Found btrfs mount point for \"$vol->{PRINT}\": $longest_match->{file} (subvolid=$longest_match->{MNTOPS}->{subvolid})";
+  DEBUG "Found btrfs mount point for \"$vol->{PRINT}\": $longest_match->{file} (subvolid=" . ($longest_match->{MNTOPS}->{subvolid} // '<undef>') . ")";
   return ($longest_match->{file}, $path, $longest_match->{MNTOPS}->{subvolid});
 }
 
@@ -1238,6 +1228,7 @@ sub btr_tree($$)
 {
   my $vol = shift;
   my $vol_root_id = shift || die;
+  die unless($vol_root_id >= 5);
   # NOTE: we need an ID (provided by btrfs_subvolume_show()) in order
   # to determine the anchor to our root path (since the subvolume path
   # output of "btrfs subvolume list" is ambigous, and the uuid of the
@@ -1589,13 +1580,21 @@ sub vinfo_init_root($;@)
     elsif($opts{resolve_subdir}) {
       # $vol is not a subvolume, read btrfs tree from mount point
       my ($mnt_path, $real_path, $id) = btrfs_mountpoint($vol);
-      return undef unless($mnt_path && $real_path && $id);
-
+      return undef unless($mnt_path && $real_path);
       my $mnt_tree_root = $url_cache{$vol->{URL_PREFIX} . $mnt_path};
       unless($mnt_tree_root) {
         # read btrfs tree for the mount point
         my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path);
         vinfo_copy_flags($mnt_vol, $vol);
+        unless($id) {
+          DEBUG "No subvolid provided in btrfs mounts for: $mnt_path";
+          unless($id) {
+            # old kernels don't have subvolid=NN in /proc/self/mounts, read it with btrfs-progs
+            my $detail = btrfs_subvolume_show($mnt_vol);
+            return undef unless($detail);
+            $id = $detail->{id} || die;
+          }
+        }
         $mnt_tree_root = btr_tree($mnt_vol, $id);
         TRACE "url_cache fill: $mnt_vol->{PRINT}";
         _fill_url_cache($mnt_tree_root, $mnt_vol->{URL});
