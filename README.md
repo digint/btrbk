@@ -40,12 +40,10 @@ man-pages properly installed, follow the instructions below.
 Prerequisites
 -------------
 
-  * [btrfs-progs]: Btrfs filesystem utilities (use
-    "btrfs_progs_compat" option for hosts running version prior to
-    v3.17)
-  * [Perl interpreter]: probably already installed on your system
+  * [btrfs-progs]: Btrfs filesystem utilities >= v3.18.2
+  * [Perl interpreter]: Probably already installed on your system
   * [Date::Calc]: Perl module
-  * [OpenSSH]: if you want to tranfer backups from/to remote locations
+  * [OpenSSH]: If you want to tranfer backups from/to remote locations
 
   [btrfs-progs]: http://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
   [Perl interpreter]: https://www.perl.org

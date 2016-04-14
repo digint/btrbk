@@ -1,14 +1,15 @@
 btrbk-current
 
   * INCOMPATIBLE CONFIGURATION:
-    Please read "doc/upgrade_to_v0.23.0.md" for details on updating
-    the configuration file (/etc/btrbk/btrbk.conf).
+    * Please read "doc/upgrade_to_v0.23.0.md" for details on updating
+      the configuration file (/etc/btrbk/btrbk.conf).
+    * Dropped "btrfs_progs_compat" option. Need btrfs-progs >= v3.18.
+    * Removed "resume_missing" configuration option.
   * Create backups only if needed to satisfy retention policy.
   * Preserve FIRST backup of hour/day/week/month instead of LAST.
   * Replaced "{snapshot,target}_preserve_{daily,weekly,monthly}"
     configuration options with "{snapshot,target}_preserve_min" and
     "{snapshot,target}_preserve NNh NNd NNw NNm NNy" options.
-  * Removed "resume_missing" configuration option.
   * Added hourly/yearly retention policies (close: #36, #69).
   * Allow regular directories for send-receive targets (close: #77).
   * Allow wildcards in subvolume section (close: #71).

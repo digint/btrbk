@@ -215,16 +215,6 @@ If set, make sure the deletion of snapshot and backup subvolumes are
 committed to disk when btrbk terminates. Defaults to \[lq]no\[rq].
 .RE
 .PP
-\fBbtrfs_progs_compat\fR  yes|no \fI*experimental*\fR
-.RS 4
-Enable compatibility mode for btrfs-progs < 3.17 (\fIbtrfs
---version\fR). This option can be set either globally or within a
-\fItarget\fR section.  If enabled, the latest common snapshots are
-determined by subvolume names instead of \fIreceived_uuid\fR, which
-can lead to false guesses if the snapshot or target subvolumes are
-manipulated by hand (moved, deleted).
-.RE
-.PP
 Lines that contain a hash character (#) in the first column are
 treated as comments.
 .SH RETENTION POLICY

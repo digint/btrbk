@@ -61,10 +61,6 @@ snapshot_dir               _btrbk_snap
 # disk when btrbk terminates.
 #btrfs_commit_delete        no
 
-# Set this to "yes" to enable btrfs-progs < 3.17 compatibility.
-# Set this either globally or in a specific "target" section.
-#btrfs_progs_compat         no
-
 
 #
 # Volume section: "volume <volume-directory>"
