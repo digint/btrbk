@@ -2720,6 +2720,8 @@ sub schedule(@)
   my $preserve        = $args{preserve} || die;
   my $results_list    = $args{results};
   my $result_hints    = $args{result_hints} // {};
+  my $result_preserve_action_text = $args{result_preserve_action_text};
+  my $result_delete_action_text   = $args{result_delete_action_text} // 'delete';
 
   my $preserve_day_of_week = $preserve->{dow} || die;
   my $preserve_min_n       = $preserve->{min_n};
@@ -2848,7 +2850,7 @@ sub schedule(@)
       push(@preserve, $href->{value});
       DEBUG "Schedule: $href->{name}: $href->{preserve}" if($href->{name});
       push @$results_list, { %result_base,
-                             # action => "preserve",
+                             action => $result_preserve_action_text,
                              reason => $href->{preserve},
                              value => $href->{value},
                            } if($results_list);
@@ -2858,7 +2860,7 @@ sub schedule(@)
       push(@delete, $href->{value});
       DEBUG "Schedule: $href->{name}: delete" if($href->{name});
       push @$results_list, { %result_base,
-                             action => "delete",
+                             action => $result_delete_action_text,
                              value => $href->{value},
                            } if($results_list);
     }
@@ -3470,11 +3472,12 @@ MAIN:
       }
     }
 
+    my $schedule_results = [];
     foreach my $sroot (vinfo_subsection($config, 'clone_source')) {
       foreach my $droot (vinfo_subsection($sroot, 'target')) {
         my $snapshot_name = config_key($droot, "snapshot_name") // die;
         INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
-        macro_clone_target($sroot, $droot, $snapshot_name);
+        macro_clone_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
       }
     }
 
@@ -3490,9 +3493,14 @@ MAIN:
 
     unless($quiet)
     {
-      #
+      # print scheduling results
+      if($print_schedule) {
+        my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
+        print_formatted("schedule", \@data, title => "CLONE SCHEDULE");
+        print "\n";
+      }
+
       # print summary
-      #
       $output_format ||= "custom";
       if($output_format eq "custom")
       {
