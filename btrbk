@@ -2653,7 +2653,7 @@ sub macro_archive_target($$$;$)
     my @receive_targets = get_receive_targets($droot, $svol, exact_match => 1, warn_unexpected => 1, ret_unexpected => \$unexpected_count);
     # don't abort right here, we want to warn about all unexpected targets
     $abort_unexpected_location += $unexpected_count;
-    next if($abort_unexpected_location || scalar(@receive_targets));
+    next if(scalar(@receive_targets));
 
     DEBUG "Adding archive candidate: $svol->{PRINT}";
 
@@ -2662,11 +2662,13 @@ sub macro_archive_target($$$;$)
                       preserve   => $svol->{node}{FORCE_PRESERVE},
                     };
   }
-  if($abort_unexpected_location) {
-    ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
-    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
-    return undef;
-  }
+
+  # this is a bit harsh, disabled for now
+  #  if($abort_unexpected_location) {
+  #    ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
+  #    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
+  #    return undef;
+  #  }
 
   foreach my $dvol (@{vinfo_subvol_list($droot, sort => 'path')})
   {
