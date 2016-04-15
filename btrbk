@@ -2513,6 +2513,7 @@ sub macro_send_receive(@)
         my $detail = btrfs_subvolume_show($source);
         die unless($detail->{uuid});
         $source->{node}{uuid} = $detail->{uuid};
+        $uuid_cache{$detail->{uuid}} = $source->{node};
       }
     }
 
