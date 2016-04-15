@@ -3046,7 +3046,7 @@ MAIN:
     'table|t'        => sub { $output_format = "table" },
     'format=s'       => \$output_format,
     'print-schedule' => \$print_schedule,
-    # 'override=s'    => \%config_override_opts,  # e.g. --override=incremental=no
+    'override=s'    => \%config_override_opts,  # e.g. --override=incremental=no
    ))
   {
     VERSION_MESSAGE();
