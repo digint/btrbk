@@ -3511,7 +3511,14 @@ MAIN:
         my $snapshot_name = config_key($droot, "snapshot_name") // die;
         INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
         macro_clone_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
+        if(ABORTED($droot)) {
+          # also abort $sroot
+          ABORTED($sroot, "At least one target aborted");
+          WARN "Skipping archiving of \"$sroot->{PRINT}/\": $abrt";
+          last;
+        }
       }
+      last if(ABORTED($sroot));
     }
 
     my $exit_status = exit_status($config);
