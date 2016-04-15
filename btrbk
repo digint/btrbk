@@ -181,6 +181,11 @@ my %table_formats = (
                    raw   => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
                    tlog  => [ qw( localtime type status duration target_url source_url parent_url message ) ],
                  },
+
+  origin_tree => { table => [ qw( tree uuid parent_uuid received_uuid ) ],
+                   long  => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
+                   raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
+                 },
 );
 
 my %url_cache;       # map URL to btr_tree node
@@ -189,7 +194,7 @@ my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target)
 
 my $tree_inject_id   = 0;  # fake subvolume id for injected nodes (negative)
-my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id
+my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id: XXXXXXXX-XXXX-XXXX-XXXX-000000000000
 
 my $dryrun;
 my $loglevel = 1;
@@ -3098,28 +3103,80 @@ sub print_formatted(@)
 sub _origin_tree
 {
   my $prefix = shift;
-  my $uuid = shift;
+  my $node = shift // die;
   my $lines = shift;
-  my $node = $uuid_cache{$uuid};
-  unless($node) {
-    push(@$lines, ["$prefix<orphaned>", $uuid]);
-    return 0;
-  }
+  my $nodelist = shift;
+  my $depth = shift // 0;
+  my $seen = shift // [];
+  my $norecurse = shift;
+  my $uuid = $node->{uuid} || die;
+
+  # cache a bit, this might be large
+  $nodelist //= [ (sort { $a->{REL_PATH} cmp $b->{REL_PATH} } values %uuid_cache) ];
 
   my @url = get_cached_url_by_uuid($uuid);
+  my $out_path;
   if(scalar @url) {
-    push(@$lines, ["$prefix" . join(" === ", sort map { vinfo($_)->{PRINT} } @url), $uuid]);
+    $out_path = join(" === ", sort map { vinfo($_)->{PRINT} } @url);
   } else {
-    push(@$lines, ["$prefix<BTRFS_ROOT>/$node->{path}", $uuid]);
+    $out_path = _fs_path($node);
+  }
+  my $prefix_spaces = ' ' x (($depth * 4) - ($prefix ? 4 : 0));
+  push(@$lines, { tree          => "${prefix_spaces}${prefix}$out_path",
+                  uuid          => $node->{uuid},
+                  parent_uuid   => $node->{parent_uuid},
+                  received_uuid => $node->{received_uuid},
+                });
+
+  # handle deep recursion
+  return 0 if(grep /^$uuid$/, @$seen);
+
+  if($node->{parent_uuid} ne '-') {
+    my $parent_node = $uuid_cache{$node->{parent_uuid}};
+    if($parent_node) {
+      if($norecurse) {
+        push(@$lines,{ tree          => "${prefix_spaces}    ^-- ...",
+                       uuid          => $parent_node->{uuid},
+                       parent_uuid   => $parent_node->{parent_uuid},
+                       received_uuid => $parent_node->{received_uuid},
+                       recursion     => 'stop_recursion',
+                     });
+        return 0;
+      }
+      if($parent_node->{readonly}) {
+        _origin_tree("^-- ", $parent_node, $lines, $nodelist, $depth + 1, undef, 1);  # end recursion
+      }
+      else {
+        _origin_tree("^-- ", $parent_node, $lines, $nodelist, $depth + 1);
+      }
+    }
+    else {
+      push(@$lines,{ tree => "${prefix_spaces}    ^-- <unknown>" });
+    }
   }
 
-  $prefix =~ s/./ /g;
+  return 0 if($norecurse);
+  push(@$seen, $uuid);
+
   if($node->{received_uuid} ne '-') {
-    _origin_tree("${prefix}^-- ", $node->{received_uuid}, $lines);
+    my $received_uuid = $node->{received_uuid};
+    my @receive_parents; # there should be only one!
+    my @receive_twins;
+
+    foreach (@$nodelist) {
+      next if($_->{uuid} eq $uuid);
+      if($received_uuid eq $_->{uuid} && $_->{readonly}) {
+        _origin_tree("", $_, \@receive_parents, $nodelist, $depth, $seen);
+      }
+      elsif(($_->{received_uuid} ne '-') && ($received_uuid eq $_->{received_uuid}) && $_->{readonly}) {
+        _origin_tree("", $_, \@receive_twins, $nodelist, $depth, $seen, 1);  # end recursion
+      }
+    }
+    push @$lines, @receive_twins;
+    push @$lines, @receive_parents;
   }
-  if($node->{parent_uuid} ne '-') {
-    _origin_tree("${prefix}", $node->{parent_uuid}, $lines);
-  }
+
+  return 0;
 }
 
 
@@ -4077,8 +4134,6 @@ MAIN:
     # print origin information
     #
     my $url = $filter_args[0] || die;
-    my $dump_uuid = 0;
-
     my $vol = vinfo($url, $config);
     unless(vinfo_init_root($vol)) {
       ERROR "Failed to fetch subvolume detail for: $url" . ($err ? ": $err" : "");
@@ -4090,26 +4145,22 @@ MAIN:
     }
 
     my $lines = [];
-    _origin_tree("", $vol->{node}{uuid}, $lines);
+    _origin_tree("", $vol->{node}, $lines);
 
-    print_header(title  => "Origin Tree",
-                 config => $config,
-                 time   => $start_time,
-                 legend => [
-                   "^--     : received from subvolume",
-                   "newline : parent subvolume",
-                   "orphaned: subvolume uuid could not be resolved (probably deleted)",
-                  ]
-                );
-
-    my $len = 0;
-    if($dump_uuid) {
-      $len = (length($_->[0]) > $len ? length($_->[0]) : $len) foreach(@$lines);
+    $output_format ||= "custom";
+    if($output_format eq "custom") {
+      print_header(title  => "Origin Tree",
+                   config => $config,
+                   time   => $start_time,
+                   legend => [
+                     "^--     : parent subvolume",
+                     "newline : received-from relationship with subvolume (identical content)",
+                    ]
+                  );
+      print join("\n", map { $_->{tree} } @$lines) . "\n";
     }
-    foreach(@$lines) {
-      print "$_->[0]";
-      print ' ' x ($len - length($_->[0]) + 4) . "$_->[1]" if($dump_uuid);
-      print "\n";
+    else {
+      print_formatted('origin_tree', $lines );
     }
     exit 0;
   }

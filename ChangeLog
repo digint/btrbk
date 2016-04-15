@@ -16,6 +16,7 @@ btrbk-current
   * Propagate targets defined in "volume" or "root" context to all
     "subvolume" sections (close: #78).
   * Added "archive" command (close: #79).
+  * Changed output format of "origin" command, add table formats.
   * Added configuration option "rate_limit" (close: #72).
   * Added "--print-schedule" command line option.
   * Detect interrupted transfers of raw targets (close: #75).

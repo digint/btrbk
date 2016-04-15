@@ -22,6 +22,8 @@ Key Features:
   * Encrypted backups to non-btrfs destinations
   * Wildcard subvolumes (useful for docker and lxc containers)
   * Transaction log
+  * Comprehensive list and statistics output
+  * Resolve and trace btrfs parent-child and received-from relationships
   * Display file changes between two backups
 
 btrbk is designed to run as a cron job for triggering periodic
