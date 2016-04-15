@@ -3059,19 +3059,21 @@ sub print_formatted(@)
     }
 
     # print keys (headings)
-    my $fill = 0;
-    foreach (@$keys) {
-      print $fh ' ' x $fill;
-      $fill = $maxlen{$_} - length($_);
-      if($ralign->{$_}) {
+    unless($args{no_header}) {
+      my $fill = 0;
+      foreach (@$keys) {
         print $fh ' ' x $fill;
-        $fill = 0;
+        $fill = $maxlen{$_} - length($_);
+        if($ralign->{$_}) {
+          print $fh ' ' x $fill;
+          $fill = 0;
+        }
+        print $fh $_;
+        $fill += $table_spacing;
       }
-      print $fh $_;
-      $fill += $table_spacing;
+      print $fh "\n";
+      print $fh join(' ' x $table_spacing, map { '-' x ($maxlen{$_}) } @$keys) . "\n";
     }
-    print $fh "\n";
-    print $fh join(' ' x $table_spacing, map { '-' x ($maxlen{$_}) } @$keys) . "\n";
 
     # print values
     foreach my $row (@$data) {
