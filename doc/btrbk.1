@@ -167,26 +167,27 @@ by the \fBrun\fR command. Use in conjunction with \fI\-l debug\fR to
 see the btrfs commands that would be executed.
 .RE
 .PP
-.B clone
+.B archive
 <source> <target>
 .I *experimental*
 .RS 4
 Recursively copy all subvolumes created by btrbk from <source> to
 <target> directory, optionally rescheduled using
-\fIarchive_preserve_*\fR configuration options. Useful for creating
-extra archive copies (clones) from your backup disks. Note that you
-can continue using btrbk after swapping your backup disk with the
-cloned disk.
+\fIarchive_preserve_*\fR configuration options. Also creates directory
+tree on <target> (see bugs below). Useful for creating extra archive
+copies (clones) from your backup disks. Note that you can continue
+using btrbk after swapping your backup disk with the archive disk.
 .PP
 Note that this feature needs a \fBlinux kernel >=4.4\fR to work
 correctly! Kernels >=4.1 and <4.4 have a bug when re-sending
-subvolumes (the cloned subvolumes will have incorrect received_uuid,
+subvolumes (the archived subvolumes will have incorrect received_uuid,
 see <http://thread.gmane.org/gmane.comp.file-systems.btrfs/48798>), so
 make sure you run a recent kernel.
 .PP
-Known bugs: On the target filesystem, you have to create all
-directories by hand, or "btrbk clone" will complain: "WARNING:
-Skipping clone target <...>: Failed to fetch subvolume detail".
+Known bugs: If you want to use nested subvolumes on the target
+filesystem, you need to create them by hand (e.g. by running "btrfs
+subvolume create <target>/dir"). Check the output of --dry-run if
+unsure.
 .RE
 .PP
 .B stats

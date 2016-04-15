@@ -245,22 +245,22 @@ sub HELP_MESSAGE
   print STDERR "       --progress        show progress bar on send-receive operation\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   run                 perform backup operations as defined in the config file\n";
-  print STDERR "   dryrun              don't run btrfs commands; show what would be executed\n";
-  print STDERR "   stats               print snapshot/backup statistics\n";
-  print STDERR "   list <subcommand>   available subcommands are:\n";
-  print STDERR "      backups          all backups and corresponding snapshots\n";
-  print STDERR "      snapshots        all snapshots and corresponding backups\n";
-  print STDERR "      latest           most recent snapshots and backups\n";
-  print STDERR "      config           configured source/snapshot/target relations\n";
-  print STDERR "      source           configured source/snapshot relations\n";
-  print STDERR "      volume           configured volume sections\n";
-  print STDERR "      target           configured targets\n";
-  print STDERR "   clean               delete incomplete (garbled) backups\n";
-  print STDERR "   clone  <src> <dst>  recursively copy all subvolumes (experimental)\n";
-  print STDERR "   usage               print filesystem usage\n";
-  print STDERR "   origin <subvol>     print origin information for subvolume\n";
-  print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
+  print STDERR "   run                   perform backup operations as defined in the config\n";
+  print STDERR "   dryrun                don't run btrfs commands; show what would be executed\n";
+  print STDERR "   stats                 print snapshot/backup statistics\n";
+  print STDERR "   list <subcommand>     available subcommands are:\n";
+  print STDERR "      backups            all backups and corresponding snapshots\n";
+  print STDERR "      snapshots          all snapshots and corresponding backups\n";
+  print STDERR "      latest             most recent snapshots and backups\n";
+  print STDERR "      config             configured source/snapshot/target relations\n";
+  print STDERR "      source             configured source/snapshot relations\n";
+  print STDERR "      volume             configured volume sections\n";
+  print STDERR "      target             configured targets\n";
+  print STDERR "   clean                 delete incomplete (garbled) backups\n";
+  print STDERR "   archive <src> <dst>   recursively copy all subvolumes (experimental)\n";
+  print STDERR "   usage                 print filesystem usage\n";
+  print STDERR "   origin <subvol>       print origin information for subvolume\n";
+  print STDERR "   diff <from> <to>      shows new files between related subvolumes\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
@@ -2634,7 +2634,7 @@ sub macro_delete($$$$$;@)
 }
 
 
-sub macro_clone_target($$$;$)
+sub macro_archive_target($$$;$)
 {
   my $sroot = shift || die;
   my $droot = shift || die;
@@ -3181,7 +3181,7 @@ MAIN:
     WARN 'Found option "--progress", but "pv" is not present: (please install "pv")';
     $show_progress = 0;
   }
-  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_clone);
+  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive);
   my @filter_args;
   my $args_allow_group = 1;
   my $args_expected_min = 0;
@@ -3196,8 +3196,8 @@ MAIN:
     $action_clean = 1;
     @filter_args = @ARGV;
   }
-  elsif ($command eq "clone") {
-    $action_clone = 1;
+  elsif ($command eq "archive") {
+    $action_archive = 1;
     $args_expected_min = $args_expected_max = 2;
     $args_allow_group = 0;
     @filter_args = @ARGV;
@@ -3412,10 +3412,10 @@ MAIN:
   }
 
 
-  if($action_clone)
+  if($action_archive)
   {
     #
-    # clone (archive) tree
+    # archive (clone) tree
     #
     # NOTE: This is intended to work without a config file! The only
     # thing used from the configuration is the SSH and transaction log
@@ -3429,9 +3429,9 @@ MAIN:
     # FIXME: add command line options for preserve logic
     $config->{SUBSECTION} = [];  # clear configured subsections, we build them dynamically
 
-    my $clone_src_root = vinfo($src_url, $config);
-    unless(vinfo_init_root($clone_src_root, resolve_subdir => 1)) {
-      ERROR "Failed to fetch subvolume detail for '$clone_src_root->{PRINT}'" . ($err ? ": $err" : "");
+    my $src_root = vinfo($src_url, $config);
+    unless(vinfo_init_root($src_root, resolve_subdir => 1)) {
+      ERROR "Failed to fetch subvolume detail for '$src_root->{PRINT}'" . ($err ? ": $err" : "");
       exit 1;
     }
     my $target_root = vinfo($target_url, $config);
@@ -3441,7 +3441,7 @@ MAIN:
     }
 
     my %name_uniq;
-    my @subvol_list = @{vinfo_subvol_list($clone_src_root)};
+    my @subvol_list = @{vinfo_subvol_list($src_root)};
     my @sorted = sort { ($a->{subtree_depth} <=> $b->{subtree_depth}) || ($a->{SUBVOL_DIR} cmp $b->{SUBVOL_DIR}) } @subvol_list;
     foreach my $vol (@sorted) {
       next unless($vol->{node}{readonly});
@@ -3455,34 +3455,34 @@ MAIN:
       $name_uniq{"$subvol_dir/$snapshot_name"} = 1;
       my $droot_url = $target_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
       my $sroot_url = $src_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
-      my $config_clone_src = { CONTEXT       => "clone_source",
-                               PARENT        => $config,
-                               url           => $sroot_url,     # ABORTED() needs this
-                               snapshot_name => $snapshot_name,
-                             };
-      my $config_target    = { CONTEXT       => "target",
-                               PARENT        => $config_clone_src,
-                               target_type   => "send-receive", # macro_send_receive checks this
-                               url           => $droot_url,     # ABORTED() needs this
-                             };
-      $config_clone_src->{SUBSECTION} = [ $config_target ];
-      push(@{$config->{SUBSECTION}}, $config_clone_src);
+      my $config_sroot = { CONTEXT       => "archive_source",
+                           PARENT        => $config,
+                           url           => $sroot_url,     # ABORTED() needs this
+                           snapshot_name => $snapshot_name,
+                         };
+      my $config_droot = { CONTEXT       => "target",
+                           PARENT        => $config_sroot,
+                           target_type   => "send-receive", # macro_send_receive checks this
+                           url           => $droot_url,     # ABORTED() needs this
+                         };
+      $config_sroot->{SUBSECTION} = [ $config_droot ];
+      push(@{$config->{SUBSECTION}}, $config_sroot);
 
-      my $sroot = vinfo($sroot_url, $config_clone_src);
-      vinfo_assign_config($sroot, $config_clone_src);
+      my $sroot = vinfo($sroot_url, $config_sroot);
+      vinfo_assign_config($sroot, $config_sroot);
       unless(vinfo_init_root($sroot, resolve_subdir => 1)) {
         ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-        WARN "Skipping clone source \"$sroot->{PRINT}\": $abrt";
+        WARN "Skipping archive source \"$sroot->{PRINT}\": $abrt";
         next;
       }
 
-      my $droot = vinfo($droot_url, $config_target);
-      vinfo_assign_config($droot, $config_target);
+      my $droot = vinfo($droot_url, $config_droot);
+      vinfo_assign_config($droot, $config_droot);
       unless(vinfo_init_root($droot, resolve_subdir => 1)) {
         DEBUG("Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
         unless(system_mkdir($droot)) {
           ABORTED($droot, "Failed to create directory: $droot->{PRINT}/");
-          WARN "Skipping clone target \"$droot->{PRINT}\": $abrt";
+          WARN "Skipping archive target \"$droot->{PRINT}\": $abrt";
           next;
         }
         if($dryrun) {
@@ -3494,7 +3494,7 @@ MAIN:
           # after directory is created, try to init again
           unless(vinfo_init_root($droot, resolve_subdir => 1)) {
             ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-            WARN "Skipping clone target \"$droot->{PRINT}\": $abrt";
+            WARN "Skipping archive target \"$droot->{PRINT}\": $abrt";
             next;
           }
         }
@@ -3506,11 +3506,11 @@ MAIN:
     }
 
     my $schedule_results = [];
-    foreach my $sroot (vinfo_subsection($config, 'clone_source')) {
+    foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
       foreach my $droot (vinfo_subsection($sroot, 'target')) {
         my $snapshot_name = config_key($droot, "snapshot_name") // die;
         INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
-        macro_clone_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
+        macro_archive_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
         if(ABORTED($droot)) {
           # also abort $sroot
           ABORTED($sroot, "At least one target aborted");
@@ -3536,7 +3536,7 @@ MAIN:
       # print scheduling results
       if($print_schedule) {
         my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
-        print_formatted("schedule", \@data, title => "CLONE SCHEDULE");
+        print_formatted("schedule", \@data, title => "ARCHIVE SCHEDULE");
         print "\n";
       }
 
@@ -3546,7 +3546,7 @@ MAIN:
       {
         my @unrecoverable;
         my @out;
-        foreach my $sroot (vinfo_subsection($config, 'clone_source')) {
+        foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
           foreach my $droot (vinfo_subsection($sroot, 'target', 1)) {
             my @subvol_out;
             foreach(@{$droot->{SUBVOL_RECEIVED} // []}) {
@@ -3567,7 +3567,7 @@ MAIN:
           }
         }
 
-        print_header(title => "Clone Summary",
+        print_header(title => "Archive Summary",
                      time => $start_time,
                      legend => [
                        "---  deleted subvolume",
