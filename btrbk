@@ -2642,19 +2642,6 @@ sub macro_clone_target($$$;$)
   my $schedule_options = shift // {};
   my @schedule;
 
-  foreach my $dvol (@{vinfo_subvol_list($droot, sort => 'path')})
-  {
-    next unless($dvol->{btrbk_direct_leaf} && ($dvol->{BTRBK_BASENAME} eq $snapshot_name));
-    next unless($dvol->{node}{readonly});
-
-    # add all present archives to schedule, with no value.
-    # these are needed for correct results of schedule()
-    push @schedule, { value      => undef,
-                      btrbk_date => $dvol->{BTRBK_DATE},
-                      preserve   => $dvol->{FORCE_PRESERVE},
-                    };
-  }
-
   # NOTE: this is pretty much the same as "resume missing"
   my $abort_unexpected_location = 0;
   foreach my $svol (@{vinfo_subvol_list($sroot, sort => 'path')})
@@ -2668,17 +2655,29 @@ sub macro_clone_target($$$;$)
     $abort_unexpected_location += $unexpected_count;
     next if($abort_unexpected_location || scalar(@receive_targets));
 
-    DEBUG "Adding target candidate: $svol->{PRINT}";
+    DEBUG "Adding archive candidate: $svol->{PRINT}";
+
     push @schedule, { value      => $svol,
-                      name       => $svol->{PRINT},  # only for logging
                       btrbk_date => $svol->{BTRBK_DATE},
-                      preserve   => $svol->{FORCE_PRESERVE},
+                      preserve   => $svol->{node}{FORCE_PRESERVE},
                     };
   }
   if($abort_unexpected_location) {
     ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
     WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
     return undef;
+  }
+
+  foreach my $dvol (@{vinfo_subvol_list($droot, sort => 'path')})
+  {
+    next unless($dvol->{btrbk_direct_leaf} && ($dvol->{BTRBK_BASENAME} eq $snapshot_name));
+    next unless($dvol->{node}{readonly});
+    # add all present archives to schedule, with no value.
+    # these are needed for correct results of schedule()
+    push @schedule, { informative_only => 1,
+                      value            => $dvol,
+                      btrbk_date       => $dvol->{BTRBK_DATE},
+                    };
   }
 
   my ($preserve, undef) = schedule(
@@ -2755,7 +2754,10 @@ sub schedule(@)
   DEBUG "Schedule: " . format_preserve_matrix($preserve, format => "debug_text");
 
   # sort the schedule, ascending by date
-  my @sorted_schedule = sort { cmp_date($a->{btrbk_date}, $b->{btrbk_date} ) } @$schedule;
+  # regular entries come in front of informative_only
+  my @sorted_schedule = sort { cmp_date($a->{btrbk_date}, $b->{btrbk_date} ) ||
+                               (($a->{informative_only} ? ($b->{informative_only} ? 0 : 1) : ($b->{informative_only} ? -1 : 0)))
+                             } @$schedule;
 
   # first, do our calendar calculations
   # note: our week starts on $preserve_day_of_week
@@ -2861,20 +2863,19 @@ sub schedule(@)
   my $count_defined = 0;
   foreach my $href (@sorted_schedule)
   {
-    next unless(defined($href->{value}));
-    $count_defined++;
+    $count_defined++  unless($href->{informative_only});
     if($href->{preserve}) {
-      push(@preserve, $href->{value});
+      push(@preserve, $href->{value}) unless($href->{informative_only});
       DEBUG "Schedule: $href->{name}: $href->{preserve}" if($href->{name});
       push @$results_list, { %result_base,
-                             action => $result_preserve_action_text,
+                             action => $href->{informative_only} ? 'seen' : $result_preserve_action_text,
                              reason => $href->{preserve},
                              value => $href->{value},
                            } if($results_list);
 
     }
     else {
-      push(@delete, $href->{value});
+      push(@delete, $href->{value}) unless($href->{informative_only});
       DEBUG "Schedule: $href->{name}: delete" if($href->{name});
       push @$results_list, { %result_base,
                              action => $result_delete_action_text,
@@ -4513,10 +4514,9 @@ MAIN:
                 TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                 next;
               }
-              push(@schedule, { value      => undef,
+              push(@schedule, { informative_only => 1,
+                                value      => $vol,
                                 btrbk_date => $vol->{BTRBK_DATE},
-                                # not enforcing resuming of latest snapshot anymore (since v0.23.0)
-                                # preserve   => $vol->{node}{FORCE_PRESERVE},
                               });
             }
             my ($preserve, undef) = schedule(
