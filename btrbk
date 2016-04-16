@@ -1871,7 +1871,7 @@ sub get_receive_targets($$;@)
     }
     push(@ret, $_);
   }
-  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
+  TRACE "get_receive_targets: " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
   return @ret;
 }
 
@@ -2679,12 +2679,11 @@ sub macro_archive_target($$$;$)
   #    return undef;
   #  }
 
-  foreach my $dvol (@{vinfo_subvol_list($droot, sort => 'path')})
+  # add all present archives as informative_only: these are needed for correct results of schedule()
+  foreach my $dvol (@{vinfo_subvol_list($droot)})
   {
     next unless($dvol->{btrbk_direct_leaf} && ($dvol->{BTRBK_BASENAME} eq $snapshot_name));
     next unless($dvol->{node}{readonly});
-    # add all present archives to schedule, with no value.
-    # these are needed for correct results of schedule()
     push @schedule, { informative_only => 1,
                       value            => $dvol,
                       btrbk_date       => $dvol->{BTRBK_DATE},
@@ -2877,21 +2876,20 @@ sub schedule(@)
     $count_defined++  unless($href->{informative_only});
     if($href->{preserve}) {
       push(@preserve, $href->{value}) unless($href->{informative_only});
-      DEBUG "Schedule: $href->{name}: $href->{preserve}" if($href->{name});
       push @$results_list, { %result_base,
                              action => $href->{informative_only} ? 'seen' : $result_preserve_action_text,
                              reason => $href->{preserve},
                              value => $href->{value},
                            } if($results_list);
-
+      TRACE "schedule: $href->{value}->{PRINT}: " . ($href->{informative_only} ? '(informative_only)' : '') . " $href->{preserve}" if($href->{value} && $href->{value}->{PRINT});
     }
     else {
       push(@delete, $href->{value}) unless($href->{informative_only});
-      DEBUG "Schedule: $href->{name}: delete" if($href->{name});
       push @$results_list, { %result_base,
                              action => $result_delete_action_text,
                              value => $href->{value},
                            } if($results_list);
+      TRACE "schedule: $href->{value}->{PRINT}: delete ($result_delete_action_text)" if($href->{value} && $href->{value}->{PRINT});
     }
   }
   DEBUG "Preserving " . @preserve . "/" . $count_defined . " items";
@@ -3594,7 +3592,7 @@ MAIN:
 
         print join("\n", @out);
 
-        if($exit_status) {
+        if($exit_status || scalar(@unrecoverable)) {
           print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
           print "Please check warning and error messages above.\n";
           print join("\n", @unrecoverable) . "\n" if(@unrecoverable);
@@ -4515,10 +4513,9 @@ MAIN:
             my $warning_seen = [];
             my @receive_targets = get_receive_targets($droot, $child, exact_match => 1, warn => 1, seen => $warning_seen );
             get_receive_targets_fsroot($droot, $child, exclude => $warning_seen, warn => 1); # warn on unexpected on fs
-            next if(scalar(@receive_targets));
-
-            if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
-              WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
+            if(scalar(@receive_targets)){
+              DEBUG "Found receive target of: $child->{PRINT}";
+              next;
             }
 
             DEBUG "Adding backup candidate: $child->{PRINT}";
@@ -4532,10 +4529,8 @@ MAIN:
           if(scalar @schedule)
           {
             DEBUG "Checking schedule for backup candidates";
-            # add all present backups to schedule, with no value
-            # these are needed for correct results of schedule()
+            # add all present backups as informative_only: these are needed for correct results of schedule()
             foreach my $vol (@{vinfo_subvol_list($droot)}) {
-              next unless($vol->{node}{readonly});
               unless($vol->{btrbk_direct_leaf} && ($vol->{BTRBK_BASENAME} eq $snapshot_basename)) {
                 TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                 next;
@@ -4554,7 +4549,20 @@ MAIN:
 
             foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @resume)
             {
-              INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
+              # Continue gracefully (skip instead of abort) on existing (possibly garbled) target
+              my $err_vol = vinfo_subvol($droot, $child->{NAME});
+              if($err_vol) {
+                my $status_msg = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
+                WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
+                WARN $status_msg;
+                WARN "Skipping backup of: $child->{PRINT}";
+                $droot->{SUBVOL_RECEIVED} //= [];
+                push(@{$droot->{SUBVOL_RECEIVED}}, { ERROR => $status_msg, received_subvolume => $err_vol });
+                $droot->{CONFIG}->{UNRECOVERABLE} = $status_msg;
+                next;
+              }
+
+             INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
               my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $child, $droot, $snapdir);
               if(macro_send_receive(source => $child,
                                     target => $droot,
@@ -4778,7 +4786,7 @@ MAIN:
         if($preserve_backups || $resume_only) {
           print "\nNOTE: Preserved all snapshots and backups (option -p or -r present)\n";
         }
-        if($exit_status) {
+        if($exit_status || scalar(@unrecoverable)) {
           print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
           print "Please check warning and error messages above.\n";
           print join("\n", @unrecoverable) . "\n" if(@unrecoverable);
