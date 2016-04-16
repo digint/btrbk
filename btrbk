@@ -821,8 +821,8 @@ sub btrfs_subvolume_snapshot($$)
   my $target_vol = shift // die;
   my $target_path = $target_vol->{PATH} // die;
   my $src_path = $svol->{PATH} // die;
-  INFO "[subvol snapshot] source: $svol->{PRINT}";
-  INFO "[subvol snapshot] target: $target_vol->{PRINT}";
+  INFO "[snapshot] source: $svol->{PRINT}";
+  INFO "[snapshot] target: $target_vol->{PRINT}";
   start_transaction("snapshot",
                     vinfo_prefixed_keys("target", $target_vol),
                     vinfo_prefixed_keys("source", $svol),
@@ -854,8 +854,8 @@ sub btrfs_subvolume_delete($@)
     my $host = $_->{HOST} || "";
     die if($rsh_host_check ne $host);
   }
-  INFO "[subvol delete] commit-$commit" if($commit);
-  INFO "[subvol delete] target: $_->{PRINT}" foreach(@$targets);
+  INFO "[delete] options: commit-$commit" if($commit);
+  INFO "[delete] target: $_->{PRINT}" foreach(@$targets);
   my @options;
   @options = ("--commit-$commit") if($commit);
   my @target_paths = map( { $_->{PATH} } @$targets);
@@ -887,9 +887,9 @@ sub btrfs_send_receive($$$$;@)
 
   print STDOUT "Receiving subvolume: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
 
-  INFO "[subvol send/receive] source: $snapshot->{PRINT}";
-  INFO "[subvol send/receive] parent: $parent->{PRINT}" if($parent);
-  INFO "[subvol send/receive] target: $vol_received->{PRINT}";
+  INFO "[send/receive] source: $snapshot->{PRINT}";
+  INFO "[send/receive] parent: $parent->{PRINT}" if($parent);
+  INFO "[send/receive] target: $vol_received->{PRINT}";
 
   my @send_options;
   my @receive_options;
@@ -932,10 +932,10 @@ sub btrfs_send_receive($$$$;@)
         $send_receive_error = 1;
       }
       elsif(/^WARNING: /) {
-        WARN "[subvol send/receive] (send=$snapshot_path, receive=$target_path) $'";
+        WARN "[send/receive] (send=$snapshot_path, receive=$target_path) $'";
       }
       else {
-        WARN "[subvol send/receive] (send=$snapshot_path, receive=$target_path) $_" if($send_receive_error);
+        WARN "[send/receive] (send=$snapshot_path, receive=$target_path) $_" if($send_receive_error);
       }
     }
   }
@@ -1051,9 +1051,9 @@ sub btrfs_send_to_file($$$$;@)
 
   print STDOUT "Receiving raw subvolume image: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
 
-  INFO "[subvol send-to-raw] source: $source->{PRINT}";
-  INFO "[subvol send-to-raw] parent: $parent->{PRINT}" if($parent);
-  INFO "[subvol send-to-raw] target: $vol_received->{PRINT}";
+  INFO "[send-to-raw] source: $source->{PRINT}";
+  INFO "[send-to-raw] parent: $parent->{PRINT}" if($parent);
+  INFO "[send-to-raw] target: $vol_received->{PRINT}";
 
   start_transaction("send-to-raw",
                     vinfo_prefixed_keys("target", $vol_received),
@@ -2252,7 +2252,7 @@ sub append_config_option($$$$;$)
         WARN "Entering failsafe mode:";
         WARN "  - preserving ALL snapshots for ALL subvolumes";
         WARN "  - ignoring ALL targets (skipping backup creation)";
-        WARN "  - please read \"doc/upgrade_to_v0.23.0.md\" <http://digint.ch/btrbk/doc/upgrade_to_v0.23.0.html>";
+        WARN "  - please read \"doc/upgrade_to_v0.23.0.md\"";
         $config_override{FAILSAFE_PRESERVE} = "Failsafe mode active (deprecated configuration)";
       }
       $config_override{snapshot_preserve_min} = 'all';
