@@ -3442,7 +3442,7 @@ MAIN:
     init_transaction_log(config_key($config, "transaction_log"));
 
     my $src_url    = $filter_args[0] || die;
-    my $target_url = $filter_args[1] || die;
+    my $archive_url = $filter_args[1] || die;
 
     # FIXME: add command line options for preserve logic
     $config->{SUBSECTION} = [];  # clear configured subsections, we build them dynamically
@@ -3452,9 +3452,9 @@ MAIN:
       ERROR "Failed to fetch subvolume detail for '$src_root->{PRINT}'" . ($err ? ": $err" : "");
       exit 1;
     }
-    my $target_root = vinfo($target_url, $config);
-    unless(vinfo_init_root($target_root, resolve_subdir => 1)) {
-      ERROR "Failed to fetch subvolume detail for '$target_root->{PRINT}'" . ($err ? ": $err" : "");
+    my $archive_root = vinfo($archive_url, $config);
+    unless(vinfo_init_root($archive_root, resolve_subdir => 1)) {
+      ERROR "Failed to fetch subvolume detail for '$archive_root->{PRINT}'" . ($err ? ": $err" : "");
       exit 1;
     }
 
@@ -3471,7 +3471,7 @@ MAIN:
       my $subvol_dir = $vol->{SUBVOL_DIR};
       next if($name_uniq{"$subvol_dir/$snapshot_name"});
       $name_uniq{"$subvol_dir/$snapshot_name"} = 1;
-      my $droot_url = $target_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
+      my $droot_url = $archive_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
       my $sroot_url = $src_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
       my $config_sroot = { CONTEXT       => "archive_source",
                            PARENT        => $config,
@@ -3503,9 +3503,10 @@ MAIN:
           WARN "Skipping archive target \"$droot->{PRINT}\": $abrt";
           next;
         }
+        $droot->{SUBDIR_CREATED} = 1;
         if($dryrun) {
           # we need to fake this directory on dryrun
-          $droot->{node} = $target_root->{node};
+          $droot->{node} = $archive_root->{node};
           $droot->{NODE_SUBDIR} = $subvol_dir;
         }
         else {
@@ -3567,6 +3568,9 @@ MAIN:
         foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
           foreach my $droot (vinfo_subsection($sroot, 'target', 1)) {
             my @subvol_out;
+            if($droot->{SUBDIR_CREATED}) {
+              push @subvol_out, "++. $droot->{PRINT}/";
+            }
             foreach(@{$droot->{SUBVOL_RECEIVED} // []}) {
               my $create_mode = "***";
               $create_mode = ">>>" if($_->{parent});
@@ -3574,7 +3578,7 @@ MAIN:
               push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
             }
             if(ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) {
-              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED($droot);;
+              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED($droot);
             }
             if($droot->{CONFIG}->{UNRECOVERABLE}) {
               push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});
@@ -3588,7 +3592,8 @@ MAIN:
         print_header(title => "Archive Summary",
                      time => $start_time,
                      legend => [
-                       "---  deleted subvolume",
+                       # "---  deleted subvolume",
+                       "++.  created directory",
                        "***  received subvolume (non-incremental)",
                        ">>>  received subvolume (incremental)",
                       ],
