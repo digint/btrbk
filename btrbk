@@ -48,7 +48,7 @@ use Getopt::Long qw(GetOptions);
 use POSIX qw(strftime);
 use Data::Dumper;
 
-our $VERSION         = "0.23.0-dev";
+our $VERSION         = "0.23.0-rc1";
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 

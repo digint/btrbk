@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.23.0-rc1
 
   * INCOMPATIBLE CONFIGURATION:
     * Please read "doc/upgrade_to_v0.23.0.md" for details on updating

@@ -1,4 +1,4 @@
-.TH "ssh_filter_btrbk" "1" "2016-02-02" "btrbk v0.22.2" ""
+.TH "ssh_filter_btrbk" "1" "2016-04-16" "btrbk v0.23.0-rc1" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -37,8 +37,8 @@ send". Equivalent to "\-\-snapshot \-\-send".
 .PP
 \-t, \-\-target
 .RS 4
-Allow commands for backup target: "btrfs receive". Equivalent to
-"\-\-receive".
+Allow commands for backup target: "btrfs receive", "realpath" and "cat
+/proc/self/mounts".
 .RE
 .PP
 \-d, \-\-delete
