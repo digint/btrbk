@@ -1835,28 +1835,24 @@ sub get_receive_targets($$;@)
   my $src_vol = shift || die;
   my %opts = @_;
   my $droot_subvols = vinfo_subvol_list($droot);
-  my @ret_receive_targets;
-  my @all_receive_targets;
+  my @ret;
   my $unexpected_count = 0;
 
   if($src_vol->{node}{is_root}) {
     DEBUG "Skip search for targets: source subvolume is btrfs root: $src_vol->{PRINT}";
-    return @ret_receive_targets;
+    return @ret;
   }
   unless($src_vol->{node}{readonly}) {
     DEBUG "Skip search for targets: source subvolume is not read-only: $src_vol->{PRINT}";
-    return @ret_receive_targets;
+    return @ret;
   }
 
   # find matches by comparing uuid / received_uuid
   my $uuid = $src_vol->{node}{uuid};
-  my $received_uuid;
-  if($src_vol->{node}{received_uuid} ne '-') {
-    TRACE "get_receive_targets: source subvolume has received_uuid";
-    $received_uuid = $src_vol->{node}{received_uuid};
-  }
+  my $received_uuid = $src_vol->{node}{received_uuid};
+  $received_uuid = undef if($received_uuid eq '-');
+  TRACE "get_receive_targets: src_vol=\"$src_vol->{PRINT}\", droot=\"$droot->{PRINT}\"";
 
-  die("subvolume info not present: $uuid") unless($uuid_cache{$uuid});
   foreach (@$droot_subvols) {
     next unless($_->{node}{readonly});
     my $matched = undef;
@@ -1866,43 +1862,64 @@ sub get_receive_targets($$;@)
     elsif(defined($received_uuid) && ($_->{node}{received_uuid} eq $received_uuid)) {
       $matched = 'by-received_uuid';
     }
-    if($matched) {
-      push(@all_receive_targets, $_);
-      if($opts{exact_match} && (not exists($_->{BTRBK_RAW}))) {
-        unless($_->{direct_leaf} && ($_->{NAME} eq $src_vol->{NAME})) {
-          TRACE "get_receive_targets: $matched: skip non-exact match: $_->{PRINT}";
-          WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $_->{PRINT}" if($opts{warn_unexpected});
-          $unexpected_count++;
-          next;
-        }
-      }
-      TRACE "get_receive_targets: $matched: Found receive target: $_->{SUBVOL_PATH}";
-      push(@ret_receive_targets, $_);
-    }
+    next unless($matched);
 
-    if($opts{warn_unexpected}) {
-      # search in filesystem for matching received_uuid
-      my @fs_match = grep({ (not $_->{is_root}) &&
-                            (($_->{received_uuid} eq $uuid) ||
-                             (defined($received_uuid) && ($_->{received_uuid} eq $received_uuid)))
-                           } values(%{$droot->{node}{TREE_ROOT}{ID_HASH}}) );
-      foreach my $node (@fs_match) {
-        next if(scalar grep( { $_->{node}{id} == $node->{id} } @all_receive_targets));
-        my $text;
-        my @url = get_cached_url_by_uuid($node->{uuid});
-        if(scalar(@url)) {
-          $text = vinfo($url[0])->{PRINT};
-        } else {
-          $text = '"' . _fs_path($node) . "\" (in filesystem at \"$droot->{PRINT}\")";
-        }
-        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $text";
-        $unexpected_count++;
+    TRACE "get_receive_targets: $matched: Found receive target: $_->{SUBVOL_PATH}";
+    push(@{$opts{seen}}, $_) if($opts{seen});
+    if($opts{exact_match} && !exists($_->{BTRBK_RAW})) {
+      if($_->{direct_leaf} && ($_->{NAME} eq $src_vol->{NAME})) {
+        TRACE "get_receive_targets: exact_match: $_->{SUBVOL_PATH}";
+      }
+      else {
+        TRACE "get_receive_targets: $matched: skip non-exact match: $_->{PRINT}";
+        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $_->{PRINT}" if($opts{warn});
+        next;
       }
     }
-    ${$opts{ret_unexpected}} = $unexpected_count if(ref $opts{ret_unexpected});
+    push(@ret, $_);
   }
-  DEBUG "Found " . scalar(@ret_receive_targets) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
-  return @ret_receive_targets;
+  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
+  return @ret;
+}
+
+
+sub get_receive_targets_fsroot($$@)
+{
+  my $droot = shift // die;
+  my $src_vol = shift // die;
+  my %opts = @_;
+  my $id            = $src_vol->{node}{id};
+  my $uuid          = $src_vol->{node}{uuid};
+  my $received_uuid = $src_vol->{node}{received_uuid};
+  $received_uuid = undef if(defined($received_uuid) && ($received_uuid eq '-'));
+
+  my @unexpected;
+  my @exclude;
+  @exclude = map { $_->{node}{id} } @{$opts{exclude}}  if($opts{exclude});
+
+  TRACE "get_receive_target_fsroot: uuid=$uuid, received_uuid=" . ($received_uuid // '-') . " exclude id={ " . join(', ', @exclude) . " }";
+
+  # search in filesystem for matching received_uuid
+  foreach my $node (
+    grep({ (not $_->{is_root}) &&
+           (($_->{received_uuid} eq $uuid) ||
+            (defined($received_uuid) && ($_->{received_uuid} eq $received_uuid)))
+          } values(%{$droot->{node}{TREE_ROOT}{ID_HASH}}) ) )
+  {
+    next if(scalar grep($_ == $node->{id}, @exclude));
+    push @unexpected, $node;
+    if($opts{warn}) {
+      my $text;
+      my @url = get_cached_url_by_uuid($node->{uuid});
+      if(scalar(@url)) {
+        $text = vinfo($url[0])->{PRINT};
+      } else {
+        $text = '"' . _fs_path($node) . "\" (in filesystem at \"$droot->{PRINT}\")";
+      }
+      WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $text";
+    }
+  }
+  return \@unexpected;
 }
 
 
@@ -2643,18 +2660,17 @@ sub macro_archive_target($$$;$)
   my @schedule;
 
   # NOTE: this is pretty much the same as "resume missing"
-  my $abort_unexpected_location = 0;
+  my @unexpected_location;
   foreach my $svol (@{vinfo_subvol_list($sroot, sort => 'path')})
   {
     next unless($svol->{node}{readonly});
     next unless($svol->{btrbk_direct_leaf} && ($svol->{BTRBK_BASENAME} eq $snapshot_name));
 
-    my $unexpected_count = 0;
-    my @receive_targets = get_receive_targets($droot, $svol, exact_match => 1, warn_unexpected => 1, ret_unexpected => \$unexpected_count);
-    # don't abort right here, we want to warn about all unexpected targets
-    $abort_unexpected_location += $unexpected_count;
-    next if(scalar(@receive_targets));
+    my $warning_seen = [];
+    my @receive_targets = get_receive_targets($droot, $svol, exact_match => 1, warn => 1, seen => $warning_seen );
+    push @unexpected_location, get_receive_targets_fsroot($droot, $svol, exclude => $warning_seen, warn => 1); # warn if unexpected on fs
 
+    next if(scalar(@receive_targets));
     DEBUG "Adding archive candidate: $svol->{PRINT}";
 
     push @schedule, { value      => $svol,
@@ -2664,7 +2680,7 @@ sub macro_archive_target($$$;$)
   }
 
   # this is a bit harsh, disabled for now
-  #  if($abort_unexpected_location) {
+  #  if(scalar(@unexpected_location) {
   #    ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
   #    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
   #    return undef;
@@ -4498,7 +4514,10 @@ MAIN:
 
           foreach my $child (@snapshot_children)
           {
-            next if(scalar(get_receive_targets($droot, $child, exact_match => 1, warn_unexpected => 1)));
+            my $warning_seen = [];
+            my @receive_targets = get_receive_targets($droot, $child, exact_match => 1, warn => 1, seen => $warning_seen );
+            get_receive_targets_fsroot($droot, $child, exclude => $warning_seen, warn => 1); # warn on unexpected on fs
+            next if(scalar(@receive_targets));
 
             if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
               WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
