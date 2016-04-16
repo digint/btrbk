@@ -816,11 +816,8 @@ sub btrfs_subvolume_snapshot($$)
   my $target_vol = shift // die;
   my $target_path = $target_vol->{PATH} // die;
   my $src_path = $svol->{PATH} // die;
-  DEBUG "[btrfs] snapshot (ro):";
-  DEBUG "[btrfs]   host  : $svol->{HOST}" if($svol->{HOST});
-  DEBUG "[btrfs]   source: $src_path";
-  DEBUG "[btrfs]   target: $target_path";
-  INFO ">>> $target_vol->{PRINT}";
+  INFO "[subvol snapshot] source: $svol->{PRINT}";
+  INFO "[subvol snapshot] target: $target_vol->{PRINT}";
   start_transaction("snapshot",
                     vinfo_prefixed_keys("target", $target_vol),
                     vinfo_prefixed_keys("source", $svol),
@@ -852,8 +849,8 @@ sub btrfs_subvolume_delete($@)
     my $host = $_->{HOST} || "";
     die if($rsh_host_check ne $host);
   }
-  DEBUG "[btrfs] delete" . ($commit ? " (commit-$commit):" : ":");
-  DEBUG "[btrfs]   subvolume: $_->{PRINT}" foreach(@$targets);
+  INFO "[subvol delete] commit-$commit" if($commit);
+  INFO "[subvol delete] target: $_->{PRINT}" foreach(@$targets);
   my @options;
   @options = ("--commit-$commit") if($commit);
   my @target_paths = map( { $_->{PATH} } @$targets);
@@ -883,13 +880,11 @@ sub btrfs_send_receive($$$$;@)
   my $vol_received = vinfo_child($target, $snapshot->{NAME});
   $$ret_vol_received = $vol_received if(ref $ret_vol_received);
 
-  INFO ">>> $vol_received->{PRINT}";
-  print STDOUT "Receiving subvol: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
+  print STDOUT "Receiving subvolume: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
 
-  DEBUG "[btrfs] send/receive" . ($parent ? " (incremental)" : " (complete)") . ":";
-  DEBUG "[btrfs]   source: $snapshot->{PRINT}";
-  DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
-  DEBUG "[btrfs]   target: $target->{PRINT}/";
+  INFO "[subvol send/receive] source: $snapshot->{PRINT}";
+  INFO "[subvol send/receive] parent: $parent->{PRINT}" if($parent);
+  INFO "[subvol send/receive] target: $vol_received->{PRINT}";
 
   my @send_options;
   my @receive_options;
@@ -932,10 +927,10 @@ sub btrfs_send_receive($$$$;@)
         $send_receive_error = 1;
       }
       elsif(/^WARNING: /) {
-        WARN "[btrfs send/receive] (send=$snapshot_path, receive=$target_path) $'";
+        WARN "[subvol send/receive] (send=$snapshot_path, receive=$target_path) $'";
       }
       else {
-        WARN "[btrfs send/receive] (send=$snapshot_path, receive=$target_path) $_" if($send_receive_error);
+        WARN "[subvol send/receive] (send=$snapshot_path, receive=$target_path) $_" if($send_receive_error);
       }
     }
   }
@@ -1049,13 +1044,11 @@ sub btrfs_send_to_file($$$$;@)
   my $vol_received = vinfo_child($target, $target_filename);
   $$ret_vol_received = $vol_received if(ref $ret_vol_received);
 
-  INFO ">>> $vol_received->{PRINT}";
-  print STDOUT "Receiving subvol (raw): $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
+  print STDOUT "Receiving raw subvolume image: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
 
-  DEBUG "[btrfs] send-to-file" . ($parent ? " (incremental)" : " (complete)") . ":";
-  DEBUG "[btrfs]   source: $source->{PRINT}";
-  DEBUG "[btrfs]   parent: $parent->{PRINT}" if($parent);
-  DEBUG "[btrfs]   target: $target->{PRINT}/";
+  INFO "[subvol send-to-raw] source: $source->{PRINT}";
+  INFO "[subvol send-to-raw] parent: $parent->{PRINT}" if($parent);
+  INFO "[subvol send-to-raw] target: $vol_received->{PRINT}";
 
   start_transaction("send-to-raw",
                     vinfo_prefixed_keys("target", $vol_received),
@@ -2500,7 +2493,7 @@ sub macro_send_receive(@)
   my $target_type = $config_target->{target_type} || die;
   my $incremental = config_key($config_target, "incremental");
 
-  INFO "Receiving from subvolume: $source->{PRINT}";
+  DEBUG "Receiving from subvolume: $source->{PRINT}";
 
   # check for existing target subvolume
   if(my $err_vol = vinfo_subvol($target, $source->{NAME})) {
@@ -4512,7 +4505,7 @@ MAIN:
                                      get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
 
         foreach my $droot (vinfo_subsection($svol, 'target')) {
-          INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in: $droot->{PRINT}/";
+          INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in \"$droot->{PRINT}/\"";
           my @schedule;
           my $resume_total = 0;
           my $resume_success = 0;
