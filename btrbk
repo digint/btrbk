@@ -86,6 +86,8 @@ my %config_options = (
   snapshot_preserve_min       => { default => "1d",      accept => [ "all", "latest" ], accept_regexp => qr/^[1-9][0-9]*[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
   target_preserve             => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1 },
   target_preserve_min         => { default => undef,     accept => [ "all", "latest", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
+  archive_preserve            => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1 },
+  archive_preserve_min        => { default => "all",     accept => [ "all", "latest", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
@@ -243,21 +245,22 @@ sub HELP_MESSAGE
   print STDERR "       --progress        show progress bar on send-receive operation\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   run                 perform backup operations as defined in the config file\n";
-  print STDERR "   dryrun              don't run btrfs commands; show what would be executed\n";
-  print STDERR "   stats               print snapshot/backup statistics\n";
-  print STDERR "   list <subcommand>   available subcommands are:\n";
-  print STDERR "      backups          all backups and corresponding snapshots\n";
-  print STDERR "      snapshots        all snapshots and corresponding backups\n";
-  print STDERR "      latest           most recent snapshots and backups\n";
-  print STDERR "      config           configured source/snapshot/target relations\n";
-  print STDERR "      source           configured source/snapshot relations\n";
-  print STDERR "      volume           configured volume sections\n";
-  print STDERR "      target           configured targets\n";
-  print STDERR "   clean               delete incomplete (garbled) backups\n";
-  print STDERR "   usage               print filesystem usage\n";
-  print STDERR "   origin <subvol>     print origin information for subvolume\n";
-  print STDERR "   diff   <from> <to>  shows new files since subvolume <from> for subvolume <to>\n";
+  print STDERR "   run                   perform backup operations as defined in the config\n";
+  print STDERR "   dryrun                don't run btrfs commands; show what would be executed\n";
+  print STDERR "   stats                 print snapshot/backup statistics\n";
+  print STDERR "   list <subcommand>     available subcommands are:\n";
+  print STDERR "      backups            all backups and corresponding snapshots\n";
+  print STDERR "      snapshots          all snapshots and corresponding backups\n";
+  print STDERR "      latest             most recent snapshots and backups\n";
+  print STDERR "      config             configured source/snapshot/target relations\n";
+  print STDERR "      source             configured source/snapshot relations\n";
+  print STDERR "      volume             configured volume sections\n";
+  print STDERR "      target             configured targets\n";
+  print STDERR "   clean                 delete incomplete (garbled) backups\n";
+  print STDERR "   archive <src> <dst>   recursively copy all subvolumes (experimental)\n";
+  print STDERR "   usage                 print filesystem usage\n";
+  print STDERR "   origin <subvol>       print origin information for subvolume\n";
+  print STDERR "   diff <from> <to>      shows new files between related subvolumes\n";
   print STDERR "\n";
   print STDERR "For additional information, see $PROJECT_HOME\n";
 }
@@ -1151,6 +1154,23 @@ sub system_realpath($)
 }
 
 
+sub system_mkdir($)
+{
+  my $vol = shift // die;
+  my $path = $vol->{PATH} // die;;
+  INFO "Creating directory: $vol->{PRINT}/";
+  my $ret = run_cmd(cmd => [ qw(mkdir), '-p', $path ],
+                    rsh => $vol->{RSH},
+                   );
+  action("mkdir",
+         vinfo_prefixed_keys("target", $vol),
+         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
+        );
+  return undef unless(defined($ret));
+  return 1;
+}
+
+
 sub btrfs_mountpoint($)
 {
   my $vol = shift // die;
@@ -1815,28 +1835,24 @@ sub get_receive_targets($$;@)
   my $src_vol = shift || die;
   my %opts = @_;
   my $droot_subvols = vinfo_subvol_list($droot);
-  my @ret_receive_targets;
-  my @all_receive_targets;
+  my @ret;
   my $unexpected_count = 0;
 
   if($src_vol->{node}{is_root}) {
     DEBUG "Skip search for targets: source subvolume is btrfs root: $src_vol->{PRINT}";
-    return @ret_receive_targets;
+    return @ret;
   }
   unless($src_vol->{node}{readonly}) {
     DEBUG "Skip search for targets: source subvolume is not read-only: $src_vol->{PRINT}";
-    return @ret_receive_targets;
+    return @ret;
   }
 
   # find matches by comparing uuid / received_uuid
   my $uuid = $src_vol->{node}{uuid};
-  my $received_uuid;
-  if($src_vol->{node}{received_uuid} ne '-') {
-    TRACE "get_receive_targets: source subvolume has received_uuid";
-    $received_uuid = $src_vol->{node}{received_uuid};
-  }
+  my $received_uuid = $src_vol->{node}{received_uuid};
+  $received_uuid = undef if($received_uuid eq '-');
+  TRACE "get_receive_targets: src_vol=\"$src_vol->{PRINT}\", droot=\"$droot->{PRINT}\"";
 
-  die("subvolume info not present: $uuid") unless($uuid_cache{$uuid});
   foreach (@$droot_subvols) {
     next unless($_->{node}{readonly});
     my $matched = undef;
@@ -1846,43 +1862,64 @@ sub get_receive_targets($$;@)
     elsif(defined($received_uuid) && ($_->{node}{received_uuid} eq $received_uuid)) {
       $matched = 'by-received_uuid';
     }
-    if($matched) {
-      push(@all_receive_targets, $_);
-      if($opts{exact_match} && (not exists($_->{BTRBK_RAW}))) {
-        unless($_->{direct_leaf} && ($_->{NAME} eq $src_vol->{NAME})) {
-          TRACE "get_receive_targets: $matched: skip non-exact match: $_->{PRINT}";
-          WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $_->{PRINT}" if($opts{warn_unexpected});
-          $unexpected_count++;
-          next;
-        }
-      }
-      TRACE "get_receive_targets: $matched: Found receive target: $_->{SUBVOL_PATH}";
-      push(@ret_receive_targets, $_);
-    }
+    next unless($matched);
 
-    if($opts{warn_unexpected}) {
-      # search in filesystem for matching received_uuid
-      my @fs_match = grep({ (not $_->{is_root}) &&
-                            (($_->{received_uuid} eq $uuid) ||
-                             (defined($received_uuid) && ($_->{received_uuid} eq $received_uuid)))
-                           } values(%{$droot->{node}{TREE_ROOT}{ID_HASH}}) );
-      foreach my $node (@fs_match) {
-        next if(scalar grep( { $_->{node}{id} == $node->{id} } @all_receive_targets));
-        my $text;
-        my @url = get_cached_url_by_uuid($node->{uuid});
-        if(scalar(@url)) {
-          $text = vinfo($url[0])->{PRINT};
-        } else {
-          $text = '"' . _fs_path($node) . "\" (in filesystem at \"$droot->{PRINT}\")";
-        }
-        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $text";
-        $unexpected_count++;
+    TRACE "get_receive_targets: $matched: Found receive target: $_->{SUBVOL_PATH}";
+    push(@{$opts{seen}}, $_) if($opts{seen});
+    if($opts{exact_match} && !exists($_->{BTRBK_RAW})) {
+      if($_->{direct_leaf} && ($_->{NAME} eq $src_vol->{NAME})) {
+        TRACE "get_receive_targets: exact_match: $_->{SUBVOL_PATH}";
+      }
+      else {
+        TRACE "get_receive_targets: $matched: skip non-exact match: $_->{PRINT}";
+        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $_->{PRINT}" if($opts{warn});
+        next;
       }
     }
-    ${$opts{ret_unexpected}} = $unexpected_count if(ref $opts{ret_unexpected});
+    push(@ret, $_);
   }
-  DEBUG "Found " . scalar(@ret_receive_targets) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
-  return @ret_receive_targets;
+  DEBUG "Found " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
+  return @ret;
+}
+
+
+sub get_receive_targets_fsroot($$@)
+{
+  my $droot = shift // die;
+  my $src_vol = shift // die;
+  my %opts = @_;
+  my $id            = $src_vol->{node}{id};
+  my $uuid          = $src_vol->{node}{uuid};
+  my $received_uuid = $src_vol->{node}{received_uuid};
+  $received_uuid = undef if(defined($received_uuid) && ($received_uuid eq '-'));
+
+  my @unexpected;
+  my @exclude;
+  @exclude = map { $_->{node}{id} } @{$opts{exclude}}  if($opts{exclude});
+
+  TRACE "get_receive_target_fsroot: uuid=$uuid, received_uuid=" . ($received_uuid // '-') . " exclude id={ " . join(', ', @exclude) . " }";
+
+  # search in filesystem for matching received_uuid
+  foreach my $node (
+    grep({ (not $_->{is_root}) &&
+           (($_->{received_uuid} eq $uuid) ||
+            (defined($received_uuid) && ($_->{received_uuid} eq $received_uuid)))
+          } values(%{$droot->{node}{TREE_ROOT}{ID_HASH}}) ) )
+  {
+    next if(scalar grep($_ == $node->{id}, @exclude));
+    push @unexpected, $node;
+    if($opts{warn}) {
+      my $text;
+      my @url = get_cached_url_by_uuid($node->{uuid});
+      if(scalar(@url)) {
+        $text = vinfo($url[0])->{PRINT};
+      } else {
+        $text = '"' . _fs_path($node) . "\" (in filesystem at \"$droot->{PRINT}\")";
+      }
+      WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $text";
+    }
+  }
+  return \@unexpected;
 }
 
 
@@ -2479,7 +2516,7 @@ sub macro_send_receive(@)
   {
     # create backup from latest common
     if($parent) {
-      INFO "Incremental from parent subvolume: $parent->{PRINT}";
+      INFO "Incremental from parent: $parent->{PRINT}";
     }
     elsif($incremental ne "strict") {
       INFO "No common parent subvolume present, creating full backup";
@@ -2614,6 +2651,90 @@ sub macro_delete($$$$$;@)
 }
 
 
+sub macro_archive_target($$$;$)
+{
+  my $sroot = shift || die;
+  my $droot = shift || die;
+  my $snapshot_name = shift // die;
+  my $schedule_options = shift // {};
+  my @schedule;
+
+  # NOTE: this is pretty much the same as "resume missing"
+  my @unexpected_location;
+  foreach my $svol (@{vinfo_subvol_list($sroot, sort => 'path')})
+  {
+    next unless($svol->{node}{readonly});
+    next unless($svol->{btrbk_direct_leaf} && ($svol->{BTRBK_BASENAME} eq $snapshot_name));
+
+    my $warning_seen = [];
+    my @receive_targets = get_receive_targets($droot, $svol, exact_match => 1, warn => 1, seen => $warning_seen );
+    push @unexpected_location, get_receive_targets_fsroot($droot, $svol, exclude => $warning_seen, warn => 1); # warn if unexpected on fs
+
+    next if(scalar(@receive_targets));
+    DEBUG "Adding archive candidate: $svol->{PRINT}";
+
+    push @schedule, { value      => $svol,
+                      btrbk_date => $svol->{BTRBK_DATE},
+                      preserve   => $svol->{node}{FORCE_PRESERVE},
+                    };
+  }
+
+  # this is a bit harsh, disabled for now
+  #  if(scalar(@unexpected_location) {
+  #    ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
+  #    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
+  #    return undef;
+  #  }
+
+  foreach my $dvol (@{vinfo_subvol_list($droot, sort => 'path')})
+  {
+    next unless($dvol->{btrbk_direct_leaf} && ($dvol->{BTRBK_BASENAME} eq $snapshot_name));
+    next unless($dvol->{node}{readonly});
+    # add all present archives to schedule, with no value.
+    # these are needed for correct results of schedule()
+    push @schedule, { informative_only => 1,
+                      value            => $dvol,
+                      btrbk_date       => $dvol->{BTRBK_DATE},
+                    };
+  }
+
+  my ($preserve, undef) = schedule(
+    schedule => \@schedule,
+    preserve => config_preserve_hash($droot, "archive"),
+    result_preserve_action_text => 'archive',
+    result_delete_action_text   => '',
+    %$schedule_options
+  );
+  my @archive = grep defined, @$preserve;   # remove entries with no value from list (archive subvolumes)
+  my $archive_total = scalar @archive;
+  my $archive_success = 0;
+  foreach my $svol (@archive)
+  {
+    my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, "");
+    if(macro_send_receive(source => $svol,
+                          target => $droot,
+                          parent => $latest_common_src,
+                          latest_common_target => $latest_common_target,
+                         ))
+    {
+      $archive_success++;
+    }
+    else {
+      ERROR("Error while cloning, aborting");
+      last;
+    }
+  }
+
+  if($archive_total) {
+    INFO "Archived $archive_success/$archive_total subvolumes";
+  } else {
+    INFO "No missing archived subvolume found";
+  }
+
+  return $archive_success;
+}
+
+
 sub cmp_date($$)
 {
   my ($a,$b) = @_;
@@ -2633,6 +2754,8 @@ sub schedule(@)
   my $preserve        = $args{preserve} || die;
   my $results_list    = $args{results};
   my $result_hints    = $args{result_hints} // {};
+  my $result_preserve_action_text = $args{result_preserve_action_text};
+  my $result_delete_action_text   = $args{result_delete_action_text} // 'delete';
 
   my $preserve_day_of_week = $preserve->{dow} || die;
   my $preserve_min_n       = $preserve->{min_n};
@@ -2649,7 +2772,10 @@ sub schedule(@)
   DEBUG "Schedule: " . format_preserve_matrix($preserve, format => "debug_text");
 
   # sort the schedule, ascending by date
-  my @sorted_schedule = sort { cmp_date($a->{btrbk_date}, $b->{btrbk_date} ) } @$schedule;
+  # regular entries come in front of informative_only
+  my @sorted_schedule = sort { cmp_date($a->{btrbk_date}, $b->{btrbk_date} ) ||
+                               (($a->{informative_only} ? ($b->{informative_only} ? 0 : 1) : ($b->{informative_only} ? -1 : 0)))
+                             } @$schedule;
 
   # first, do our calendar calculations
   # note: our week starts on $preserve_day_of_week
@@ -2755,23 +2881,22 @@ sub schedule(@)
   my $count_defined = 0;
   foreach my $href (@sorted_schedule)
   {
-    next unless(defined($href->{value}));
-    $count_defined++;
+    $count_defined++  unless($href->{informative_only});
     if($href->{preserve}) {
-      push(@preserve, $href->{value});
+      push(@preserve, $href->{value}) unless($href->{informative_only});
       DEBUG "Schedule: $href->{name}: $href->{preserve}" if($href->{name});
       push @$results_list, { %result_base,
-                             # action => "preserve",
+                             action => $href->{informative_only} ? 'seen' : $result_preserve_action_text,
                              reason => $href->{preserve},
                              value => $href->{value},
                            } if($results_list);
 
     }
     else {
-      push(@delete, $href->{value});
+      push(@delete, $href->{value}) unless($href->{informative_only});
       DEBUG "Schedule: $href->{name}: delete" if($href->{name});
       push @$results_list, { %result_base,
-                             action => "delete",
+                             action => $result_delete_action_text,
                              value => $href->{value},
                            } if($results_list);
     }
@@ -3074,7 +3199,7 @@ MAIN:
     WARN 'Found option "--progress", but "pv" is not present: (please install "pv")';
     $show_progress = 0;
   }
-  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean);
+  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive);
   my @filter_args;
   my $args_allow_group = 1;
   my $args_expected_min = 0;
@@ -3087,6 +3212,12 @@ MAIN:
   }
   elsif ($command eq "clean") {
     $action_clean = 1;
+    @filter_args = @ARGV;
+  }
+  elsif ($command eq "archive") {
+    $action_archive = 1;
+    $args_expected_min = $args_expected_max = 2;
+    $args_allow_group = 0;
     @filter_args = @ARGV;
   }
   elsif ($command eq "usage") {
@@ -3296,6 +3427,198 @@ MAIN:
   unless(ref($config->{SUBSECTION}) eq "ARRAY") {
     ERROR "No volumes defined in configuration file";
     exit 2;
+  }
+
+
+  if($action_archive)
+  {
+    #
+    # archive (clone) tree
+    #
+    # NOTE: This is intended to work without a config file! The only
+    # thing used from the configuration is the SSH and transaction log
+    # stuff.
+    #
+    init_transaction_log(config_key($config, "transaction_log"));
+
+    my $src_url    = $filter_args[0] || die;
+    my $archive_url = $filter_args[1] || die;
+
+    # FIXME: add command line options for preserve logic
+    $config->{SUBSECTION} = [];  # clear configured subsections, we build them dynamically
+
+    my $src_root = vinfo($src_url, $config);
+    unless(vinfo_init_root($src_root, resolve_subdir => 1)) {
+      ERROR "Failed to fetch subvolume detail for '$src_root->{PRINT}'" . ($err ? ": $err" : "");
+      exit 1;
+    }
+    my $archive_root = vinfo($archive_url, $config);
+    unless(vinfo_init_root($archive_root, resolve_subdir => 1)) {
+      ERROR "Failed to fetch subvolume detail for '$archive_root->{PRINT}'" . ($err ? ": $err" : "");
+      exit 1;
+    }
+
+    my %name_uniq;
+    my @subvol_list = @{vinfo_subvol_list($src_root)};
+    my @sorted = sort { ($a->{subtree_depth} <=> $b->{subtree_depth}) || ($a->{SUBVOL_DIR} cmp $b->{SUBVOL_DIR}) } @subvol_list;
+    foreach my $vol (@sorted) {
+      next unless($vol->{node}{readonly});
+      my $snapshot_name = $vol->{BTRBK_BASENAME};
+      unless(defined($snapshot_name)) {
+        WARN "Skipping subvolume (not a btrbk subvolume): $vol->{PRINT}";
+        next;
+      }
+      my $subvol_dir = $vol->{SUBVOL_DIR};
+      next if($name_uniq{"$subvol_dir/$snapshot_name"});
+      $name_uniq{"$subvol_dir/$snapshot_name"} = 1;
+      my $droot_url = $archive_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
+      my $sroot_url = $src_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
+      my $config_sroot = { CONTEXT       => "archive_source",
+                           PARENT        => $config,
+                           url           => $sroot_url,     # ABORTED() needs this
+                           snapshot_name => $snapshot_name,
+                         };
+      my $config_droot = { CONTEXT       => "target",
+                           PARENT        => $config_sroot,
+                           target_type   => "send-receive", # macro_send_receive checks this
+                           url           => $droot_url,     # ABORTED() needs this
+                         };
+      $config_sroot->{SUBSECTION} = [ $config_droot ];
+      push(@{$config->{SUBSECTION}}, $config_sroot);
+
+      my $sroot = vinfo($sroot_url, $config_sroot);
+      vinfo_assign_config($sroot, $config_sroot);
+      unless(vinfo_init_root($sroot, resolve_subdir => 1)) {
+        ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
+        WARN "Skipping archive source \"$sroot->{PRINT}\": $abrt";
+        next;
+      }
+
+      my $droot = vinfo($droot_url, $config_droot);
+      vinfo_assign_config($droot, $config_droot);
+      unless(vinfo_init_root($droot, resolve_subdir => 1)) {
+        DEBUG("Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
+        unless(system_mkdir($droot)) {
+          ABORTED($droot, "Failed to create directory: $droot->{PRINT}/");
+          WARN "Skipping archive target \"$droot->{PRINT}\": $abrt";
+          next;
+        }
+        $droot->{SUBDIR_CREATED} = 1;
+        if($dryrun) {
+          # we need to fake this directory on dryrun
+          $droot->{node} = $archive_root->{node};
+          $droot->{NODE_SUBDIR} = $subvol_dir;
+        }
+        else {
+          # after directory is created, try to init again
+          unless(vinfo_init_root($droot, resolve_subdir => 1)) {
+            ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
+            WARN "Skipping archive target \"$droot->{PRINT}\": $abrt";
+            next;
+          }
+        }
+      }
+      if(_is_child_of($droot->{node}->{TREE_ROOT}, $vol->{node}{uuid})) {
+        ERROR "Source and target subvolumes are on the same btrfs filesystem!";
+        exit 1;
+      }
+    }
+
+    my $schedule_results = [];
+    foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
+      foreach my $droot (vinfo_subsection($sroot, 'target')) {
+        my $snapshot_name = config_key($droot, "snapshot_name") // die;
+        INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
+        macro_archive_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
+        if(ABORTED($droot)) {
+          # also abort $sroot
+          ABORTED($sroot, "At least one target aborted");
+          WARN "Skipping archiving of \"$sroot->{PRINT}/\": $abrt";
+          last;
+        }
+      }
+      last if(ABORTED($sroot));
+    }
+
+    my $exit_status = exit_status($config);
+    my $time_elapsed = time - $start_time;
+    INFO "Completed within: ${time_elapsed}s  (" . localtime(time) . ")";
+    action("finished",
+           status => $exit_status ? "partial" : "success",
+           duration => $time_elapsed,
+           message => $exit_status ? "At least one backup task aborted" : undef,
+          );
+    close_transaction_log();
+
+    unless($quiet)
+    {
+      # print scheduling results
+      if($print_schedule) {
+        my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
+        print_formatted("schedule", \@data, title => "ARCHIVE SCHEDULE");
+        print "\n";
+      }
+
+      # print summary
+      $output_format ||= "custom";
+      if($output_format eq "custom")
+      {
+        my @unrecoverable;
+        my @out;
+        foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
+          foreach my $droot (vinfo_subsection($sroot, 'target', 1)) {
+            my @subvol_out;
+            if($droot->{SUBDIR_CREATED}) {
+              push @subvol_out, "++. $droot->{PRINT}/";
+            }
+            foreach(@{$droot->{SUBVOL_RECEIVED} // []}) {
+              my $create_mode = "***";
+              $create_mode = ">>>" if($_->{parent});
+              $create_mode = "!!!" if($_->{ERROR});
+              push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
+            }
+            if(ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) {
+              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED($droot);
+            }
+            if($droot->{CONFIG}->{UNRECOVERABLE}) {
+              push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});
+            }
+            if(@subvol_out) {
+              push @out, "$sroot->{PRINT}/$sroot->{CONFIG}->{snapshot_name}.*", @subvol_out, "";
+            }
+          }
+        }
+
+        print_header(title => "Archive Summary",
+                     time => $start_time,
+                     legend => [
+                       # "---  deleted subvolume",
+                       "++.  created directory",
+                       "***  received subvolume (non-incremental)",
+                       ">>>  received subvolume (incremental)",
+                      ],
+                    );
+
+        print join("\n", @out);
+
+        if($exit_status) {
+          print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
+          print "Please check warning and error messages above.\n";
+          print join("\n", @unrecoverable) . "\n" if(@unrecoverable);
+        }
+        if($dryrun) {
+          print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
+        }
+      }
+      else
+      {
+        # print action log (without transaction start messages)
+        my @data = grep { $_->{status} ne "starting" } @transaction_log;
+        print_formatted("transaction", \@data, title => "TRANSACTION LOG");
+      }
+    }
+
+    exit $exit_status;
   }
 
 
@@ -4196,7 +4519,10 @@ MAIN:
 
           foreach my $child (@snapshot_children)
           {
-            next if(scalar(get_receive_targets($droot, $child, exact_match => 1, warn_unexpected => 1)));
+            my $warning_seen = [];
+            my @receive_targets = get_receive_targets($droot, $child, exact_match => 1, warn => 1, seen => $warning_seen );
+            get_receive_targets_fsroot($droot, $child, exclude => $warning_seen, warn => 1); # warn on unexpected on fs
+            next if(scalar(@receive_targets));
 
             if(my $err_vol = vinfo_subvol($droot, $child->{NAME})) {
               WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
@@ -4221,10 +4547,9 @@ MAIN:
                 TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                 next;
               }
-              push(@schedule, { value      => undef,
+              push(@schedule, { informative_only => 1,
+                                value      => $vol,
                                 btrbk_date => $vol->{BTRBK_DATE},
-                                # not enforcing resuming of latest snapshot anymore (since v0.23.0)
-                                # preserve   => $vol->{node}{FORCE_PRESERVE},
                               });
             }
             my ($preserve, undef) = schedule(
