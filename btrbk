@@ -46,7 +46,6 @@ use Carp qw(confess);
 use Date::Calc qw(Today_and_Now Delta_Days Delta_DHMS Day_of_Week);
 use Getopt::Long qw(GetOptions);
 use POSIX qw(strftime);
-use Data::Dumper;
 
 our $VERSION         = "0.23.0-dev";
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
@@ -198,6 +197,7 @@ my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id: XX
 
 my $dryrun;
 my $loglevel = 1;
+my $do_dumper;
 my $show_progress = 0;
 my $err = "";
 my $abrt = "";  # last ABORTED() message
@@ -207,6 +207,15 @@ my $current_transaction;
 my @transaction_log;
 my %config_override;
 my @today_and_now;
+
+BEGIN {
+  $do_dumper = eval {
+    require Data::Dumper;
+    Data::Dumper->import(qw(Dumper));
+    $Data::Dumper::Sortkeys = 1;
+    $Data::Dumper::Quotekeys = 0;
+  };
+}
 
 
 $SIG{__DIE__} = sub {
@@ -560,7 +569,7 @@ sub btrfs_filesystem_usage($)
     }
   }
   DEBUG "Parsed " . scalar(keys %detail) . " filesystem usage detail items: $vol->{PRINT}";
-  TRACE(Data::Dumper->Dump([\%detail], ["btrfs_filesystem_usage($vol->{URL})"])) if($loglevel >= 4);
+  TRACE(Data::Dumper->Dump([\%detail], ["btrfs_filesystem_usage($vol->{URL})"])) if($do_dumper);
   return \%detail;
 }
 
@@ -649,7 +658,7 @@ sub btrfs_subvolume_show($)
       }
     }
     DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
-    VINFO(\%detail, "detail") if($loglevel >= 4);
+    VINFO(\%detail, "detail") if($do_dumper);
     foreach(@required_keys) {
       unless(defined($detail{$_})) {
         ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
@@ -1125,7 +1134,7 @@ sub system_list_mounts($)
     }
     push @mounts, \%line;
   }
-  # TRACE(Data::Dumper->Dump([\@mounts], ["mounts"])) if($loglevel >= 4);
+  # TRACE(Data::Dumper->Dump([\@mounts], ["mounts"])) if($do_dumper);
   return \@mounts;
 }
 
@@ -1308,7 +1317,7 @@ sub btr_tree($$)
   }
 
   TRACE "btr_tree: returning tree at id=$vol_root->{id}";
-  VINFO($vol_root, "node") if($loglevel >= 4);
+  VINFO($vol_root, "node") if($do_dumper);
 
   return $vol_root;
 }
@@ -2244,7 +2253,7 @@ sub append_config_option($$$$;$)
       ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
       return undef;
     }
-    TRACE "adding preserve matrix $context context:" . Data::Dumper->new([\%preserve], [ $key ])->Indent(0)->Pad(' ')->Quotekeys(0)->Pair('=>')->Dump() if($loglevel >= 4);
+    TRACE "adding preserve matrix $context context:" . Data::Dumper->new([\%preserve], [ $key ])->Indent(0)->Pad(' ')->Quotekeys(0)->Pair('=>')->Dump() if($do_dumper);
     $config->{$key} = \%preserve;
     return $config;
   }
@@ -3223,8 +3232,6 @@ MAIN:
   $ENV{PATH} = '/sbin:/bin:/usr/sbin:/usr/bin';
 
   Getopt::Long::Configure qw(gnu_getopt);
-  $Data::Dumper::Sortkeys = 1;
-  $Data::Dumper::Quotekeys = 0;
   my $start_time = time;
   @today_and_now = Today_and_Now();
   my %config_override_opts;
@@ -3260,13 +3267,15 @@ MAIN:
   }
 
   # assign command line options
+  @config_src = ( $config_cmdline ) if($config_cmdline);
   if   (lc($loglevel) eq "warn")  { $loglevel = 1; }
   elsif(lc($loglevel) eq "info")  { $loglevel = 2; }
   elsif(lc($loglevel) eq "debug") { $loglevel = 3; }
   elsif(lc($loglevel) eq "trace") { $loglevel = 4; }
   elsif($loglevel =~ /^[0-9]+$/)  { ; }
   else                            { $loglevel = 1; }
-  @config_src = ( $config_cmdline ) if($config_cmdline);
+  WARN "Perl module \"Data::Dumper\" not found: data trace dumps disabled!" if(($loglevel >=4) && (not $do_dumper));
+  $do_dumper = 0 if($loglevel < 4);
 
   # check command line options
   if($show_progress && (not -e '/usr/bin/pv')) {
@@ -3795,7 +3804,7 @@ MAIN:
     }
     $config_vol->{SUBSECTION} = \@vol_subsection_expanded;
   }
-  TRACE(Data::Dumper->Dump([$config], ["config"])) if($loglevel >= 4);
+  TRACE(Data::Dumper->Dump([$config], ["config"])) if($do_dumper);
 
 
   #
