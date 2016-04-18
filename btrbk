@@ -3209,6 +3209,7 @@ MAIN:
   @today_and_now = Today_and_Now();
   my %config_override_opts;
 
+  my %config_override_cmdline;
   my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only, $print_schedule);
   unless(GetOptions(
     'help|h'         => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
@@ -3224,7 +3225,7 @@ MAIN:
     'table|t'        => sub { $output_format = "table" },
     'format=s'       => \$output_format,
     'print-schedule' => \$print_schedule,
-    'override=s'    => \%config_override_opts,  # e.g. --override=incremental=no
+    'override=s'    => \%config_override_cmdline,  # e.g. --override=incremental=no
    ))
   {
     VERSION_MESSAGE();
@@ -3358,9 +3359,9 @@ MAIN:
       exit 2;
     }
   }
-  foreach my $key (keys %config_override_opts) {
-    DEBUG "config_override: \"$key=$config_override_opts{$key}\"";
-    unless(append_config_option(\%config_override, $key, $config_override_opts{$key}, "root")) {
+  foreach my $key (keys %config_override_cmdline) {
+    DEBUG "config_override: \"$key=$config_override_cmdline{$key}\"";
+    unless(append_config_option(\%config_override, $key, $config_override_cmdline{$key}, "root")) {
       HELP_MESSAGE(0);
       exit 2;
     }
