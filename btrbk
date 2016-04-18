@@ -48,7 +48,7 @@ use Getopt::Long qw(GetOptions);
 use POSIX qw(strftime);
 use Data::Dumper;
 
-our $VERSION         = "0.23.0-rc1";
+our $VERSION         = "0.23.0-dev";
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 
@@ -2118,6 +2118,7 @@ sub config_dump_keys($;@)
   foreach my $key (sort keys %config_options)
   {
     my $val;
+    next if($config_options{$key}->{deprecated});
     if($opts{resolve}) {
       $val = config_key($config, $key);
     } else {
@@ -2132,14 +2133,16 @@ sub config_dump_keys($;@)
         next; # both undef, skip
       }
     }
-    if($config_options{$key}->{accept_preserve_matrix}) {
-      $val = format_preserve_matrix($val);
+    if(defined($val)) {
+      if($config_options{$key}->{accept_preserve_matrix}) {
+        $val = format_preserve_matrix($val);
+      }
+      if(ref($val) eq "ARRAY") {
+        my $val2 = join(',', @$val);
+        $val = $val2;
+      }
     }
-    if(ref($val) eq "ARRAY") {
-      my $val2 = join(',', @$val);
-      $val = $val2;
-    }
-    $val //= "<unset>";
+    $val //= exists($config->{$key}) ? "no" : "<unset>";
     my $len = length($key);
     $maxlen = $len if($len > $maxlen);
     push @ret, { key => $key, val => $val, len => $len };
