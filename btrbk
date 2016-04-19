@@ -1832,7 +1832,7 @@ sub get_receive_targets($$;@)
   my $droot = shift || die;
   my $src_vol = shift || die;
   my %opts = @_;
-  my $droot_subvols = vinfo_subvol_list($droot);
+  my $droot_subvols = $opts{droot_subvol_list} // vinfo_subvol_list($droot);
   my @ret;
   my $unexpected_count = 0;
 
@@ -1970,12 +1970,13 @@ sub get_latest_common($$$;$)
     }
   }
 
+  my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list
   foreach my $child (@candidate) {
     if($child->{node}{id} == $svol->{node}{id}) {
       TRACE "get_latest_common: skip self: $child->{PRINT}";
       next;
     }
-    my @receive_targets = get_receive_targets($droot, $child);
+    my @receive_targets = get_receive_targets($droot, $child, droot_subvol_list => $droot_subvol_list);
     if(scalar @receive_targets) {
       DEBUG("Latest common subvolumes for: $svol->{PRINT}: src=$child->{PRINT}  target=$receive_targets[0]->{PRINT}");
       return ($child, $receive_targets[0]);
@@ -2660,13 +2661,14 @@ sub macro_archive_target($$$;$)
 
   # NOTE: this is pretty much the same as "resume missing"
   my @unexpected_location;
+  my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list for get_receive_targets()
   foreach my $svol (@{vinfo_subvol_list($sroot, sort => 'path')})
   {
     next unless($svol->{node}{readonly});
     next unless($svol->{btrbk_direct_leaf} && ($svol->{BTRBK_BASENAME} eq $snapshot_name));
 
     my $warning_seen = [];
-    my @receive_targets = get_receive_targets($droot, $svol, exact_match => 1, warn => 1, seen => $warning_seen );
+    my @receive_targets = get_receive_targets($droot, $svol, exact_match => 1, warn => 1, seen => $warning_seen, droot_subvol_list => $droot_subvol_list );
     push @unexpected_location, get_receive_targets_fsroot($droot, $svol, exclude => $warning_seen, warn => 1); # warn if unexpected on fs
 
     next if(scalar(@receive_targets));
@@ -2685,7 +2687,7 @@ sub macro_archive_target($$$;$)
    }
 
   # add all present archives as informative_only: these are needed for correct results of schedule()
-  foreach my $dvol (@{vinfo_subvol_list($droot)})
+  foreach my $dvol (@$droot_subvol_list)
   {
     next unless($dvol->{btrbk_direct_leaf} && ($dvol->{BTRBK_BASENAME} eq $snapshot_name));
     next unless($dvol->{node}{readonly});
@@ -4602,10 +4604,11 @@ MAIN:
           my $resume_total = 0;
           my $resume_success = 0;
 
+          my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list for get_receive_targets()
           foreach my $child (@snapshot_children)
           {
             my $warning_seen = [];
-            my @receive_targets = get_receive_targets($droot, $child, exact_match => 1, warn => 1, seen => $warning_seen );
+            my @receive_targets = get_receive_targets($droot, $child, exact_match => 1, warn => 1, seen => $warning_seen, droot_subvol_list => $droot_subvol_list );
             get_receive_targets_fsroot($droot, $child, exclude => $warning_seen, warn => 1); # warn on unexpected on fs
             if(scalar(@receive_targets)){
               DEBUG "Found receive target of: $child->{PRINT}";
@@ -4624,7 +4627,7 @@ MAIN:
           {
             DEBUG "Checking schedule for backup candidates";
             # add all present backups as informative_only: these are needed for correct results of schedule()
-            foreach my $vol (@{vinfo_subvol_list($droot)}) {
+            foreach my $vol (@$droot_subvol_list) {
               unless($vol->{btrbk_direct_leaf} && ($vol->{BTRBK_BASENAME} eq $snapshot_basename)) {
                 TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                 next;
@@ -4713,8 +4716,9 @@ MAIN:
             }
 
             # always preserve latest common snapshot/backup pair
+            my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list for get_receive_targets()
             foreach my $child (@snapshot_children) {
-              my @receive_targets = get_receive_targets($droot, $child);
+              my @receive_targets = get_receive_targets($droot, $child, droot_subvol_list => $droot_subvol_list);
               if(scalar(@receive_targets)) {
                 DEBUG "Force preserve for latest common snapshot: $child->{PRINT}";
                 $child->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
