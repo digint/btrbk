@@ -2501,8 +2501,6 @@ sub macro_send_receive(@)
   my $target_type = $config_target->{target_type} || die;
   my $incremental = config_key($config_target, "incremental");
 
-  DEBUG "Receiving from subvolume: $source->{PRINT}";
-
   # check for existing target subvolume
   if(my $err_vol = vinfo_subvol($target, $source->{NAME})) {
     ABORTED($config_target, "Target subvolume \"$err_vol->{PRINT}\" already exists");
@@ -2517,20 +2515,20 @@ sub macro_send_receive(@)
   {
     # create backup from latest common
     if($parent) {
-      INFO "Incremental from parent: $parent->{PRINT}";
+      INFO "Creating incremental backup...";
     }
     elsif($incremental ne "strict") {
-      INFO "No common parent subvolume present, creating full backup";
+      INFO "No common parent subvolume present, creating full backup...";
     }
     else {
-      WARN "Backup to $target->{PRINT} failed: no common parent subvolume found, and option \"incremental\" is set to \"strict\"";
+      WARN "Backup to $target->{PRINT} failed: no common parent subvolume found for \"$source->{PRINT}\", and option \"incremental\" is set to \"strict\"";
       $info{ERROR} = 1;
       ABORTED($config_target, "No common parent subvolume found, and option \"incremental\" is set to \"strict\"");
       return undef;
     }
   }
   else {
-    INFO "Option \"incremental\" is not set, creating full backup";
+    INFO "Creating full backup...";
     $parent = undef;
     delete $info{parent};
   }
@@ -2728,7 +2726,7 @@ sub macro_archive_target($$$;$)
   if($archive_total) {
     INFO "Archived $archive_success/$archive_total subvolumes";
   } else {
-    INFO "No missing archived subvolume found";
+    INFO "No missing archives found";
   }
 
   return $archive_success;
