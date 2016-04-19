@@ -1293,6 +1293,8 @@ sub btr_tree($$)
 
     $node->{REL_PATH} = $rel_path;  # relative to {TOP_LEVEL}->{path}
 
+    add_btrbk_filename_info($node);
+
     $vol_root = $node if($vol_root_id == $node->{id});
   }
   unless($vol_root) {
@@ -1489,12 +1491,10 @@ sub vinfo_copy_flags($$)
 }
 
 
-sub vinfo_child($$;@)
+sub vinfo_child($$)
 {
   my $parent = shift || die;
   my $rel_path = shift // die;
-  my %opts = @_;
-
   my $name = $rel_path;
   my $subvol_dir = "";
   $subvol_dir = $1 if($name =~ s/^(.*)\///);
@@ -1510,28 +1510,41 @@ sub vinfo_child($$;@)
    };
   vinfo_copy_flags($vinfo, $parent);
 
-  if($opts{fake_raw}) {
+  # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
+  return $vinfo;
+}
+
+
+sub add_btrbk_filename_info($;$)
+{
+  my $node = shift;
+  my $btrbk_raw_file = shift;
+  my $name = $node->{REL_PATH};
+  return undef unless(defined($name));
+
+  $name =~ s/^(.*)\///;
+  if($btrbk_raw_file) {
     if($name =~ /^(?<name>$file_match)$timestamp_postfix_match$raw_postfix_match$/) {
-      $vinfo->{BTRBK_BASENAME} = $+{name} // die;
-      $vinfo->{BTRBK_DATE} = [ ($+{YYYY} // die), ($+{MM} // die), ($+{DD} // die), ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ];
-      $vinfo->{BTRBK_RAW} = {
+      $node->{BTRBK_BASENAME} = $+{name} // die;
+      $node->{BTRBK_DATE} = [ ($+{YYYY} // die), ($+{MM} // die), ($+{DD} // die), ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ];
+      $node->{BTRBK_RAW} = {
         received_uuid      => $+{received_uuid} // die,
         remote_parent_uuid => $+{parent_uuid} // '-',
         encrypt            => $+{encrypt} // "",
         compress           => $+{compress} // "",
         incomplete         => $+{incomplete} ? 1 : 0,
       };
+      return 1;
     }
   }
   else {
     if($name =~ /^(?<name>$file_match)$timestamp_postfix_match$/) {
-      $vinfo->{BTRBK_BASENAME} = $+{name} // die;
-      $vinfo->{BTRBK_DATE} = [ ($+{YYYY} // die), ($+{MM} // die), ($+{DD} // die), ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ];
+      $node->{BTRBK_BASENAME} = $+{name} // die;
+      $node->{BTRBK_DATE} = [ ($+{YYYY} // die), ($+{MM} // die), ($+{DD} // die), ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ];
+      return 1;
     }
   }
-
-  # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
-  return $vinfo;
+  return undef;
 }
 
 
@@ -1650,7 +1663,7 @@ sub _vinfo_subtree_list
     $vinfo->{subtree_depth} = $depth;
     if(($depth == 0) && ($rel_path !~ /\//)) {
       $vinfo->{direct_leaf} = 1;
-      $vinfo->{btrbk_direct_leaf} = 1 if(defined($vinfo->{BTRBK_BASENAME}));
+      $vinfo->{btrbk_direct_leaf} = 1 if(exists($node->{BTRBK_BASENAME}));
     }
 
     push(@$list, $vinfo);
@@ -1695,13 +1708,17 @@ sub vinfo_subvol($$)
 }
 
 
-sub vinfo_inject_child
+sub vinfo_inject_child($$$)
 {
   my $vinfo = shift;
   my $vinfo_child = shift;
   my $detail = shift;
   my $node;
   my $subvol_list = $vinfo->{SUBVOL_LIST};
+
+  my $node_subdir = defined($vinfo->{NODE_SUBDIR}) ? $vinfo->{NODE_SUBDIR} . '/' : "";
+  my $rel_path = $node_subdir . $vinfo_child->{SUBVOL_PATH};
+
   if($subvol_list)
   {
     # insert to a SUBVOL_LIST (raw targets)
@@ -1709,10 +1726,13 @@ sub vinfo_inject_child
     my $uuid = sprintf("${fake_uuid_prefix}%012u", -($tree_inject_id));
     $node = {
       %$detail,
+      REL_PATH  => $rel_path,
       INJECTED  => 1,
       id        => $tree_inject_id,
       uuid      => $uuid,
     };
+    add_btrbk_filename_info($node, 1);
+
     # NOTE: make sure to have all the flags set by _vinfo_subtree_list()
     $vinfo_child->{subtree_depth}     = 0;
     $vinfo_child->{direct_leaf}       = 1;
@@ -1722,7 +1742,8 @@ sub vinfo_inject_child
   }
   else {
     my $node_subdir = defined($vinfo->{NODE_SUBDIR}) ? $vinfo->{NODE_SUBDIR} . '/' : "";
-    $node = btr_tree_inject_node($vinfo->{node}, $detail, $node_subdir . $vinfo_child->{SUBVOL_PATH});
+    $node = btr_tree_inject_node($vinfo->{node}, $detail, $rel_path);
+    add_btrbk_filename_info($node);
   }
   $vinfo_child->{node} = $node;
   $url_cache{$vinfo_child->{URL}} = $node;
@@ -1812,9 +1833,9 @@ sub get_snapshot_children($$;$$)
     next unless($_->{node}{readonly});
     next unless($_->{node}{parent_uuid} eq $svol->{node}{uuid});
     if(defined($btrbk_basename) &&
-       ( (not exists($_->{BTRBK_BASENAME})) ||
+       ( (not exists($_->{node}{BTRBK_BASENAME})) ||
         ($_->{SUBVOL_DIR} ne $subvol_dir)   ||
-        ($_->{BTRBK_BASENAME} ne $btrbk_basename)) ) {
+        ($_->{node}{BTRBK_BASENAME} ne $btrbk_basename)) ) {
       TRACE "get_snapshot_children: child does not match btrbk filename scheme, skipping: $_->{PRINT}";
       next;
     }
@@ -1864,7 +1885,7 @@ sub get_receive_targets($$;@)
 
     TRACE "get_receive_targets: $matched: Found receive target: $_->{SUBVOL_PATH}";
     push(@{$opts{seen}}, $_) if($opts{seen});
-    if($opts{exact_match} && !exists($_->{BTRBK_RAW})) {
+    if($opts{exact_match} && !exists($_->{node}{BTRBK_RAW})) {
       if($_->{direct_leaf} && ($_->{NAME} eq $src_vol->{NAME})) {
         TRACE "get_receive_targets: exact_match: $_->{SUBVOL_PATH}";
       }
@@ -1947,14 +1968,14 @@ sub get_latest_common($$$;$)
       TRACE "get_latest_common: subvolume has brothers (same parent_uuid), add " . scalar(@brothers_older) . " older and " . scalar(@brothers_newer) . " newer (by cgen) candidates";
     }
 
-    if(defined($snapshot_dir) && defined($svol->{BTRBK_BASENAME})) {
+    if(defined($snapshot_dir) && exists($svol->{node}{BTRBK_BASENAME})) {
       # add subvolumes in same directory matching btrbk file name scheme
-      my @naming_match = grep { $_->{node}{readonly} && defined($_->{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq $snapshot_dir) && ($_->{BTRBK_BASENAME} eq $svol->{BTRBK_BASENAME}) } @$sroot_subvol_list;
-      my @naming_match_older = grep { cmp_date($_->{BTRBK_DATE}, $svol->{BTRBK_DATE}) < 0 } @naming_match;
-      my @naming_match_newer = grep { cmp_date($_->{BTRBK_DATE}, $svol->{BTRBK_DATE}) > 0 } @naming_match;
-      push @candidate, sort { cmp_date($b->{BTRBK_DATE}, $a->{BTRBK_DATE}) } @naming_match_older;
-      push @candidate, sort { cmp_date($a->{BTRBK_DATE}, $b->{BTRBK_DATE}) } @naming_match_newer;
-      TRACE "get_latest_common: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{BTRBK_BASENAME}.*";
+      my @naming_match = grep { $_->{node}{readonly} && exists($_->{node}{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq $snapshot_dir) && ($_->{node}{BTRBK_BASENAME} eq $svol->{node}{BTRBK_BASENAME}) } @$sroot_subvol_list;
+      my @naming_match_older = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @naming_match;
+      my @naming_match_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @naming_match;
+      push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match_older;
+      push @candidate, sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) } @naming_match_newer;
+      TRACE "get_latest_common: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{node}{BTRBK_BASENAME}.*";
     }
   }
   else
@@ -1964,8 +1985,8 @@ sub get_latest_common($$$;$)
 
     if(defined($snapshot_dir)) {
       # add subvolumes in same directory matching btrbk file name scheme (using $svol->{NAME} as basename)
-      my @naming_match = grep { $_->{node}{readonly} && defined($_->{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq $snapshot_dir) && ($_->{BTRBK_BASENAME} eq $svol->{NAME}) } @$sroot_subvol_list;
-      push @candidate, sort { cmp_date($b->{BTRBK_DATE}, $a->{BTRBK_DATE}) } @naming_match;
+      my @naming_match = grep { $_->{node}{readonly} && exists($_->{node}{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq $snapshot_dir) && ($_->{node}{BTRBK_BASENAME} eq $svol->{NAME}) } @$sroot_subvol_list;
+      push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match;
       TRACE "get_latest_common: snapshot_dir is set, add " . scalar(@naming_match) . " candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{NAME}.*";
     }
   }
@@ -2620,15 +2641,15 @@ sub macro_delete($$$$$;@)
 
   my @schedule;
   foreach my $vol (@{vinfo_subvol_list($root_subvol)}) {
-    unless($vol->{BTRBK_DATE} &&
+    unless($vol->{node}{BTRBK_DATE} &&
            ($vol->{SUBVOL_DIR} eq $subvol_dir) &&
-           ($vol->{BTRBK_BASENAME} eq $subvol_basename)) {
+           ($vol->{node}{BTRBK_BASENAME} eq $subvol_basename)) {
       TRACE "Target subvolume does not match btrbk filename scheme, skipping: $vol->{PRINT}";
       next;
     }
     push(@schedule, { value      => $vol,
                       # name       => $vol->{PRINT},  # only for logging
-                      btrbk_date => $vol->{BTRBK_DATE},
+                      btrbk_date => $vol->{node}{BTRBK_DATE},
                       preserve   => $vol->{node}{FORCE_PRESERVE},
                      });
   }
@@ -2665,7 +2686,7 @@ sub macro_archive_target($$$;$)
   foreach my $svol (@{vinfo_subvol_list($sroot, sort => 'path')})
   {
     next unless($svol->{node}{readonly});
-    next unless($svol->{btrbk_direct_leaf} && ($svol->{BTRBK_BASENAME} eq $snapshot_name));
+    next unless($svol->{btrbk_direct_leaf} && ($svol->{node}{BTRBK_BASENAME} eq $snapshot_name));
 
     my $warning_seen = [];
     my @receive_targets = get_receive_targets($droot, $svol, exact_match => 1, warn => 1, seen => $warning_seen, droot_subvol_list => $droot_subvol_list );
@@ -2675,7 +2696,7 @@ sub macro_archive_target($$$;$)
     DEBUG "Adding archive candidate: $svol->{PRINT}";
 
     push @schedule, { value      => $svol,
-                      btrbk_date => $svol->{BTRBK_DATE},
+                      btrbk_date => $svol->{node}{BTRBK_DATE},
                       preserve   => $svol->{node}{FORCE_PRESERVE},
                     };
   }
@@ -2689,11 +2710,11 @@ sub macro_archive_target($$$;$)
   # add all present archives as informative_only: these are needed for correct results of schedule()
   foreach my $dvol (@$droot_subvol_list)
   {
-    next unless($dvol->{btrbk_direct_leaf} && ($dvol->{BTRBK_BASENAME} eq $snapshot_name));
+    next unless($dvol->{btrbk_direct_leaf} && ($dvol->{node}{BTRBK_BASENAME} eq $snapshot_name));
     next unless($dvol->{node}{readonly});
     push @schedule, { informative_only => 1,
                       value            => $dvol,
-                      btrbk_date       => $dvol->{BTRBK_DATE},
+                      btrbk_date       => $dvol->{node}{BTRBK_DATE},
                     };
   }
 
@@ -3516,7 +3537,7 @@ MAIN:
     my @sorted = sort { ($a->{subtree_depth} <=> $b->{subtree_depth}) || ($a->{SUBVOL_DIR} cmp $b->{SUBVOL_DIR}) } @subvol_list;
     foreach my $vol (@sorted) {
       next unless($vol->{node}{readonly});
-      my $snapshot_name = $vol->{BTRBK_BASENAME};
+      my $snapshot_name = $vol->{node}{BTRBK_BASENAME};
       unless(defined($snapshot_name)) {
         WARN "Skipping subvolume (not a btrbk subvolume): $vol->{PRINT}";
         next;
@@ -4077,26 +4098,26 @@ MAIN:
             }
             my $snapshot_basename = config_key($svol, "snapshot_name") // die;
 
-            my $subvol = vinfo_child($droot, $file, fake_raw => 1);
-            unless($subvol->{BTRBK_RAW} && ($snapshot_basename eq $subvol->{BTRBK_BASENAME})) {
-              DEBUG "Skipping file (filename scheme mismatch): \"$file\"";
-              next;
-            }
-
             # Set btrfs subvolume information (received_uuid, parent_uuid) from filename info.
             #
             # NOTE: remote_parent_uuid in BTRBK_RAW is the "parent of the source subvolume", NOT the
             #       "parent of the received subvolume".
-            vinfo_inject_child($droot, $subvol, {
-              received_uuid => ($subvol->{BTRBK_RAW}->{incomplete} ? '-' : $subvol->{BTRBK_RAW}->{received_uuid}),  # empty received_uuid is detected as incomplete backup
-              parent_uuid   => undef,  # correct value gets inserted below
-              readonly      => ($subvol->{BTRBK_RAW}->{incomplete} ? 0 : 1),    # fake subvolume readonly flag (incomplete backups have readonly=0)
-              TARGET_TYPE   => 'raw',
-            });
+            my $subvol = vinfo_child($droot, $file);
+            vinfo_inject_child($droot, $subvol, { TARGET_TYPE => 'raw' });
 
-            if($subvol->{BTRBK_RAW}->{remote_parent_uuid} ne '-') {
-              $child_uuid_list{$subvol->{BTRBK_RAW}->{remote_parent_uuid}} //= [];
-              push @{$child_uuid_list{$subvol->{BTRBK_RAW}->{remote_parent_uuid}}}, $subvol;
+            unless(defined($subvol->{node}{BTRBK_RAW}) && ($snapshot_basename eq $subvol->{node}{BTRBK_BASENAME})) {
+              DEBUG "Skipping file (filename scheme mismatch): \"$file\"";
+              next;
+            }
+
+            # incomplete raw fakes get same semantics as real subvolumes (readonly=0, received_uuid='-')
+            $subvol->{node}{received_uuid} = ($subvol->{node}{BTRBK_RAW}->{incomplete} ? '-' : $subvol->{node}{BTRBK_RAW}->{received_uuid});
+            $subvol->{node}{parent_uuid}   = undef;  # correct value gets inserted below
+            $subvol->{node}{readonly}      = ($subvol->{node}{BTRBK_RAW}->{incomplete} ? 0 : 1);
+
+            if($subvol->{node}{BTRBK_RAW}->{remote_parent_uuid} ne '-') {
+              $child_uuid_list{$subvol->{node}{BTRBK_RAW}->{remote_parent_uuid}} //= [];
+              push @{$child_uuid_list{$subvol->{node}{BTRBK_RAW}->{remote_parent_uuid}}}, $subvol;
             }
           }
           if(ABORTED($droot)) {
@@ -4297,7 +4318,7 @@ MAIN:
               }
               else {
                 # don't display all subvolumes in $droot, only the ones matching snapshot_name
-                if($target_vol->{btrbk_direct_leaf} && ($target_vol->{BTRBK_BASENAME} eq $snapshot_name)) {
+                if($target_vol->{btrbk_direct_leaf} && ($target_vol->{node}{BTRBK_BASENAME} eq $snapshot_name)) {
                   if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
                   push @data, { type => "received",
                                 status => ($incomplete_backup ? "incomplete" : "orphaned"),
@@ -4406,7 +4427,7 @@ MAIN:
           foreach my $target_vol (@{vinfo_subvol_list($droot, sort => 'path')}) {
             # incomplete received (garbled) subvolumes have no received_uuid (as of btrfs-progs v4.3.1).
             # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
-            next unless($target_vol->{btrbk_direct_leaf} && ($target_vol->{BTRBK_BASENAME} eq $snapshot_name));
+            next unless($target_vol->{btrbk_direct_leaf} && ($target_vol->{node}{BTRBK_BASENAME} eq $snapshot_name));
             if($target_vol->{node}{received_uuid} eq '-') {
               DEBUG "Found incomplete target subvolume: $target_vol->{PRINT}";
               push(@delete, $target_vol);
@@ -4595,7 +4616,7 @@ MAIN:
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
         my $snapdir = config_key($svol, "snapshot_dir") // "";
         my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-        my @snapshot_children = sort({ cmp_date($a->{BTRBK_DATE}, $b->{BTRBK_DATE}) }
+        my @snapshot_children = sort({ cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
                                      get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
 
         foreach my $droot (vinfo_subsection($svol, 'target')) {
@@ -4617,7 +4638,7 @@ MAIN:
 
             DEBUG "Adding backup candidate: $child->{PRINT}";
             push(@schedule, { value      => $child,
-                              btrbk_date => $child->{BTRBK_DATE},
+                              btrbk_date => $child->{node}{BTRBK_DATE},
                               # not enforcing resuming of latest snapshot anymore (since v0.23.0)
                               # preserve   => $child->{node}{FORCE_PRESERVE},
                             });
@@ -4628,13 +4649,13 @@ MAIN:
             DEBUG "Checking schedule for backup candidates";
             # add all present backups as informative_only: these are needed for correct results of schedule()
             foreach my $vol (@$droot_subvol_list) {
-              unless($vol->{btrbk_direct_leaf} && ($vol->{BTRBK_BASENAME} eq $snapshot_basename)) {
+              unless($vol->{btrbk_direct_leaf} && ($vol->{node}{BTRBK_BASENAME} eq $snapshot_basename)) {
                 TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                 next;
               }
               push(@schedule, { informative_only => 1,
                                 value      => $vol,
-                                btrbk_date => $vol->{BTRBK_DATE},
+                                btrbk_date => $vol->{node}{BTRBK_DATE},
                               });
             }
             my ($preserve, undef) = schedule(
@@ -4702,7 +4723,7 @@ MAIN:
           my $snapdir_ts = config_key($svol, "snapshot_dir", postfix => '/') // "";
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my $target_aborted = 0;
-          my @snapshot_children = sort({ cmp_date($b->{BTRBK_DATE}, $a->{BTRBK_DATE}) }  # sort descending
+          my @snapshot_children = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
                                        get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
 
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
