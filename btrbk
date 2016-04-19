@@ -1917,7 +1917,7 @@ sub get_receive_targets_fsroot($$@)
       WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $text";
     }
   }
-  return \@unexpected;
+  return @unexpected;
 }
 
 
@@ -2678,12 +2678,11 @@ sub macro_archive_target($$$;$)
                     };
   }
 
-  # this is a bit harsh, disabled for now
-  #  if(scalar(@unexpected_location) {
-  #    ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
-  #    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
-  #    return undef;
-  #  }
+   if(scalar(@unexpected_location)) {
+     ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
+     WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
+     return undef;
+   }
 
   # add all present archives as informative_only: these are needed for correct results of schedule()
   foreach my $dvol (@{vinfo_subvol_list($droot)})
