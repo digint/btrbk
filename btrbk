@@ -2883,7 +2883,7 @@ sub schedule(@)
     if($href->{preserve}) {
       push(@preserve, $href->{value}) unless($href->{informative_only});
       push @$results_list, { %result_base,
-                             action => $href->{informative_only} ? 'seen' : $result_preserve_action_text,
+                             action => $href->{informative_only} ? undef : $result_preserve_action_text,
                              reason => $href->{preserve},
                              value => $href->{value},
                            } if($results_list);
@@ -2892,7 +2892,7 @@ sub schedule(@)
     else {
       push(@delete, $href->{value}) unless($href->{informative_only});
       push @$results_list, { %result_base,
-                             action => $result_delete_action_text,
+                             action => $href->{informative_only} ? undef : $result_delete_action_text,
                              value => $href->{value},
                            } if($results_list);
       TRACE "schedule: $href->{value}->{PRINT}: delete ($result_delete_action_text)" if($href->{value} && $href->{value}->{PRINT});
@@ -3577,20 +3577,50 @@ MAIN:
     }
 
     my $schedule_results = [];
+    my $aborted;
     foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
+      if($aborted) {
+        # abort all subsequent sources on any abort (we don't want to go on hammering on "disk full" errors)
+        ABORTED($sroot, $aborted);
+        next;
+      }
       foreach my $droot (vinfo_subsection($sroot, 'target')) {
         my $snapshot_name = config_key($droot, "snapshot_name") // die;
         INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
         macro_archive_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
         if(ABORTED($droot)) {
           # also abort $sroot
-          ABORTED($sroot, "At least one target aborted");
+          $aborted = "At least one target aborted earlier";
+          ABORTED($sroot, $aborted);
           WARN "Skipping archiving of \"$sroot->{PRINT}/\": $abrt";
           last;
         }
       }
-      last if(ABORTED($sroot));
     }
+
+
+    my $del_schedule_results = [];
+    if($preserve_backups || $resume_only) {
+      INFO "Preserving all archives (option \"-p\" or \"-r\" present)";
+    }
+    else
+    {
+      foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
+        foreach my $droot (vinfo_subsection($sroot, 'target')) {
+          my $snapshot_name = config_key($droot, "snapshot_name") // die;
+          INFO "Cleaning archive: $droot->{PRINT}/${snapshot_name}.*";
+          macro_delete($droot, "", $snapshot_name, $droot,
+                       { preserve     => config_preserve_hash($droot, "archive"),
+                         results      => $del_schedule_results,
+                         result_hints => { topic => "archive", root_path => $droot->{PATH} },
+                       },
+                       commit => config_key($droot, "btrfs_commit_delete"),
+                       type   => "delete_archive",
+                      );
+        }
+      }
+    }
+
 
     my $exit_status = exit_status($config);
     my $time_elapsed = time - $start_time;
@@ -3611,13 +3641,19 @@ MAIN:
         print "\n";
       }
 
+      if($print_schedule && not ($preserve_backups || $resume_only)) {
+        my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$del_schedule_results;
+        print_formatted("schedule", \@data, title => "DELETE SCHEDULE");
+        print "\n";
+      }
+
       # print summary
       $output_format ||= "custom";
       if($output_format eq "custom")
       {
         my @unrecoverable;
         my @out;
-        foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
+        foreach my $sroot (vinfo_subsection($config, 'archive_source', 1)) {
           foreach my $droot (vinfo_subsection($sroot, 'target', 1)) {
             my @subvol_out;
             if($droot->{SUBDIR_CREATED}) {
@@ -3629,8 +3665,12 @@ MAIN:
               $create_mode = "!!!" if($_->{ERROR});
               push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
             }
-            if(ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) {
-              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED($droot);
+            foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$droot->{SUBVOL_DELETED} // []}) {
+              push @subvol_out, "--- $_->{PRINT}";
+            }
+            if((ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) ||
+               (ABORTED($sroot) && (ABORTED($sroot) ne "USER_SKIP"))) {
+              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . (ABORTED($droot) || ABORTED($sroot));
             }
             if($droot->{CONFIG}->{UNRECOVERABLE}) {
               push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});
@@ -3644,8 +3684,8 @@ MAIN:
         print_header(title => "Archive Summary",
                      time => $start_time,
                      legend => [
-                       # "---  deleted subvolume",
                        "++.  created directory",
+                       "---  deleted subvolume",
                        "***  received subvolume (non-incremental)",
                        ">>>  received subvolume (incremental)",
                       ],
