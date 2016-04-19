@@ -157,6 +157,8 @@ Retention policy:
 
     snapshot_preserve_min       2d
     snapshot_preserve          14d
+
+    target_min                 no
     target_preserve            20d 10w *m
 
     snapshot_dir               btrbk_snapshots
@@ -237,26 +239,30 @@ This will pull backups from alpha/beta.mydomain.com and locally create:
   * `/mnt/btr_backup/beta/dbdata.YYYYMMDD`
 
 
-Example: local time-machine (daily snapshots)
----------------------------------------------
+Example: local time-machine (hourly snapshots)
+----------------------------------------------
 
 If all you want is to create snapshots of your home directory on a
 regular basis:
 
 /etc/btrbk/btrbk.conf:
 
+    timestamp_format        long
+    snapshot_preserve_min   18h
+    snapshot_preserve       48h 20d 6m
+
     volume /mnt/btr_pool
       snapshot_dir btrbk_snapshots
       subvolume home
 
-/etc/cron.daily/btrbk:
+/etc/cron.hourly/btrbk:
 
     #!/bin/sh
     exec /usr/sbin/btrbk -q run
 
-Note that you can run btrbk more than once a day, e.g. by creating the
-above script in `/etc/cron.hourly/btrbk`, or by calling `sudo btrbk
-run` from the command line.
+Note that you can run btrbk more than once an hour, e.g. by by calling
+`sudo btrbk run` from the command line. With this setup, all those
+extra snapshots will be kept for 18 hours.
 
 
 Example: multiple btrbk instances
@@ -268,20 +274,20 @@ to only fetch the snapshots.
 
 /etc/btrbk/btrbk.conf (on backup server):
 
+    target_preserve_min        no
+    target_preserve            0d 10w *m
+
     volume ssh://192.168.0.42/mnt/btr_pool
       subvolume home
-        snapshot_dir             btrbk_snapshots
-        snapshot_preserve_min    all
-        snapshot_create          no
-
-        target_preserve          0d 10w *m
+        snapshot_dir           btrbk_snapshots
+        snapshot_preserve_min  all
+        snapshot_create        no
 
         target send-receive  /mnt/btr_backup/my-laptop.com
 
-If the server runs btrbk with this config, the latest snapshot (which
-is *always* transferred), 10 weeklies and all monthlies are received
-from 192.168.0.42. The source filesystem is never altered because of
-`snapshot_preserve_min all`.
+If the server runs btrbk with this config, 10 weeklies and all
+monthlies are received from 192.168.0.42. The source filesystem is
+never altered because of `snapshot_preserve_min all`.
 
 
 Example: backup from non-btrfs source
@@ -301,9 +307,10 @@ follows:
 
     volume /mnt/btr_backup
       subvolume myhost_sync
-        snapshot_name        myhost
+        snapshot_name           myhost
 
-        snapshot_preserve    14d 20w *m
+        snapshot_preserve_min   latest
+        snapshot_preserve       14d 20w *m
 
 This will produce daily snapshots `/mnt/btr_backup/myhost.20150101`,
 with retention as defined with the snapshot_preserve option.
@@ -327,15 +334,15 @@ compressed and piped through GnuPG.
 
 /etc/btrbk/btrbk.conf:
 
-    raw_target_compress  xz
-    raw_target_encrypt   gpg
-    gpg_keyring          /etc/btrbk/gpg/pubring.gpg
-    gpg_recipient        btrbk@mydomain.com
+    raw_target_compress   xz
+    raw_target_encrypt    gpg
+    gpg_keyring           /etc/btrbk/gpg/pubring.gpg
+    gpg_recipient         btrbk@mydomain.com
 
     volume /mnt/btr_pool
       subvolume home
         target raw ssh://cloud.example.com/backup
-          ssh_user     btrbk
+          ssh_user  btrbk
           # incremental  no
 
 This will create a GnuPG encrypted, compressed files on the target

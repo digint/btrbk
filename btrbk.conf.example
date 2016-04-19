@@ -92,7 +92,8 @@ snapshot_dir               _btrbk_snap
 #
 # Example configuration:
 #
-snapshot_preserve_all   14d
+snapshot_preserve_min   14d
+snapshot_preserve_min   no
 target_preserve         20d 10w *m
 
 # Backup to external disk mounted on /mnt/btr_backup
