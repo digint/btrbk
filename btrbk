@@ -43,9 +43,9 @@ use strict;
 use warnings FATAL => qw( all );
 
 use Carp qw(confess);
-use Date::Calc qw(Today_and_Now Delta_Days Delta_DHMS Day_of_Week);
 use Getopt::Long qw(GetOptions);
 use POSIX qw(strftime);
+use Time::Local qw( timelocal timelocal_nocheck timegm_nocheck );
 
 our $VERSION         = "0.23.0-dev";
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
@@ -69,7 +69,7 @@ my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
 my $safe_cmd_match = qr/[0-9a-zA-Z_@=\+\-\.\/]+/;  # $file_match plus '=': good enough for our purpose
 
-my %day_of_week_map = ( monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6, sunday => 7 );
+my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
 
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
@@ -206,7 +206,7 @@ my $tlog_fh;
 my $current_transaction;
 my @transaction_log;
 my %config_override;
-my @today_and_now;
+my @lt_now;  # ( sec, min, hour, mday, mon, year, wday, yday, isdst )
 
 BEGIN {
   $do_dumper = eval {
@@ -1531,29 +1531,38 @@ sub add_btrbk_filename_info($;$)
   my $name = $node->{REL_PATH};
   return undef unless(defined($name));
 
+  # NOTE: we assume localtime for now. this might be configurable in the future.
+
   $name =~ s/^(.*)\///;
-  if($btrbk_raw_file) {
-    if($name =~ /^(?<name>$file_match)$timestamp_postfix_match$raw_postfix_match$/) {
-      $node->{BTRBK_BASENAME} = $+{name} // die;
-      $node->{BTRBK_DATE} = [ ($+{YYYY} // die), ($+{MM} // die), ($+{DD} // die), ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ];
-      $node->{BTRBK_RAW} = {
-        received_uuid      => $+{received_uuid} // die,
-        remote_parent_uuid => $+{parent_uuid} // '-',
-        encrypt            => $+{encrypt} // "",
-        compress           => $+{compress} // "",
-        incomplete         => $+{incomplete} ? 1 : 0,
-      };
-      return 1;
-    }
+  if($btrbk_raw_file && ($name =~ /^(?<name>$file_match)$timestamp_postfix_match$raw_postfix_match$/)) {
+    $node->{BTRBK_RAW} = {
+      received_uuid      => $+{received_uuid} // die,
+      remote_parent_uuid => $+{parent_uuid} // '-',
+      encrypt            => $+{encrypt} // "",
+      compress           => $+{compress} // "",
+      incomplete         => $+{incomplete} ? 1 : 0,
+    };
   }
+  elsif((not $btrbk_raw_file) && ($name =~ /^(?<name>$file_match)$timestamp_postfix_match$/)) { ; }
   else {
-    if($name =~ /^(?<name>$file_match)$timestamp_postfix_match$/) {
-      $node->{BTRBK_BASENAME} = $+{name} // die;
-      $node->{BTRBK_DATE} = [ ($+{YYYY} // die), ($+{MM} // die), ($+{DD} // die), ($+{hh} // 0), ($+{mm} // 0), ($+{NN} // 0) ];
-      return 1;
-    }
+    return undef;
   }
-  return undef;
+  $name = $+{name} // die;
+  my ( $mm, $hh, $DD, $MM, $YYYY, $NN ) = ( ($+{mm} // 0), ($+{hh} // 0), ($+{DD} // die), ($+{MM} // die), ($+{YYYY} // die), ($+{NN} // 0) );
+
+  my $time;
+  eval {
+    local $SIG{'__DIE__'};
+    $time = timelocal( 0, $mm, $hh, $DD, ($MM - 1), ($YYYY - 1900) );
+  };
+  if($@) {
+    WARN "Illegal timestamp on subvolume \"$node->{REL_PATH}\", ignoring";
+    return undef;
+  }
+  $node->{BTRBK_BASENAME} = $name;
+  $node->{BTRBK_DATE} = [ $time, $NN ];
+
+  return 1;
 }
 
 
@@ -1752,7 +1761,7 @@ sub vinfo_inject_child($$$)
   else {
     my $node_subdir = defined($vinfo->{NODE_SUBDIR}) ? $vinfo->{NODE_SUBDIR} . '/' : "";
     $node = btr_tree_inject_node($vinfo->{node}, $detail, $rel_path);
-    add_btrbk_filename_info($node);
+    return undef unless(add_btrbk_filename_info($node)); #!!! fix in raw readin
   }
   $vinfo_child->{node} = $node;
   $url_cache{$vinfo_child->{URL}} = $node;
@@ -2766,13 +2775,8 @@ sub macro_archive_target($$$;$)
 
 sub cmp_date($$)
 {
-  my ($a,$b) = @_;
-  return (($a->[0] <=> $b->[0]) ||
-          ($a->[1] <=> $b->[1]) ||
-          ($a->[2] <=> $b->[2]) ||
-          ($a->[3] <=> $b->[3]) ||
-          ($a->[4] <=> $b->[4]) ||
-          ($a->[5] <=> $b->[5]));
+  return (($_[0]->[0] <=> $_[1]->[0]) ||  # unix time
+          ($_[0]->[1] <=> $_[1]->[1]));   # NN
 }
 
 
@@ -2795,10 +2799,10 @@ sub schedule(@)
   my $preserve_monthly     = $preserve->{m};
   my $preserve_yearly      = $preserve->{y};
 
-  my @today_ymdhms    = ref($args{today_and_now}) ? @{$args{today_and_now}} : @today_and_now;
-  die unless(scalar(@today_ymdhms) == 6);
-
   DEBUG "Schedule: " . format_preserve_matrix($preserve, format => "debug_text");
+
+  #  0    1    2     3     4    5     6     7     8
+  #  sec, min, hour, mday, mon, year, wday, yday, isdst
 
   # sort the schedule, ascending by date
   # regular entries come in front of informative_only
@@ -2807,30 +2811,35 @@ sub schedule(@)
                              } @$schedule;
 
   # first, do our calendar calculations
-  # note: our week starts on $preserve_day_of_week
-  my @today = @today_ymdhms[0..2];
-  my $delta_days_to_eow_from_today = $day_of_week_map{$preserve_day_of_week} - Day_of_Week(@today) - 1;
-  $delta_days_to_eow_from_today = $delta_days_to_eow_from_today + 7 if($delta_days_to_eow_from_today < 0);
-  TRACE "last day before next $preserve_day_of_week is in $delta_days_to_eow_from_today days";
+  # - weeks start on $preserve_day_of_week
+  # - leap hours are taken into account for $delta_hours
+  my $now_h = timelocal_nocheck( 0, 0, $lt_now[2], $lt_now[3], $lt_now[4], $lt_now[5] );
+  my $now_d = timegm_nocheck(    0, 0, 0,          $lt_now[3], $lt_now[4], $lt_now[5] );
+
   foreach my $href (@sorted_schedule)
   {
-    my @date = (@{$href->{btrbk_date}}[0..4], 0);  # btrbk_date: (y m d h m NN); @date: (y m d h m s)
-    my ($dd, $dh, undef, undef) = Delta_DHMS(@date, @today_ymdhms);
-    my $delta_days = Delta_Days(@date[0..2], @today);
-    my $delta_days_to_eow = $delta_days + $delta_days_to_eow_from_today;
-    {
-      use integer; # do integer arithmetics
-      $href->{delta_hours}   = ($dd * 24) + $dh;
-      $href->{delta_days}    = $delta_days;
-      $href->{delta_weeks}   = $delta_days_to_eow / 7;
-      $href->{delta_months}  = ($today[0] - $date[0]) * 12 + ($today[1] - $date[1]);
-      $href->{delta_years}   = $today[0] - $date[0];
+    my @tt = localtime($href->{btrbk_date}->[0]);
+    my $delta_days_from_eow = $tt[6] - $day_of_week_map{$preserve_day_of_week};
+    $delta_days_from_eow += 7 if($delta_days_from_eow < 0);
 
-      my $err_days           = 6 - ( $delta_days_to_eow % 7 );
-      $href->{err_days_text} = ($err_days ? "+$err_days days after " : "on ") . "$preserve_day_of_week";
-      $href->{month}         = "$date[0]-$date[1]";
-      $href->{year}          = "$date[0]";
-    }
+    my $delta_days   = int(($now_d - timegm_nocheck(    0, 0, 0,      $tt[3], $tt[4], $tt[5] )  ) / (60 * 60 * 24));
+    my $delta_hours  = int(($now_h - timelocal_nocheck( 0, 0, $tt[2], $tt[3], $tt[4], $tt[5] )  ) / (60 * 60));
+    my $delta_weeks  = int(($delta_days + $delta_days_from_eow) / 7);  # weeks from beginning of week
+    my $delta_years  = ($lt_now[5] - $tt[5]);
+    my $delta_months = $delta_years * 12 + ($lt_now[4] - $tt[4]);
+
+    $href->{delta_hours}   = $delta_hours;
+    $href->{delta_days}    = $delta_days;
+    $href->{delta_weeks}   = $delta_weeks;
+    $href->{delta_months}  = $delta_months;
+    $href->{delta_years}   = $delta_years;
+
+    # only for text output
+    my $year       = $tt[5] + 1900;
+    my $year_month = "${year}-" . ($tt[4] < 9 ? '0' : "") . ($tt[4] + 1);
+    $href->{year_month} = $year_month;
+    $href->{year}       = $year;
+    $href->{err_days}   = ($delta_days_from_eow ? "+$delta_days_from_eow days after " : "on ") . "$preserve_day_of_week";
   }
 
   my %first_in_delta_hours;
@@ -2882,21 +2891,21 @@ sub schedule(@)
   foreach (sort {$b <=> $a} keys %first_in_delta_weeks) {
     my $href = $first_in_delta_weeks{$_} || die;
     if($preserve_weekly && (($preserve_weekly eq 'all') || ($href->{delta_weeks} <= $preserve_weekly))) {
-      $href->{preserve} = "preserve weekly: $href->{delta_weeks} weeks ago, $href->{err_days_text}";
+      $href->{preserve} = "preserve weekly: $href->{delta_weeks} weeks ago, $href->{err_days}";
     }
     $first_weekly_in_delta_months{$href->{delta_months}} //= $href;
   }
   foreach (sort {$b <=> $a} keys %first_weekly_in_delta_months) {
     my $href = $first_weekly_in_delta_months{$_} || die;
     if($preserve_monthly && (($preserve_monthly eq 'all') || ($href->{delta_months} <= $preserve_monthly))) {
-      $href->{preserve} = "preserve monthly: first weekly of month $href->{month} ($href->{delta_months} months ago, $href->{err_days_text})";
+      $href->{preserve} = "preserve monthly: first weekly of month $href->{year_month} ($href->{delta_months} months ago, $href->{err_days})";
     }
     $first_monthly_in_delta_years{$href->{delta_years}} //= $href;
   }
   foreach (sort {$b <=> $a} keys %first_monthly_in_delta_years) {
     my $href = $first_monthly_in_delta_years{$_} || die;
     if($preserve_yearly && (($preserve_yearly eq 'all') || ($href->{delta_years} <= $preserve_yearly))) {
-      $href->{preserve} = "preserve yearly: first weekly of year $href->{year} ($href->{delta_years} years ago, $href->{err_days_text})";
+      $href->{preserve} = "preserve yearly: first weekly of year $href->{year} ($href->{delta_years} years ago, $href->{err_days})";
     }
   }
 
@@ -3233,8 +3242,8 @@ MAIN:
 
   Getopt::Long::Configure qw(gnu_getopt);
   my $start_time = time;
-  @today_and_now = Today_and_Now();
-  my %config_override_opts;
+  @lt_now = localtime($start_time);
+  my @today_and_now = ( ($lt_now[5] + 1900), ($lt_now[4] + 1), $lt_now[3], $lt_now[2], $lt_now[1], $lt_now[0] );
 
   my %config_override_cmdline;
   my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only, $print_schedule);

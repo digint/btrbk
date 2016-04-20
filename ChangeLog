@@ -1,4 +1,4 @@
-btrbk-0.23.0-rc1
+btrbk-current
 
   * INCOMPATIBLE CONFIGURATION:
     * Please read "doc/upgrade_to_v0.23.0.md" for details on updating
@@ -27,6 +27,7 @@ btrbk-0.23.0-rc1
     snapshots. As last resort, use subvolumes in snapshot_dir matching
     btrbk file name scheme as candidates (which allows incremental
     backups after the parent vanished, e.g. after backup restore).
+  * Use perl built-in Time::Local instead of Date::Calc.
   * Improvements of internal data structures.
 
 btrbk-0.22.2

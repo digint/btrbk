@@ -49,12 +49,10 @@ Prerequisites
 
   * [btrfs-progs]: Btrfs filesystem utilities >= v3.18.2
   * [Perl interpreter]: Probably already installed on your system
-  * [Date::Calc]: Perl module
   * [OpenSSH]: If you want to tranfer backups from/to remote locations
 
   [btrfs-progs]: http://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
   [Perl interpreter]: https://www.perl.org
-  [Date::Calc]:  http://search.cpan.org/perldoc?Date::Calc
   [OpenSSH]: http://www.openssh.org
 
 
