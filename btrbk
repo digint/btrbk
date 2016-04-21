@@ -44,8 +44,7 @@ use warnings FATAL => qw( all );
 
 use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
-use POSIX qw(strftime);
-use Time::Local qw( timelocal timelocal_nocheck timegm_nocheck );
+use Time::Local qw( timelocal timegm timegm_nocheck );
 
 our $VERSION         = "0.23.0-dev";
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
@@ -63,7 +62,7 @@ my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*
 my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 my $ssh_prefix_match = qr/ssh:\/\/($ip_addr_match|$host_name_match)/;
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
-my $timestamp_postfix_match = qr/\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2}))?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm][_NN]"
+my $timestamp_postfix_match = qr/\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
 my $raw_postfix_match = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uuid_match))?\.btrfs?(\.(?<compress>(gz|bz2|xz)))?(\.(?<encrypt>gpg))?(\.(?<incomplete>part))?/;  # matches ".btrfs_<received_uuid>[@<parent_uuid>][.gz|bz2|xz][.gpg][.part]"
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
@@ -75,7 +74,7 @@ my %config_options = (
   # NOTE: the parser always maps "no" to undef
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   # NOTE: files "." and "no" map to <undef>
-  timestamp_format            => { default => "short",   accept => [ "short", "long" ], context => [ "root", "volume", "subvolume" ] },
+  timestamp_format            => { default => "short",   accept => [ "short", "long", "long-iso" ], context => [ "root", "volume", "subvolume" ] },
   snapshot_dir                => { default => undef,     accept_file => { relative => 1 } },
   snapshot_name               => { default => undef,     accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ] },
@@ -206,7 +205,7 @@ my $tlog_fh;
 my $current_transaction;
 my @transaction_log;
 my %config_override;
-my @lt_now;  # ( sec, min, hour, mday, mon, year, wday, yday, isdst )
+my @tm_now;  # current localtime ( sec, min, hour, mday, mon, year, wday, yday, isdst )
 
 BEGIN {
   $do_dumper = eval {
@@ -351,7 +350,7 @@ sub action($@)
   my $time = $h->{time} // time;
   $h->{type} = $type;
   $h->{time} = $time;
-  $h->{localtime} = strftime("%FT%T%z", localtime($time));
+  $h->{localtime} = timestamp($time, 'debug-iso');
   print_formatted("transaction", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh) if($tlog_fh);
   push @transaction_log, $h;
   return $h;
@@ -1531,7 +1530,7 @@ sub add_btrbk_filename_info($;$)
   my $name = $node->{REL_PATH};
   return undef unless(defined($name));
 
-  # NOTE: we assume localtime for now. this might be configurable in the future.
+  # NOTE: unless long-iso file format is encountered, the timestamp is interpreted in local timezone.
 
   $name =~ s/^(.*)\///;
   if($btrbk_raw_file && ($name =~ /^(?<name>$file_match)$timestamp_postfix_match$raw_postfix_match$/)) {
@@ -1548,21 +1547,45 @@ sub add_btrbk_filename_info($;$)
     return undef;
   }
   $name = $+{name} // die;
-  my ( $mm, $hh, $DD, $MM, $YYYY, $NN ) = ( ($+{mm} // 0), ($+{hh} // 0), ($+{DD} // die), ($+{MM} // die), ($+{YYYY} // die), ($+{NN} // 0) );
+  my @tm = ( ($+{ss} // 0), ($+{mm} // 0), ($+{hh} // 0), $+{DD}, ($+{MM} - 1), ($+{YYYY} - 1900) );
+  my $NN = $+{NN} // 0;
+  my $zz = $+{zz};
 
   my $time;
   eval {
     local $SIG{'__DIE__'};
-    $time = timelocal( 0, $mm, $hh, $DD, ($MM - 1), ($YYYY - 1900) );
+    if(defined($zz)) {
+      $time = timegm(@tm);
+    } else {
+      $time = timelocal(@tm);
+    }
   };
   if($@) {
     WARN "Illegal timestamp on subvolume \"$node->{REL_PATH}\", ignoring";
+    # WARN "$@"; # sadly Time::Local croaks, which also prints the line number from here.
     return undef;
   }
+
+  # handle ISO 8601  time offset
+  if(defined($zz)) {
+    my $offset;
+    if($zz eq 'Z') {
+      $offset = 0;  # Zulu time == UTC
+    }
+    elsif($zz =~ /^([+-])([0-9][0-9])([0-9][0-9])$/) {
+      $offset = ( $3 * 60 ) + ( $2 * 60 * 60 );
+      $offset *= -1 if($1 eq '-');
+    }
+    else {
+      WARN "Failed to parse time offset on subvolume \"$node->{REL_PATH}\", ignoring";
+      return undef;
+    }
+    $time -= $offset;
+  }
+
   $node->{BTRBK_BASENAME} = $name;
   $node->{BTRBK_DATE} = [ $time, $NN ];
-
-  return 1;
+  return $node;
 }
 
 
@@ -2810,23 +2833,27 @@ sub schedule(@)
                                (($a->{informative_only} ? ($b->{informative_only} ? 0 : 1) : ($b->{informative_only} ? -1 : 0)))
                              } @$schedule;
 
+  DEBUG "Scheduler reference time: " . timestamp(\@tm_now, 'debug-iso');
+
   # first, do our calendar calculations
   # - weeks start on $preserve_day_of_week
-  # - leap hours are taken into account for $delta_hours
-  my $now_h = timelocal_nocheck( 0, 0, $lt_now[2], $lt_now[3], $lt_now[4], $lt_now[5] );
-  my $now_d = timegm_nocheck(    0, 0, 0,          $lt_now[3], $lt_now[4], $lt_now[5] );
+  # - leap hours are NOT taken into account for $delta_hours
+  my $now_h = timegm_nocheck( 0, 0, $tm_now[2], $tm_now[3], $tm_now[4], $tm_now[5] ); # use timelocal() here (and below) if you want to honor leap hours
+  my $now_d = timegm_nocheck( 0, 0, 0,          $tm_now[3], $tm_now[4], $tm_now[5] );
 
   foreach my $href (@sorted_schedule)
   {
-    my @tt = localtime($href->{btrbk_date}->[0]);
-    my $delta_days_from_eow = $tt[6] - $day_of_week_map{$preserve_day_of_week};
+    my $time = $href->{btrbk_date}->[0];
+    my @tm =  localtime($time);
+    my $delta_days_from_eow = $tm[6] - $day_of_week_map{$preserve_day_of_week};
     $delta_days_from_eow += 7 if($delta_days_from_eow < 0);
 
-    my $delta_days   = int(($now_d - timegm_nocheck(    0, 0, 0,      $tt[3], $tt[4], $tt[5] )  ) / (60 * 60 * 24));
-    my $delta_hours  = int(($now_h - timelocal_nocheck( 0, 0, $tt[2], $tt[3], $tt[4], $tt[5] )  ) / (60 * 60));
+    # check timegm: ignores leap hours
+    my $delta_days   = int(($now_d - timegm_nocheck( 0, 0, 0,      $tm[3], $tm[4], $tm[5] )  ) / (60 * 60 * 24));
+    my $delta_hours  = int(($now_h - timegm_nocheck( 0, 0, $tm[2], $tm[3], $tm[4], $tm[5] )  ) / (60 * 60));
     my $delta_weeks  = int(($delta_days + $delta_days_from_eow) / 7);  # weeks from beginning of week
-    my $delta_years  = ($lt_now[5] - $tt[5]);
-    my $delta_months = $delta_years * 12 + ($lt_now[4] - $tt[4]);
+    my $delta_years  = ($tm_now[5] - $tm[5]);
+    my $delta_months = $delta_years * 12 + ($tm_now[4] - $tm[4]);
 
     $href->{delta_hours}   = $delta_hours;
     $href->{delta_days}    = $delta_days;
@@ -2835,8 +2862,8 @@ sub schedule(@)
     $href->{delta_years}   = $delta_years;
 
     # only for text output
-    my $year       = $tt[5] + 1900;
-    my $year_month = "${year}-" . ($tt[4] < 9 ? '0' : "") . ($tt[4] + 1);
+    my $year       = $tm[5] + 1900;
+    my $year_month = "${year}-" . ($tm[4] < 9 ? '0' : "") . ($tm[4] + 1);
     $href->{year_month} = $year_month;
     $href->{year}       = $year;
     $href->{err_days}   = ($delta_days_from_eow ? "+$delta_days_from_eow days after " : "on ") . "$preserve_day_of_week";
@@ -2988,6 +3015,42 @@ sub format_preserve_matrix($@)
     $s .= " ($preserve->{dow})" if($preserve->{dow} && ($preserve->{w} || $preserve->{m} || $preserve->{y}));
   }
   return $s;
+}
+
+
+sub timestamp($$;$)
+{
+  my $time = shift // die;  # unixtime, or arrayref from localtime()
+  my $format = shift;
+  my $tm_is_utc = shift;
+  my @tm = ref($time) ? @$time : localtime($time);
+  my $ts;
+  # NOTE: can't use POSIX::strftime(), as "%z" always prints offset of local timezone!
+
+  if($format eq "short") {
+    return sprintf('%04u%02u%02u', $tm[5] + 1900, $tm[4] + 1, $tm[3]);
+  }
+  elsif($format eq "long") {
+    return sprintf('%04u%02u%02uT%02u%02u', $tm[5] + 1900, $tm[4] + 1, $tm[3], $tm[2], $tm[1]);
+  }
+  elsif($format eq "long-iso") {
+    $ts = sprintf('%04u%02u%02uT%02u%02u%02u', $tm[5] + 1900, $tm[4] + 1, $tm[3], $tm[2], $tm[1], $tm[0]);
+  }
+  elsif($format eq "debug-iso") {
+    $ts = sprintf('%04u-%02u-%02uT%02u:%02u:%02u', $tm[5] + 1900, $tm[4] + 1, $tm[3], $tm[2], $tm[1], $tm[0]);
+  }
+  else { die; }
+
+  if($tm_is_utc) {
+    $ts .= '+0000'; # or 'Z'
+  } else {
+    my $offset = timegm(@tm) - timelocal(@tm);
+    if($offset < 0) { $ts .= '-'; $offset = -$offset; } else { $ts .= '+'; }
+    $ts .= sprintf('%02u%02u', int($offset / (60 * 60)), int($offset / 60) % 60);
+  }
+  return $ts;
+
+  return undef;
 }
 
 
@@ -3242,8 +3305,7 @@ MAIN:
 
   Getopt::Long::Configure qw(gnu_getopt);
   my $start_time = time;
-  @lt_now = localtime($start_time);
-  my @today_and_now = ( ($lt_now[5] + 1900), ($lt_now[4] + 1), $lt_now[3], $lt_now[2], $lt_now[1], $lt_now[0] );
+  @tm_now = localtime($start_time);
 
   my %config_override_cmdline;
   my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only, $print_schedule);
@@ -4581,9 +4643,7 @@ MAIN:
           }
 
           # find unique snapshot name
-          my $timestamp = ((config_key($svol, "timestamp_format") eq "short") ?
-                           sprintf("%04d%02d%02d", @today_and_now[0..2]) :
-                           sprintf("%04d%02d%02dT%02d%02d", @today_and_now[0..4]));
+          my $timestamp = timestamp(\@tm_now, config_key($svol, "timestamp_format"));
           my @unconfirmed_target_name;
           my @lookup = map { $_->{SUBVOL_PATH} } @{vinfo_subvol_list($sroot)};
           @lookup = grep s/^\Q$snapdir_ts\E// , @lookup;

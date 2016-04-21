@@ -18,6 +18,7 @@ btrbk-current
   * Added "archive" command (close: #79).
   * Changed output format of "origin" command, add table formats.
   * Added configuration option "rate_limit" (close: #72).
+  * Added new timestamp_format "long-iso", having a timezone postfix.
   * Added "--print-schedule" command line option.
   * Detect interrupted transfers of raw targets (close: #75).
   * Always read "readonly" flag (additional call to btrfs-progs).

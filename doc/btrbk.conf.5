@@ -1,4 +1,4 @@
-.TH "btrbk.conf" "5" "2016-04-19" "btrbk v0.23.0-dev" ""
+.TH "btrbk.conf" "5" "2016-04-22" "btrbk v0.23.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -70,7 +70,7 @@ subvolume delete) as well as abort messages are logged to <file>, in a
 space-separated table format.
 .RE
 .PP
-\fBtimestamp_format\fR  short|long
+\fBtimestamp_format\fR  short|long|long-iso
 .RS 4
 Timestamp format used as postfix for new snapshot subvolume
 names. Defaults to \[lq]short\[rq].
@@ -79,10 +79,16 @@ names. Defaults to \[lq]short\[rq].
 YYYYMMDD[_N]  (e.g. "20150825", "20150825_1")
 .IP \fBlong\fR
 YYYYMMDD<T>hhmm[_N]  (e.g. "20150825T1531")
+.IP \fBlong-iso\fR
+YYYYMMDD<T>hhmmss\[t+-]hhmm[_N]  (e.g. "20150825T153123+0200")
 .PP
 Note that a postfix "_N" is only appended to the timestamp if a
 snapshot/backup already exists with the timestamp of current
 date/time.
+.PP
+Use \[lq]long-iso\[rq] if you want to make sure that btrbk never
+creates ambiguous time stamps (which can happen if multiple snapshots
+are created during a daylight saving time clock change).
 .RE
 .PP
 \fBsnapshot_dir\fR  <directory>
@@ -241,8 +247,8 @@ With the following semantics:
 Defines how many hours back hourly backups should be preserved. The
 first backup of an hour is considered an hourly backup. Note that if
 you use <hourly> scheduling, make sure to also set
-\fItimestamp_format\fR to \[lq]long\[rq], or the scheduler will
-interpret the time as "00:00" (midnight).
+\fItimestamp_format\fR to \[lq]long\[rq] or \[lq]long-iso\[rq], or the
+scheduler will interpret the time as "00:00" (midnight).
 .RE
 .PP
 .B daily
@@ -276,6 +282,18 @@ backup.
 Use an asterisk for \[lq]all\[rq] (e.g. "target_preserve 60d *m"
 states: "preserve daily backups for 60 days back, and all monthly
 backups").
+.PP
+The reference time (which defines the beginning of a day, week, month
+or year) for all date/time calculations is the local time of the host
+running btrbk.
+.PP
+Caveats:
+.IP \[bu] 2
+If "timestamp_format long-iso" is set, running btrbk from different
+time zones leads to different interpretation of "first in day, week,
+month, or year". So with this setup, make sure to run btrbk with the
+same time zone on every host (e.g. by setting the TZ environment
+variable).
 .SH TARGET TYPES
 .PP
 \fBsend-receive\fR
