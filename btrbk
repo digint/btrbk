@@ -2697,8 +2697,9 @@ sub macro_delete($$$$$;@)
                      });
   }
   my (undef, $delete) = schedule(
+    %$schedule_options,
     schedule => \@schedule,
-    %$schedule_options
+    preserve_date_in_future => 1,
    );
   my $ret = btrfs_subvolume_delete($delete, %delete_options);
   if(defined($ret)) {
@@ -2810,6 +2811,7 @@ sub schedule(@)
   my %args = @_;
   my $schedule        = $args{schedule} || die;
   my $preserve        = $args{preserve} || die;
+  my $preserve_date_in_future = $args{preserve_date_in_future};
   my $results_list    = $args{results};
   my $result_hints    = $args{result_hints} // {};
   my $result_preserve_action_text = $args{result_preserve_action_text};
@@ -2869,6 +2871,10 @@ sub schedule(@)
     $href->{year_month} = $year_month;
     $href->{year}       = $year;
     $href->{err_days}   = ($delta_days_from_eow ? "+$delta_days_from_eow days after " : "on ") . "$preserve_day_of_week";
+
+    if($preserve_date_in_future && ($href->{delta_hours} < 0)) {
+      $href->{preserve} = "preserve forced: " . -($href->{delta_hours}) . " hours in the future";
+    }
   }
 
   my %first_in_delta_hours;
