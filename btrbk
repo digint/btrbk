@@ -45,6 +45,8 @@ use warnings FATAL => qw( all );
 use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
+use Sys::Syslog;
+use Sys::Syslog qw(:standard :macros);
 
 our $VERSION         = "0.23.1-dev";
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
@@ -69,6 +71,11 @@ my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
 my $safe_cmd_match = qr/[0-9a-zA-Z_@=\+\-\.\/]+/;  # $file_match plus '=': good enough for our purpose
 
 my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
+my %syslog_facility_map = (
+  user => LOG_USER, mail => LOG_MAIL, daemon => LOG_DAEMON, auth => LOG_AUTH, lpr => LOG_LPR, news => LOG_NEWS,
+  cron => LOG_CRON, authpriv => LOG_AUTHPRIV, local0 => LOG_LOCAL0, local1 => LOG_LOCAL1, local2 => LOG_LOCAL2,
+  local3 => LOG_LOCAL3, local4 => LOG_LOCAL4, local5 => LOG_LOCAL5, local6 => LOG_LOCAL6, local7 => LOG_LOCAL7,
+);
 
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
@@ -94,6 +101,7 @@ my %config_options = (
   ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
   rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgt]?$/, require_bin => '/usr/bin/pv' },
   transaction_log             => { default => undef,     accept_file => { absolute => 1 } },
+  transaction_syslog          => { default => undef,     accept => [ keys %syslog_facility_map ] },
 
   raw_target_compress         => { default => undef,     accept => [ "no", "gzip", "bzip2", "xz" ] },
   raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
@@ -178,6 +186,7 @@ my %table_formats = (
                    long  => [ qw( localtime type status duration target_host target_subvol source_host source_subvol parent_subvol message ) ],
                    raw   => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
                    tlog  => [ qw( localtime type status duration target_url source_url parent_url message ) ],
+                   syslog  => [ qw( type status duration target_url source_url parent_url message ) ],
                  },
 
   origin_tree => { table => [ qw( tree uuid parent_uuid received_uuid ) ],
@@ -202,6 +211,7 @@ my $err = "";
 my $abrt = "";  # last ABORTED() message
 my $output_format;
 my $tlog_fh;
+my $syslog_facility;
 my $current_transaction;
 my @transaction_log;
 my %config_override;
@@ -319,7 +329,7 @@ sub ABORTED($;$)
 }
 
 
-sub init_transaction_log($)
+sub init_transaction_log($$)
 {
   my $file = shift;
   if(defined($file) && (not $dryrun)) {
@@ -332,6 +342,11 @@ sub init_transaction_log($)
       ERROR "Failed to open transaction log '$file': $!";
     }
   }
+  my $config_syslog_facility = shift;
+  if(defined($config_syslog_facility) && (not $dryrun)) {
+    $syslog_facility = $syslog_facility_map{$config_syslog_facility};
+    openlog("btrbk", 0, $syslog_facility);
+  }
   action("startup", status => "v$VERSION", message => "$VERSION_INFO");
 }
 
@@ -341,6 +356,7 @@ sub close_transaction_log()
     DEBUG "Closing transaction log";
     close $tlog_fh || ERROR "Failed to close transaction log: $!";
   }
+  closelog if defined $syslog_facility;
 }
 
 sub action($@)
@@ -352,6 +368,16 @@ sub action($@)
   $h->{time} = $time;
   $h->{localtime} = timestamp($time, 'debug-iso');
   print_formatted("transaction", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh) if($tlog_fh);
+  if (defined($syslog_facility)) {
+    my $msg = q{};
+    open my $msg_fh, '+<', \$msg;
+    print_formatted("transaction", [ $h ], output_format => "syslog", no_header => 1, outfile => $msg_fh);
+    seek($msg_fh, 0, 0);
+    while (my $line = <$msg_fh>) {
+      syslog(LOG_INFO, $line);
+    }
+    close $msg_fh;
+  }
   push @transaction_log, $h;
   return $h;
 }
@@ -3162,7 +3188,7 @@ sub print_formatted(@)
       print $fh join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
     }
   }
-  elsif($format eq "tlog")
+  elsif($format eq "tlog" || $format eq "syslog")
   {
     # output: value0 value1, ...
     unless($args{no_header}) {
@@ -3619,7 +3645,8 @@ MAIN:
     # thing used from the configuration is the SSH and transaction log
     # stuff.
     #
-    init_transaction_log(config_key($config, "transaction_log"));
+    init_transaction_log(config_key($config, "transaction_log"),
+                         config_key($config, "transaction_syslog"));
 
     my $src_url    = $filter_args[0] || die;
     my $archive_url = $filter_args[1] || die;
@@ -4518,7 +4545,8 @@ MAIN:
     #
     # identify and delete incomplete backups
     #
-    init_transaction_log(config_key($config, "transaction_log"));
+    init_transaction_log(config_key($config, "transaction_log"),
+                         config_key($config, "transaction_syslog"));
 
     my @out;
     foreach my $sroot (vinfo_subsection($config, 'volume')) {
@@ -4615,7 +4643,8 @@ MAIN:
 
   if($action_run)
   {
-    init_transaction_log(config_key($config, "transaction_log"));
+    init_transaction_log(config_key($config, "transaction_log"),
+                         config_key($config, "transaction_syslog"));
 
     if($resume_only) {
       INFO "Skipping snapshot creation (option \"-r\" present)";

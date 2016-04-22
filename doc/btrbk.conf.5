@@ -75,6 +75,15 @@ subvolume delete) as well as abort messages are logged to <file>, in a
 space-separated table format.
 .RE
 .PP
+\fBtransaction_syslog\fR  <facility>
+.RS 4
+If set, all transactions (snapshot create, subvolume send-receive,
+subvolume delete) as well as abort messages are logged to syslog, in a
+space-separated format. The facility parameter accepts a short
+lowercase syslog facility name, like \[lq]daemon\[rq] or \[lq]local7\[rq].
+The program name used in the messages is "btrbk".
+.RE
+.PP
 \fBtimestamp_format\fR  short|long|long-iso
 .RS 4
 Timestamp format used as postfix for new snapshot subvolume
