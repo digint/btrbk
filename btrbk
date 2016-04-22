@@ -1784,7 +1784,7 @@ sub vinfo_inject_child($$$)
   else {
     my $node_subdir = defined($vinfo->{NODE_SUBDIR}) ? $vinfo->{NODE_SUBDIR} . '/' : "";
     $node = btr_tree_inject_node($vinfo->{node}, $detail, $rel_path);
-    return undef unless(add_btrbk_filename_info($node)); #!!! fix in raw readin
+    return undef unless(add_btrbk_filename_info($node));
   }
   $vinfo_child->{node} = $node;
   $url_cache{$vinfo_child->{URL}} = $node;
@@ -2640,20 +2640,22 @@ sub macro_send_receive(@)
   }
 
   # inject fake vinfo
-  vinfo_inject_child($target, $vol_received, {
-    # NOTE: this is not necessarily the correct parent_uuid (on
-    # receive, btrfs-progs picks the uuid of the first (lowest id)
-    # matching possible parent), whereas the target_parent is the
-    # first from get_receive_targets().
-    #
-    # NOTE: the parent_uuid of an injected receive target is not used
-    # anywhere in btrbk at the time of writing
-    parent_uuid    => $parent ? $info{latest_common_target}->{node}{uuid} : '-',
-    received_uuid  => $source->{node}{received_uuid} eq '-' ? $source->{node}{uuid} : $source->{node}{received_uuid},
-    readonly       => 1,
-    TARGET_TYPE    => $target_type,
-    FORCE_PRESERVE => 'preserve forced: created just now',
-  });
+  if($ret) {
+    vinfo_inject_child($target, $vol_received, {
+      # NOTE: this is not necessarily the correct parent_uuid (on
+      # receive, btrfs-progs picks the uuid of the first (lowest id)
+      # matching possible parent), whereas the target_parent is the
+      # first from get_receive_targets().
+      #
+      # NOTE: the parent_uuid of an injected receive target is not used
+      # anywhere in btrbk at the time of writing
+      parent_uuid    => $parent ? $info{latest_common_target}->{node}{uuid} : '-',
+      received_uuid  => $source->{node}{received_uuid} eq '-' ? $source->{node}{uuid} : $source->{node}{received_uuid},
+      readonly       => 1,
+      TARGET_TYPE    => $target_type,
+      FORCE_PRESERVE => 'preserve forced: created just now',
+    });
+  }
 
   # add info to $config->{SUBVOL_RECEIVED}
   $info{received_type} = $target_type || die;
