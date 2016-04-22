@@ -623,7 +623,7 @@ sub btrfs_subvolume_show($)
     $detail{id}      = 5;
     $detail{is_root} = 1;
   }
-  elsif($ret =~ /^$real_path/) {
+  elsif($ret =~ /^\Q$real_path\E/) {
     TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
     # NOTE: received_uuid is not required here, as btrfs-progs < 4.1 does not give us that information.
     #       no worries, we get this from btrfs_subvolume_list() for all subvols.
