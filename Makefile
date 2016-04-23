@@ -41,7 +41,9 @@ install-doc:
 	@echo 'installing documentation...'
 	install -Dm644 README.md "$(DESTDIR)$(DOCDIR)/README.md"
 	install -Dm644 doc/FAQ.md "$(DESTDIR)$(DOCDIR)/FAQ.md"
+	install -Dm644 doc/upgrade_to_v0.23.0.md "$(DESTDIR)$(DOCDIR)/upgrade_to_v0.23.0.md"
 	gzip -9 "$(DESTDIR)$(DOCDIR)/README.md"
 	gzip -9 "$(DESTDIR)$(DOCDIR)/FAQ.md"
+	gzip -9 "$(DESTDIR)$(DOCDIR)/upgrade_to_v0.23.0.md"
 
 install: install-bin install-systemd install-share install-man install-doc
