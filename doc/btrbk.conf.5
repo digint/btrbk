@@ -75,20 +75,22 @@ space-separated table format.
 Timestamp format used as postfix for new snapshot subvolume
 names. Defaults to \[lq]short\[rq].
 .PP
-.IP \fBshort\fR
+.IP \fBshort\fR 10
 YYYYMMDD[_N]  (e.g. "20150825", "20150825_1")
-.IP \fBlong\fR
+.IP \fBlong\fR 10
 YYYYMMDD<T>hhmm[_N]  (e.g. "20150825T1531")
-.IP \fBlong-iso\fR
+.IP \fBlong-iso\fR 10
 YYYYMMDD<T>hhmmss\[t+-]hhmm[_N]  (e.g. "20150825T153123+0200")
 .PP
-Note that a postfix "_N" is only appended to the timestamp if a
-snapshot/backup already exists with the timestamp of current
-date/time.
+Note that a postfix "_N" is appended to the timestamp if a snapshot or
+backup already exists with the timestamp of current date/time.
 .PP
 Use \[lq]long-iso\[rq] if you want to make sure that btrbk never
 creates ambiguous time stamps (which can happen if multiple snapshots
 are created during a daylight saving time clock change).
+.PP
+Note that using \[lq]long-iso\[rq] has implications on the scheduling,
+see RETENTION POLICY (caveats) below.
 .RE
 .PP
 \fBsnapshot_dir\fR  <directory>
@@ -289,11 +291,19 @@ running btrbk.
 .PP
 Caveats:
 .IP \[bu] 2
+If you run a setup with several btrbk instances (e.g. one
+snapshot-only instance per remote client, and a separate fetch-only
+instance on the backup server), it makes perfectly sense to run btrbk
+with different local time on the clients, in order to make sure the
+backups from all the remote hosts are preserved for "midnight", and
+not at "00:00 UTC" (which would be "14:00" in Honolulu). If you want
+this behaviour, do NOT use "timestamp_format long-iso".
+.IP \[bu] 2
 If "timestamp_format long-iso" is set, running btrbk from different
 time zones leads to different interpretation of "first in day, week,
-month, or year". So with this setup, make sure to run btrbk with the
-same time zone on every host (e.g. by setting the TZ environment
-variable).
+month, or year". Make sure to run btrbk with the same time zone on
+every host, e.g. by setting the TZ environment variable (see
+tzset(3)).
 .SH TARGET TYPES
 .PP
 \fBsend-receive\fR

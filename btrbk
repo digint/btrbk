@@ -3054,7 +3054,9 @@ sub timestamp($$;$)
   } else {
     my $offset = timegm(@tm) - timelocal(@tm);
     if($offset < 0) { $ts .= '-'; $offset = -$offset; } else { $ts .= '+'; }
-    $ts .= sprintf('%02u%02u', int($offset / (60 * 60)), int($offset / 60) % 60);
+    my $h = int($offset / (60 * 60));
+    die if($h > 24); # sanity check, something went really wrong
+    $ts .= sprintf('%02u%02u', $h, int($offset / 60) % 60);
   }
   return $ts;
 
