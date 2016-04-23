@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-btrbk - backup tool for btrfs volumes
+btrbk - create snapshots and remote backups of btrfs subvolumes
 
 =head1 SYNOPSIS
 
@@ -893,7 +893,7 @@ sub btrfs_send_receive($$$$;@)
   my $vol_received = vinfo_child($target, $snapshot->{NAME});
   $$ret_vol_received = $vol_received if(ref $ret_vol_received);
 
-  print STDOUT "Receiving subvolume: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
+  print STDOUT "Creating backup: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
 
   INFO "[send/receive] source: $snapshot->{PRINT}";
   INFO "[send/receive] parent: $parent->{PRINT}" if($parent);
@@ -1057,7 +1057,7 @@ sub btrfs_send_to_file($$$$;@)
   my $vol_received = vinfo_child($target, $target_filename);
   $$ret_vol_received = $vol_received if(ref $ret_vol_received);
 
-  print STDOUT "Receiving raw subvolume image: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
+  print STDOUT "Creating raw backup: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
 
   INFO "[send-to-raw] source: $source->{PRINT}";
   INFO "[send-to-raw] parent: $parent->{PRINT}" if($parent);

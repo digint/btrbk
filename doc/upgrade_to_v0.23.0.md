@@ -70,8 +70,8 @@ But what you probably want is something like:
 This states:
 
   * Keep all snapshots for five days (no matter how many there are)
-  * Transfer only the first snapshot ot a day to the target
-  * Keep all "first snapshots of a day" for <daily> days, etc.
+  * Transfer only the first snapshot of a day to the target
+  * Keep all "first snapshots of a day" for `<daily>` days, etc.
 
 
 ### Upgrade "resume_missing"
