@@ -1,3 +1,8 @@
+btrbk-current
+
+  * Bugfix: set correct parent section when propagating targets
+    (close: #85).
+
 btrbk-0.23.0
 
   * INCOMPATIBLE CONFIGURATION:

@@ -46,7 +46,7 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = "0.23.0";
+our $VERSION         = "0.23.1-dev";
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 
@@ -2454,7 +2454,7 @@ sub _config_propagate_target
         next;
       }
 
-      my %copy = ( %$target, PARENT => $cur );
+      my %copy = ( %$target, PARENT => $subsection );
       # foreach my $key (keys %copy) {
       #   # config keys which are strongly related to target section are
       #   # superseded by their presence in later defined sections.
