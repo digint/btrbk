@@ -1432,27 +1432,30 @@ sub vinfo($;$)
   my $config = shift;
   my %info;
 
-  my $name = $url;
+  my ($url_prefix, $path) = check_url($url);
+  die "invalid url: $url" unless(defined($path));
+  my $name = $path;
   $name =~ s/^.*\///;
+  $name = '/' if($name eq "");
 
   %info = (
-    URL    => $url,
-    NAME   => $name,
-    PATH   => $url,
-    PRINT  => $url,
-    URL_PREFIX => "",
+    URL        => $url_prefix . $path,
+    NAME       => $name,
+    PATH       => $path,
+    PRINT      => $path,
+    URL_PREFIX => $url_prefix,
    );
 
-  if($url =~ /^ssh:\/\/(\S+?)(\/\S+)$/) {
-    my ($host, $path)   = ($1, $2);
+  if($url_prefix) {
+    my $host = $url_prefix;
+    die unless($host =~ s/^ssh:\/\///);
+
     %info = (
       %info,
-      HOST       => $host,
-      PATH       => $path,
-      PRINT      => "$host:$path",
-      URL_PREFIX => "ssh://$host",
-      RSH_TYPE   => "UNKNOWN",
-      RSH        => [ '/bin/false' ],
+      HOST     => $host,
+      PRINT    => "$host:$path",
+      RSH_TYPE => "UNKNOWN",
+      RSH      => [ '/bin/false' ],
      );
     if($config) {
       my $ssh_port        = config_key($config, "ssh_port");
