@@ -60,6 +60,7 @@ my @config_src = ("/etc/btrbk.conf", "/etc/btrbk/btrbk.conf");
 my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
 my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
+my $glob_match = qr/[0-9a-zA-Z_@\+\-\.\/\*]+/;  # file_match plus '*'
 my $ssh_prefix_match = qr/ssh:\/\/($ip_addr_match|$host_name_match)/;
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 my $timestamp_postfix_match = qr/\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
@@ -606,8 +607,9 @@ sub btrfs_subvolume_show($)
   my $real_path;
   if($ret =~ /^($file_match)/) {
     $real_path = $1;
+    $real_path = check_file($real_path, { absolute => 1 });
+    return undef unless(defined($real_path));
     DEBUG "Real path for subvolume \"$vol->{PRINT}\" is: $real_path" if($real_path ne $path);
-    return undef unless(check_file($real_path, { absolute => 1 }));
     $realpath_cache{$vol->{URL}} = $real_path if($real_path ne $path);
   }
   else {
@@ -2077,30 +2079,25 @@ sub check_file($$;$$)
   my $key = shift;  # only for error text
   my $config_file = shift;  # only for error text
 
-  my $ckfile = $file;
-  $ckfile =~ s/\*/_/g if($accept->{wildcards});
+  my $match = $file_match;
+  $match = $glob_match if($accept->{wildcards});
 
-  if($accept->{ssh} && ($file =~ /^ssh:\/\//)) {
-    unless($ckfile =~ /^$ssh_prefix_match\/$file_match$/) {
-      ERROR "Ambiguous ssh url for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
-      return undef;
-    }
-  }
-  elsif($ckfile =~ /^$file_match$/) {
+  if($file =~ /^($match)$/) {
+    $file = $1;
     if($accept->{absolute}) {
-      unless($ckfile =~ /^\//) {
+      unless($file =~ /^\//) {
         ERROR "Only absolute files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
         return undef;
       }
     }
     elsif($accept->{relative}) {
-      if($ckfile =~ /^\//) {
+      if($file =~ /^\//) {
         ERROR "Only relative files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
         return undef;
       }
     }
     elsif($accept->{name_only}) {
-      if($ckfile =~ /\//) {
+      if($file =~ /\//) {
         ERROR "Option \"$key\" is not a valid file name in \"$config_file\" line $.: $file" if($key && $config_file);
         return undef;
       }
@@ -2118,7 +2115,21 @@ sub check_file($$;$$)
     ERROR "Illegal directory traversal for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
     return undef;
   }
-  return 1;
+  $file =~ s/\/+/\//g;     # sanitize multiple slash
+  $file =~ s/\/\.\//\//g;  # sanitize "/./" -> "/"
+  $file =~ s/\/$// unless($file eq '/');   # remove trailing slash
+  return $file;
+}
+
+
+sub check_url($;$$)
+{
+  my $url = shift // die;
+  my $key = shift;  # only for error text
+  my $config_file = shift;  # only for error text
+  my $url_prefix = "";
+  $url_prefix = $1 if($url =~ s/^($ssh_prefix_match)\//\//);
+  return ( $url_prefix, check_file($url, { absolute => 1 }, $key, $config_file) );
 }
 
 
@@ -2251,11 +2262,10 @@ sub append_config_option($$$$;$)
   elsif($opt->{accept_file})
   {
     # be very strict about file options, for security sake
-    return undef unless(check_file($value, $opt->{accept_file}, $key, $config_file));
+    $value = check_file($value, $opt->{accept_file}, $key, $config_file);
+    return undef unless(defined($value));
 
     TRACE "option \"$key=$value\" is a valid file, accepted";
-    $value =~ s/\/+$//;   # remove trailing slash
-    $value =~ s/^\/+/\//; # sanitize leading slash
     $value = "no" if($value eq ".");  # maps to undef later
   }
   elsif($opt->{accept_regexp}) {
@@ -2350,15 +2360,14 @@ sub parse_config_line($$$$$)
     TRACE "config: context forced to: $cur->{CONTEXT}";
 
     # be very strict about file options, for security sake
-    return undef unless(check_file($value, { absolute => 1, ssh => 1 }, $key, $file));
-    $value =~ s/\/+$// unless($value =~ /^\/+$/);   # remove trailing slash
-    $value =~ s/^\/+/\//; # sanitize leading slash
-    TRACE "config: adding volume \"$value\" to root context";
+    my ($url_prefix, $path) = check_url($value, $key, $file);
+    return undef unless(defined($path));
+    TRACE "config: adding volume \"$url_prefix$path\" to root context";
     die unless($cur->{CONTEXT} eq "root");
     my $volume = { CONTEXT    => "volume",
                    PARENT     => $cur,
                    SUBSECTION => [],
-                   url        => $value,
+                   url        => $url_prefix . $path,
                   };
     push(@{$cur->{SUBSECTION}}, $volume);
     $cur = $volume;
@@ -2374,19 +2383,18 @@ sub parse_config_line($$$$$)
       TRACE "config: context changed to: $cur->{CONTEXT}";
     }
     # be very strict about file options, for security sake
-    return undef unless(check_file($value, { relative => 1, wildcards => 1 }, $key, $file));
-    $value =~ s/\/+$//;    # remove trailing slash
-    $value =~ s/^\/+//;    # remove leading slash
+    my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, $key, $file);
+    return undef unless(defined($rel_path));
 
-    TRACE "config: adding subvolume \"$value\" to volume context: $cur->{url}";
-    my $snapshot_name = $value;
+    TRACE "config: adding subvolume \"$rel_path\" to volume context: $cur->{url}";
+    my $snapshot_name = $rel_path;
     $snapshot_name =~ s/^.*\///; # snapshot_name defaults to subvolume name
     die unless($cur->{CONTEXT} eq "volume");
     my $subvolume = { CONTEXT       => "subvolume",
                       PARENT        => $cur,
                       # SUBSECTION    => [],  # handled by target propagation
-                      rel_path      => $value,
-                      url           => $cur->{url} . '/' . $value,
+                      rel_path      => $rel_path,
+                      url           => $cur->{url} . '/' . $rel_path,
                       snapshot_name => $snapshot_name,
                      };
     $subvolume->{GLOB_CONTEXT} = 1 if($value =~ /\*/);
@@ -2401,21 +2409,20 @@ sub parse_config_line($$$$$)
     }
     if($value =~ /^(\S+)\s+(\S+)$/)
     {
-      my ($target_type, $droot) = ($1, $2);
+      my ($target_type, $url) = ($1, $2);
       unless(grep(/^\Q$target_type\E$/, @config_target_types)) {
         ERROR "Unknown target type \"$target_type\" in \"$file\" line $.";
         return undef;
       }
       # be very strict about file options, for security sake
-      return undef unless(check_file($droot, { absolute => 1, ssh => 1 }, $key, $file));
+      my ($url_prefix, $path) = check_url($url, $key, $file);
+      return undef unless(defined($path));
 
-      $droot =~ s/\/+$// unless($droot =~ /^\/+$/);   # remove trailing slash
-      $droot =~ s/^\/+/\//; # sanitize leading slash
-      TRACE "config: adding target \"$droot\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "");
+      TRACE "config: adding target \"$url_prefix$path\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "");
       my $target = { CONTEXT => "target",
                      PARENT => $cur,
                      target_type => $target_type,
-                     url => $droot,
+                     url => $url_prefix . $path,
                    };
       # NOTE: target sections are propagated to the apropriate SUBSECTION in _config_propagate_target()
       $cur->{TARGET} //= [];
