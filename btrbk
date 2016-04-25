@@ -1537,8 +1537,9 @@ sub add_btrbk_filename_info($;$)
   # NOTE: unless long-iso file format is encountered, the timestamp is interpreted in local timezone.
 
   $name =~ s/^(.*)\///;
+  my $btrbk_raw;
   if($btrbk_raw_file && ($name =~ /^(?<name>$file_match)$timestamp_postfix_match$raw_postfix_match$/)) {
-    $node->{BTRBK_RAW} = {
+    $btrbk_raw = {
       received_uuid      => $+{received_uuid} // die,
       remote_parent_uuid => $+{parent_uuid} // '-',
       encrypt            => $+{encrypt} // "",
@@ -1589,6 +1590,7 @@ sub add_btrbk_filename_info($;$)
 
   $node->{BTRBK_BASENAME} = $name;
   $node->{BTRBK_DATE} = [ $time, $NN ];
+  $node->{BTRBK_RAW} = $btrbk_raw if($btrbk_raw);
   return $node;
 }
 
@@ -1776,7 +1778,7 @@ sub vinfo_inject_child($$$)
       id        => $tree_inject_id,
       uuid      => $uuid,
     };
-    add_btrbk_filename_info($node, 1);
+    return undef unless(add_btrbk_filename_info($node, 1));
 
     # NOTE: make sure to have all the flags set by _vinfo_subtree_list()
     $vinfo_child->{subtree_depth}     = 0;
@@ -4209,9 +4211,10 @@ MAIN:
             # NOTE: remote_parent_uuid in BTRBK_RAW is the "parent of the source subvolume", NOT the
             #       "parent of the received subvolume".
             my $subvol = vinfo_child($droot, $file);
-            vinfo_inject_child($droot, $subvol, { TARGET_TYPE => 'raw' });
-
-            unless(defined($subvol->{node}{BTRBK_RAW}) && ($snapshot_basename eq $subvol->{node}{BTRBK_BASENAME})) {
+            unless(vinfo_inject_child($droot, $subvol, { TARGET_TYPE => 'raw' }) &&
+                   defined($subvol->{node}{BTRBK_RAW}) &&
+                   ($snapshot_basename eq $subvol->{node}{BTRBK_BASENAME}))
+            {
               DEBUG "Skipping file (filename scheme mismatch): \"$file\"";
               next;
             }
@@ -4255,7 +4258,7 @@ MAIN:
 
             # For now, always preserve all raw files.
             # TODO: remove this line as soon as incremental rotation is implemented.
-            $subvol->{node}{FORCE_PRESERVE} = "preserve forced: parent of another raw target";
+            $subvol->{node}{FORCE_PRESERVE} = "preserve forced: raw target";
           }
           # TRACE(Data::Dumper->Dump([\@subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
         }
