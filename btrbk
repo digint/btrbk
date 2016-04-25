@@ -205,7 +205,7 @@ my $err = "";
 my $abrt = "";  # last ABORTED() message
 my $output_format;
 my $tlog_fh;
-my $syslog_facility;
+my $syslog_enabled = 0;
 my $current_transaction;
 my @transaction_log;
 my %config_override;
@@ -338,14 +338,15 @@ sub init_transaction_log($$)
     }
   }
   if(defined($config_syslog_facility) && (not $dryrun)) {
-    eval { local $SIG{'__DIE__'};
-           require Sys::Syslog;
-         };
+    eval {
+      local $SIG{'__DIE__'};
+      require Sys::Syslog;
+    };
     if($@) {
       WARN "Syslog disabled: $@";
     } else {
-      $syslog_facility = $config_syslog_facility;
-      Sys::Syslog::openlog("btrbk", "", $syslog_facility);
+      $syslog_enabled = 1;
+      Sys::Syslog::openlog("btrbk", "", $config_syslog_facility);
     }
   }
   action("startup", status => "v$VERSION", message => "$VERSION_INFO");
@@ -357,7 +358,7 @@ sub close_transaction_log()
     DEBUG "Closing transaction log";
     close $tlog_fh || ERROR "Failed to close transaction log: $!";
   }
-  if(defined($syslog_facility)) {
+  if($syslog_enabled) {
     eval { local $SIG{'__DIE__'};
            Sys::Syslog::closelog();
          };
@@ -373,19 +374,7 @@ sub action($@)
   $h->{time} = $time;
   $h->{localtime} = timestamp($time, 'debug-iso');
   print_formatted("transaction", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh) if($tlog_fh);
-  if (defined($syslog_facility)) {
-    my $msg = q{};
-    open my $msg_fh, '+<', \$msg;
-    print_formatted("transaction", [ $h ], output_format => "syslog", no_header => 1, outfile => $msg_fh);
-    seek($msg_fh, 0, 0);
-    while (my $line = <$msg_fh>) {
-      eval { local $SIG{'__DIE__'};
-             Sys::Syslog::syslog("info", $line);
-           };
-      if($@) { WARN "syslog failed: $@"; }
-    }
-    close $msg_fh;
-  }
+  print_formatted("transaction", [ $h ], output_format => "syslog", no_header => 1) if($syslog_enabled);  # dirty hack, this calls syslog()
   push @transaction_log, $h;
   return $h;
 }
@@ -413,6 +402,17 @@ sub end_transaction($$)
     action($type, %$_, status => $status, duration => ($dryrun ? undef : ($time - $_->{time})));
   }
   $current_transaction = undef;
+}
+
+sub syslog($)
+{
+  my $line = shift;
+  return undef unless($syslog_enabled);
+  eval {
+    local $SIG{'__DIE__'};
+    Sys::Syslog::syslog("info", $line);
+  };
+  if($@) { WARN "syslog failed: $@"; }
 }
 
 sub safe_cmd($)
@@ -3196,14 +3196,19 @@ sub print_formatted(@)
       print $fh join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
     }
   }
-  elsif($format eq "tlog" || $format eq "syslog")
+  elsif(($format eq "tlog") || ($format eq "syslog"))
   {
     # output: value0 value1, ...
     unless($args{no_header}) {
       print $fh join(' ', @$keys) . "\n";
     }
     foreach my $row (@$data) {
-      print $fh join(' ', map { ((defined($row->{$_}) && ($_ eq "message")) ? '# ' : '') . ($row->{$_} // "-") } @$keys) . "\n";
+      my $line = join(' ', map { ((defined($row->{$_}) && ($_ eq "message")) ? '# ' : '') . ($row->{$_} // "-") } @$keys);
+      if($format eq "syslog") { # dirty hack, ignore outfile on syslog format
+        syslog($line);
+     } else {
+        print $fh ($line . "\n");
+      }
     }
   }
   else
