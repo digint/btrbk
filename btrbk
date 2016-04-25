@@ -45,8 +45,6 @@ use warnings FATAL => qw( all );
 use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
-use Sys::Syslog;
-use Sys::Syslog qw(:standard :macros);
 
 our $VERSION         = "0.23.1-dev";
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
@@ -71,11 +69,7 @@ my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
 my $safe_cmd_match = qr/[0-9a-zA-Z_@=\+\-\.\/]+/;  # $file_match plus '=': good enough for our purpose
 
 my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
-my %syslog_facility_map = (
-  user => LOG_USER, mail => LOG_MAIL, daemon => LOG_DAEMON, auth => LOG_AUTH, lpr => LOG_LPR, news => LOG_NEWS,
-  cron => LOG_CRON, authpriv => LOG_AUTHPRIV, local0 => LOG_LOCAL0, local1 => LOG_LOCAL1, local2 => LOG_LOCAL2,
-  local3 => LOG_LOCAL3, local4 => LOG_LOCAL4, local5 => LOG_LOCAL5, local6 => LOG_LOCAL6, local7 => LOG_LOCAL7,
-);
+my @syslog_facilities = qw( user mail daemon auth lpr news cron authpriv local0 local1 local2 local3 local4 local5 local6 local7 );
 
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
@@ -101,7 +95,7 @@ my %config_options = (
   ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
   rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgt]?$/, require_bin => '/usr/bin/pv' },
   transaction_log             => { default => undef,     accept_file => { absolute => 1 } },
-  transaction_syslog          => { default => undef,     accept => [ keys %syslog_facility_map ] },
+  transaction_syslog          => { default => undef,     accept => \@syslog_facilities },
 
   raw_target_compress         => { default => undef,     accept => [ "no", "gzip", "bzip2", "xz" ] },
   raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
@@ -332,6 +326,7 @@ sub ABORTED($;$)
 sub init_transaction_log($$)
 {
   my $file = shift;
+  my $config_syslog_facility = shift;
   if(defined($file) && (not $dryrun)) {
     if(open($tlog_fh, ">> $file")) {
       # print headers
@@ -342,10 +337,16 @@ sub init_transaction_log($$)
       ERROR "Failed to open transaction log '$file': $!";
     }
   }
-  my $config_syslog_facility = shift;
   if(defined($config_syslog_facility) && (not $dryrun)) {
-    $syslog_facility = $syslog_facility_map{$config_syslog_facility};
-    openlog("btrbk", 0, $syslog_facility);
+    eval { local $SIG{'__DIE__'};
+           require Sys::Syslog;
+         };
+    if($@) {
+      WARN "Syslog disabled: $@";
+    } else {
+      $syslog_facility = $config_syslog_facility;
+      Sys::Syslog::openlog("btrbk", "", $syslog_facility);
+    }
   }
   action("startup", status => "v$VERSION", message => "$VERSION_INFO");
 }
@@ -356,7 +357,11 @@ sub close_transaction_log()
     DEBUG "Closing transaction log";
     close $tlog_fh || ERROR "Failed to close transaction log: $!";
   }
-  closelog if defined $syslog_facility;
+  if(defined($syslog_facility)) {
+    eval { local $SIG{'__DIE__'};
+           Sys::Syslog::closelog();
+         };
+  }
 }
 
 sub action($@)
@@ -374,7 +379,10 @@ sub action($@)
     print_formatted("transaction", [ $h ], output_format => "syslog", no_header => 1, outfile => $msg_fh);
     seek($msg_fh, 0, 0);
     while (my $line = <$msg_fh>) {
-      syslog(LOG_INFO, $line);
+      eval { local $SIG{'__DIE__'};
+             Sys::Syslog::syslog("info", $line);
+           };
+      if($@) { WARN "syslog failed: $@"; }
     }
     close $msg_fh;
   }
