@@ -322,6 +322,11 @@ sub ABORTED($;$)
   $config->{ABORTED} = $abrt;
 }
 
+sub eval_quiet(&)
+{
+  local $SIG{__DIE__};
+  return eval { $_[0]->() }
+}
 
 sub init_transaction_log($$)
 {
@@ -338,15 +343,14 @@ sub init_transaction_log($$)
     }
   }
   if(defined($config_syslog_facility) && (not $dryrun)) {
-    eval {
-      local $SIG{'__DIE__'};
-      require Sys::Syslog;
-    };
-    if($@) {
-      WARN "Syslog disabled: $@";
-    } else {
+    DEBUG "Opening syslog";
+    if(eval_quiet { require Sys::Syslog; }) {
       $syslog_enabled = 1;
       Sys::Syslog::openlog("btrbk", "", $config_syslog_facility);
+      DEBUG "Syslog enabled";
+    }
+    else {
+      WARN "Syslog disabled: $@";
     }
   }
   action("startup", status => "v$VERSION", message => "$VERSION_INFO");
@@ -359,9 +363,8 @@ sub close_transaction_log()
     close $tlog_fh || ERROR "Failed to close transaction log: $!";
   }
   if($syslog_enabled) {
-    eval { local $SIG{'__DIE__'};
-           Sys::Syslog::closelog();
-         };
+    DEBUG "Closing syslog";
+    eval_quiet { Sys::Syslog::closelog(); };
   }
 }
 
@@ -406,13 +409,9 @@ sub end_transaction($$)
 
 sub syslog($)
 {
-  my $line = shift;
   return undef unless($syslog_enabled);
-  eval {
-    local $SIG{'__DIE__'};
-    Sys::Syslog::syslog("info", $line);
-  };
-  if($@) { WARN "syslog failed: $@"; }
+  my $line = shift;
+  eval_quiet { Sys::Syslog::syslog("info", $line); };
 }
 
 sub safe_cmd($)
@@ -1590,15 +1589,12 @@ sub add_btrbk_filename_info($;$)
   my $zz = $+{zz};
 
   my $time;
-  eval {
-    local $SIG{'__DIE__'};
-    if(defined($zz)) {
-      $time = timegm(@tm);
-    } else {
-      $time = timelocal(@tm);
-    }
-  };
-  if($@) {
+  if(defined($zz)) {
+    eval_quiet { $time = timegm(@tm); };
+  } else {
+    eval_quiet { $time = timelocal(@tm); };
+  }
+  unless(defined($time)) {
     WARN "Illegal timestamp on subvolume \"$node->{REL_PATH}\", ignoring";
     # WARN "$@"; # sadly Time::Local croaks, which also prints the line number from here.
     return undef;
