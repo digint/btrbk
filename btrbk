@@ -61,7 +61,6 @@ my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
 my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 my $glob_match = qr/[0-9a-zA-Z_@\+\-\.\/\*]+/;  # file_match plus '*'
-my $ssh_prefix_match = qr/ssh:\/\/($ip_addr_match|$host_name_match)/;
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 my $timestamp_postfix_match = qr/\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
 my $raw_postfix_match = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uuid_match))?\.btrfs?(\.(?<compress>(gz|bz2|xz)))?(\.(?<encrypt>gpg))?(\.(?<incomplete>part))?/;  # matches ".btrfs_<received_uuid>[@<parent_uuid>][.gz|bz2|xz][.gpg][.part]"
@@ -2131,7 +2130,15 @@ sub check_url($;$$)
   my $key = shift;  # only for error text
   my $config_file = shift;  # only for error text
   my $url_prefix = "";
-  $url_prefix = $1 if($url =~ s/^($ssh_prefix_match)\//\//);
+
+  if($url =~ s/^(ssh:\/\/($ip_addr_match|$host_name_match))\//\//) {
+    $url_prefix = $1;
+  }
+  elsif($url =~ s/^($ip_addr_match|$host_name_match)://) {
+    # convert "my.host.com:/my/path" to ssh url
+    $url_prefix = "ssh://" . $1;
+  }
+
   return ( $url_prefix, check_file($url, { absolute => 1 }, $key, $config_file) );
 }
 
@@ -3463,21 +3470,20 @@ MAIN:
 
   # input validation
   foreach (@filter_args) {
-    s/\/+$//;   # remove trailing slash
     if($args_allow_group && /^($group_match)$/) {  # matches group
       $_ = $1; # untaint argument
-    }
-    elsif(/^(($ssh_prefix_match)?\/$file_match)$/) {  # matches ssh statement or absolute file
-      $_ = $1; # untaint argument
-    }
-    elsif(/^(?<host>$ip_addr_match|$host_name_match):\/(?<file>$file_match)$/) {  # convert "my.host.com:/my/path" to ssh url
-      $_ = "ssh://$+{host}/$+{file}";
+      next;
     }
     else {
-      ERROR "Bad argument: not a subvolume" . ($args_allow_group ? "/group" : "") . " declaration: $_";
-      HELP_MESSAGE(0);
-      exit 2;
+      my ($url_prefix, $path) = check_url($_);
+      if(defined($path)) {
+        $_ = $url_prefix . $path;
+        next;
+      }
     }
+    ERROR "Bad argument: not a subvolume" . ($args_allow_group ? "/group" : "") . " declaration: $_";
+    HELP_MESSAGE(0);
+    exit 2;
   }
   foreach my $key (keys %config_override_cmdline) {
     DEBUG "config_override: \"$key=$config_override_cmdline{$key}\"";
