@@ -334,8 +334,8 @@ sub init_transaction_log($$)
   my $config_syslog_facility = shift;
   if(defined($file) && (not $dryrun)) {
     if(open($tlog_fh, ">> $file")) {
-      # print headers
-      print_formatted("transaction", [ ], output_format => "tlog", outfile => $tlog_fh);
+      # print headers (disabled)
+      # print_formatted("transaction", [ ], output_format => "tlog", outfile => $tlog_fh);
       INFO "Using transaction log: $file";
     } else {
       $tlog_fh = undef;
