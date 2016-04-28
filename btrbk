@@ -211,15 +211,6 @@ my @transaction_log;
 my %config_override;
 my @tm_now;  # current localtime ( sec, min, hour, mday, mon, year, wday, yday, isdst )
 
-BEGIN {
-  $do_dumper = eval {
-    require Data::Dumper;
-    Data::Dumper->import(qw(Dumper));
-    $Data::Dumper::Sortkeys = 1;
-    $Data::Dumper::Quotekeys = 0;
-  };
-}
-
 
 $SIG{__DIE__} = sub {
   print STDERR "\nERROR: process died unexpectedly (btrbk v$VERSION)";
@@ -290,10 +281,12 @@ sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
 sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 
 sub VINFO {
+  return undef unless($do_dumper);
   my $vinfo = shift; my $t = shift || "vinfo"; my $maxdepth = shift // 2;
   print STDERR Data::Dumper->new([$vinfo], [$t])->Maxdepth($maxdepth)->Dump();
 }
 sub SUBVOL_LIST {
+  return undef unless($do_dumper);
   my $vol = shift; my $t = shift // "SUBVOL_LIST"; my $svl = vinfo_subvol_list($vol);
   print STDERR "$t:\n  " . join("\n  ", map { "$vol->{PRINT}/./$_->{SUBVOL_PATH}\t$_->{node}{id}" } @$svl) . "\n";
 }
@@ -326,6 +319,20 @@ sub eval_quiet(&)
 {
   local $SIG{__DIE__};
   return eval { $_[0]->() }
+}
+
+sub require_data_dumper
+{
+  if(eval_quiet { require Data::Dumper; }) {
+    Data::Dumper->import("Dumper");
+    $Data::Dumper::Sortkeys  = 1;
+    $Data::Dumper::Quotekeys = 0;
+    $do_dumper = 1;
+    # silence perl warning: Name "Data::Dumper::Sortkeys" used only once: possible typo at...
+    TRACE "Successfully loaded Dumper module: sortkeys=$Data::Dumper::Sortkeys, quotekeys=$Data::Dumper::Quotekeys";
+  } else {
+    WARN "Perl module \"Data::Dumper\" not found: data trace dumps disabled!" if($loglevel >=4);
+  }
 }
 
 sub init_transaction_log($$)
@@ -691,7 +698,7 @@ sub btrfs_subvolume_show($)
       }
     }
     DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
-    VINFO(\%detail, "detail") if($do_dumper);
+    VINFO(\%detail, "detail") if($loglevel >=4);
     foreach(@required_keys) {
       unless(defined($detail{$_})) {
         ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
@@ -1350,7 +1357,7 @@ sub btr_tree($$)
   }
 
   TRACE "btr_tree: returning tree at id=$vol_root->{id}";
-  VINFO($vol_root, "node") if($do_dumper);
+  VINFO($vol_root, "node") if($loglevel >=4);
 
   return $vol_root;
 }
@@ -3409,8 +3416,7 @@ MAIN:
   elsif(lc($loglevel) eq "trace") { $loglevel = 4; }
   elsif($loglevel =~ /^[0-9]+$/)  { ; }
   else                            { $loglevel = 1; }
-  WARN "Perl module \"Data::Dumper\" not found: data trace dumps disabled!" if(($loglevel >=4) && (not $do_dumper));
-  $do_dumper = 0 if($loglevel < 4);
+  require_data_dumper() if(($loglevel >= 4) || ($VERSION =~ /-dev$/));
 
   # check command line options
   if($show_progress && (not -e '/usr/bin/pv')) {
@@ -3973,7 +3979,7 @@ MAIN:
       my $found_vol = 0;
       foreach my $filter (@filter_args) {
         if(($vol_url eq $filter) || (map { ($filter eq $_) || () } @{$sroot->{CONFIG}->{group}})) {
-          TRACE "filter argument \"$filter\" matches volume: $vol_url\n";
+          TRACE "filter argument \"$filter\" matches volume: $vol_url";
           $match{$filter} = ($vol_url eq $filter) ? "volume=$sroot->{PRINT}" : "group=$filter";
           $found_vol = 1;
           # last; # need to cycle through all filter_args for correct %match
@@ -3987,7 +3993,7 @@ MAIN:
         my $found_subvol = 0;
         foreach my $filter (@filter_args) {
           if(($subvol_url eq $filter) || (map { ($filter eq $_) || () } @{$svol->{CONFIG}->{group}})) {
-            TRACE "filter argument \"$filter\" matches subvolume: $subvol_url\n";
+            TRACE "filter argument \"$filter\" matches subvolume: $subvol_url";
             $match{$filter} = ($subvol_url eq $filter) ? "subvolume=$svol->{PRINT}" : "group=$filter";
             $found_subvol = 1;
             $found_vol = 1;
@@ -4004,7 +4010,7 @@ MAIN:
             if(($filter eq $target_url) ||
                ($filter eq "$target_url/$snapshot_name") ||
                (map { ($filter eq $_) || () } @{$droot->{CONFIG}->{group}})) {
-              TRACE "filter argument \"$filter\" matches target: $target_url\n";
+              TRACE "filter argument \"$filter\" matches target: $target_url";
               $match{$filter} = ($target_url eq $filter) ? "target=$droot->{PRINT}" : "group=$filter";
               $found_target = 1;
               $found_subvol = 1;
