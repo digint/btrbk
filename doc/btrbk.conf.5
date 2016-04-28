@@ -1,4 +1,4 @@
-.TH "btrbk.conf" "5" "2016-04-25" "btrbk v0.23.1-dev" ""
+.TH "btrbk.conf" "5" "2016-04-28" "btrbk v0.23.1-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -72,16 +72,16 @@ allowed.
 .RS 4
 If set, all transactions (snapshot create, subvolume send-receive,
 subvolume delete) as well as abort messages are logged to <file>, in a
-space-separated table format.
+space-separated table format: "localtime type status duration
+target_url source_url parent_url message".
 .RE
 .PP
 \fBtransaction_syslog\fR  <facility>
 .RS 4
-If set, all transactions (snapshot create, subvolume send-receive,
-subvolume delete) as well as abort messages are logged to syslog, in a
-space-separated format. The facility parameter accepts a short
-lowercase syslog facility name, like \[lq]daemon\[rq] or \[lq]local7\[rq].
-The program name used in the messages is "btrbk".
+If set, all transactions (as described in \fItransaction_log\fR above)
+are logged to syslog. The facility parameter accepts a lowercase
+syslog facility name, like \[lq]daemon\[rq] or \[lq]local7\[rq]. The
+program name used in the messages is "btrbk".
 .RE
 .PP
 \fBtimestamp_format\fR  short|long|long-iso
