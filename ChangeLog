@@ -2,6 +2,7 @@ btrbk-current
 
   * Bugfix: set correct parent section when propagating targets
     (close: #85).
+  * Add syslog output of transaction log (close #82).
 
 btrbk-0.23.0
 
