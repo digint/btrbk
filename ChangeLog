@@ -4,6 +4,8 @@ btrbk-current
     (close: #85).
   * Add syslog output of transaction log (close #82).
   * Do not print headers to transaction log anymore.
+  * Explain "orphaned" status in "stats" command, and suppress it on
+    "list backups" command (close: #76).
 
 btrbk-0.23.0
 

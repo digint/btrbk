@@ -4472,7 +4472,9 @@ MAIN:
                 if($target_vol->{btrbk_direct_leaf} && ($target_vol->{node}{BTRBK_BASENAME} eq $snapshot_name)) {
                   if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
                   push @data, { type => "received",
-                                status => ($incomplete_backup ? "incomplete" : "orphaned"),
+                                # suppress "orphaned" status here (snapshot column is empty anyways)
+                                # status => ($incomplete_backup ? "incomplete" : "orphaned"),
+                                status => ($incomplete_backup ? "incomplete" : undef),
                                 vinfo_prefixed_keys("target", $target_vol),
                                 vinfo_prefixed_keys("source", $svol),
                               };
@@ -4535,6 +4537,10 @@ MAIN:
       print_header(title  => "Statistics",
                    config => $config,
                    time   => $start_time,
+                   legend => [
+                     "up-to-date: latest snapshot is up to date with parent subvolume",
+                     "orphaned  : parent snapshot was deleted (by snapshot_preserve policy)",
+                    ],
                   );
 
       print_table(\@stats_data, "  ");
