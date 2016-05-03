@@ -93,7 +93,7 @@ my %config_options = (
   ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   ssh_compression             => { default => undef,     accept => [ "yes", "no" ] },
   ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
-  rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgt]?$/, require_bin => '/usr/bin/pv' },
+  rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgt]?$/, require_bin => 'pv' },
   transaction_log             => { default => undef,     accept_file => { absolute => 1 } },
   transaction_syslog          => { default => undef,     accept => \@syslog_facilities },
 
@@ -421,6 +421,15 @@ sub syslog($)
   eval_quiet { Sys::Syslog::syslog("info", $line); };
 }
 
+sub check_exe($)
+{
+  my $cmd = shift // die;
+  foreach my $path (split(":", $ENV{PATH})) {
+    return 1 if( -x "$path/$cmd" );
+  }
+  return 0;
+}
+
 sub safe_cmd($)
 {
   my $aref = shift;
@@ -518,13 +527,13 @@ sub add_pv_command($@)
 
   if($opts{show_progress}) {
     if($rate_limit) {
-      push @$cmd_pipe, { cmd => [ '/usr/bin/pv', '-trab', '-L', $rate_limit ] };
+      push @$cmd_pipe, { cmd => [ 'pv', '-trab', '-L', $rate_limit ] };
     } else {
-      push @$cmd_pipe, { cmd => [ '/usr/bin/pv', '-trab' ] };
+      push @$cmd_pipe, { cmd => [ 'pv', '-trab' ] };
     }
   }
   elsif($rate_limit) {
-    push @$cmd_pipe, { cmd => [ '/usr/bin/pv', '-q', '-L', $rate_limit ] };
+    push @$cmd_pipe, { cmd => [ 'pv', '-q', '-L', $rate_limit ] };
   }
 }
 
@@ -1517,7 +1526,7 @@ sub vinfo($;$)
         SSH_USER     => $ssh_user,
         SSH_IDENTITY => $ssh_identity,
         SSH_PORT     => $ssh_port,
-        RSH          => ['/usr/bin/ssh', @ssh_options, $ssh_user . '@' . $host ],
+        RSH          => ['ssh', @ssh_options, $ssh_user . '@' . $host ],
        );
     }
   }
@@ -2359,8 +2368,9 @@ sub append_config_option($$$$;$)
     TRACE "splitted option \"$key\": " . join(',', @$value);
   }
 
-  if($opt->{require_bin} && (not -e $opt->{require_bin})) {
-    WARN "Found option \"$key\"$config_file_statement, but \"$opt->{require_bin}\" does not exist on your system, ignoring";
+  if($opt->{require_bin} && (not check_exe($opt->{require_bin}))) {
+    WARN "Found option \"$key\", but required executable \"$opt->{require_bin}\" does not exist on your system. Please install \"$opt->{require_bin}\".";
+    WARN "Ignoring option \"$key\"" . $config_file_statement;
     $value = "no";
   }
 
@@ -3409,8 +3419,8 @@ MAIN:
   require_data_dumper() if(($loglevel >= 4) || ($VERSION =~ /-dev$/));
 
   # check command line options
-  if($show_progress && (not -e '/usr/bin/pv')) {
-    WARN 'Found option "--progress", but "pv" is not present: (please install "pv")';
+  if($show_progress && (not check_exe('pv'))) {
+    WARN 'Found option "--progress", but required executable "pv" does not exist on your system. Please install "pv".';
     $show_progress = 0;
   }
   my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive);
