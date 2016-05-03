@@ -23,10 +23,10 @@ backups from one source to multiple destinations.
 Snapshots as well as backup subvolume names are created in form:
 .PP
 .RS 4
-<snapshot-name>.<timestamp>[_N]
+<snapshot\-name>.<timestamp>[_N]
 .RE
 .PP
-Where <snapshot-name> is identical to the source subvolume name,
+Where <snapshot\-name> is identical to the source subvolume name,
 unless the configuration option \fIsnapshot_name\fR is set. The
 <timestamp> is either "YYYYMMDD" or "YYYYMMDDThhmm" (dependent of the
 \fItimestamp_format\fR configuration option), where "YYYY" is the
@@ -90,13 +90,13 @@ and trace.
 .PP
 \-t, \-\-table
 .RS 4
-Print output in table format (shortcut for "--format=table").
+Print output in table format (shortcut for "\-\-format=table").
 .RE
 .PP
 \-\-format table|long|raw
 .RS 4
 Print output in specified format. If set to "raw", prints
-space-separated key="value" pairs (machine-readable). Affects output
+space-separated key="value" pairs (machine readable). Affects output
 format for \fBrun\fR, \fBdryrun\fR, \fBlist\fR and \fBtree\fR
 commands. Useful for further exporting/scripting.
 .RE
@@ -181,12 +181,12 @@ using btrbk after swapping your backup disk with the archive disk.
 Note that this feature needs a \fBlinux kernel >=4.4\fR to work
 correctly! Kernels >=4.1 and <4.4 have a bug when re-sending
 subvolumes (the archived subvolumes will have incorrect received_uuid,
-see <http://thread.gmane.org/gmane.comp.file-systems.btrfs/48798>), so
-make sure you run a recent kernel.
+see <http://thread.gmane.org/gmane.comp.file\-systems.btrfs/48798>),
+so make sure you run a recent kernel.
 .PP
 Known bugs: If you want to use nested subvolumes on the target
 filesystem, you need to create them by hand (e.g. by running "btrfs
-subvolume create <target>/dir"). Check the output of --dry-run if
+subvolume create <target>/dir"). Check the output of \-\-dry\-run if
 unsure.
 .RE
 .PP
@@ -266,7 +266,7 @@ Print new files since subvolume <from> for subvolume <to>.
 .RE
 .PP
 .B config
-print|print-all
+print|print\-all
 .RS 4
 Prints the parsed configuration file. Use the \fI\-\-format\fR command
 line option to switch between different output formats.
@@ -274,30 +274,30 @@ line option to switch between different output formats.
 .SH FILTER STATEMENTS
 Filter arguments are accepted in form:
 .PP
-[hostname:]<volume-directory>
+[hostname:]<volume\-directory>
 .RS 4
 Matches all subvolumes and targets of a \fIvolume\fR configuration
 section.
 .RE
 .PP
-[hostname:]<volume-directory>/<subvolume-name>
+[hostname:]<volume\-directory>/<subvolume\-name>
 .RS 4
 Matches the specified subvolume and all targets of a \fIsubvolume\fR
 configuration section.
 .RE
 .PP
-[hostname:]<target-directory>
+[hostname:]<target\-directory>
 .RS 4
 Matches all targets of a \fItarget\fR configuration section.
 .RE
 .PP
-[hostname:]<target-directory>/<snapshot-name>
+[hostname:]<target\-directory>/<snapshot\-name>
 .RS 4
 Matches a single target of a \fItarget\fR section within a
-\fIsubvolume\fR section with given <snapshot-name>.
+\fIsubvolume\fR section with given <snapshot\-name>.
 .RE
 .PP
-<group-name>
+<group\-name>
 .RS 4
 Matches the \fIgroup\fR configuration option of a \fIvolume\fR,
 \fIsubvolume\fR or \fItarget\fR section.

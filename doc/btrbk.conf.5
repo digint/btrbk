@@ -21,22 +21,22 @@ superseding the values set in upper-level sections. This means that
 global options must be set before any sections are defined.
 .SH SECTIONS
 .PP
-\fBvolume\fR  <volume-directory>|<url>
+\fBvolume\fR  <volume\-directory>|<url>
 .RS 4
 Directory of a btrfs volume containing the source subvolume(s) to be
-backed up. \fI<volume-directory>\fR must be an absolute path and point
-to a btrfs volume (or subvolume). Usually the mount point of a btrfs
-filesystem mounted with the \fIsubvolid=0\fR option.
+backed up. \fI<volume\-directory>\fR must be an absolute path and
+point to a btrfs volume (or subvolume). Usually the mount point of a
+btrfs filesystem mounted with the \fIsubvolid=0\fR option.
 .RE
 .PP
-\fBsubvolume\fR  <subvolume-name>
+\fBsubvolume\fR  <subvolume\-name>
 .RS 4
-Subvolume to be backed up, relative to the \fI<volume-directory>\fR
+Subvolume to be backed up, relative to the \fI<volume\-directory>\fR
 specified in the \fIvolume\fR section. Multiple \fIsubvolume\fR
 sections are allowed within \fIvolume\fR sections.
 .RE
 .PP
-\fBtarget\fR  <type> <target-directory>|<url>
+\fBtarget\fR  <type> <target\-directory>|<url>
 .RS 4
 Target type and directory where the backup subvolumes are to be
 created. See the TARGET TYPES section for supported
@@ -49,7 +49,7 @@ resulting configuration).
 .RE
 .PP
 For the \fIvolume\fR and \fItarget\fR sections, you can specify a
-ssh-url instead of a local directory. The syntax for \fI<url>\fR is:
+ssh\-url instead of a local directory. The syntax for \fI<url>\fR is:
 .PP
 .RS 4
 .nf
@@ -63,14 +63,14 @@ convenience, "ssh://<hostname>/<directory>" can also be specified as
 "<hostname>:<directory>".
 .PP
 Note that btrfs is very picky on file names (mainly for security
-reasons), only the characters [0-9] [a-z] [A-Z] and "._+-@" are
+reasons), only the characters [0\-9] [a\-z] [A\-Z] and "._+\-@" are
 allowed.
 .RE
 .SH OPTIONS
 .PP
 \fBtransaction_log\fR  <file>
 .RS 4
-If set, all transactions (snapshot create, subvolume send-receive,
+If set, all transactions (snapshot create, subvolume send\-receive,
 subvolume delete) as well as abort messages are logged to <file>, in a
 space-separated table format: "localtime type status duration
 target_url source_url parent_url message".
@@ -84,7 +84,7 @@ syslog facility name, like \[lq]daemon\[rq] or \[lq]local7\[rq]. The
 program name used in the messages is "btrbk".
 .RE
 .PP
-\fBtimestamp_format\fR  short|long|long-iso
+\fBtimestamp_format\fR  short|long|long\-iso
 .RS 4
 Timestamp format used as postfix for new snapshot subvolume
 names. Defaults to \[lq]short\[rq].
@@ -93,24 +93,24 @@ names. Defaults to \[lq]short\[rq].
 YYYYMMDD[_N]  (e.g. "20150825", "20150825_1")
 .IP \fBlong\fR 10
 YYYYMMDD<T>hhmm[_N]  (e.g. "20150825T1531")
-.IP \fBlong-iso\fR 10
+.IP \fBlong\-iso\fR 10
 YYYYMMDD<T>hhmmss\[t+-]hhmm[_N]  (e.g. "20150825T153123+0200")
 .PP
 Note that a postfix "_N" is appended to the timestamp if a snapshot or
 backup already exists with the timestamp of current date/time.
 .PP
-Use \[lq]long-iso\[rq] if you want to make sure that btrbk never
+Use \[lq]long\-iso\[rq] if you want to make sure that btrbk never
 creates ambiguous time stamps (which can happen if multiple snapshots
 are created during a daylight saving time clock change).
 .PP
-Note that using \[lq]long-iso\[rq] has implications on the scheduling,
-see RETENTION POLICY (caveats) below.
+Note that using \[lq]long\-iso\[rq] has implications on the
+scheduling, see RETENTION POLICY (caveats) below.
 .RE
 .PP
 \fBsnapshot_dir\fR  <directory>
 .RS 4
 Directory in which the btrfs snapshots are created, relative to
-\fI<volume-directory>\fR of the \fIvolume\fR section. Note that btrbk
+\fI<volume\-directory>\fR of the \fIvolume\fR section. Note that btrbk
 does not autmatically create this directory, and the snapshot creation
 will fail if it is not present.
 .RE
@@ -119,7 +119,7 @@ will fail if it is not present.
 .RS 4
 Base name of the created snapshot (and backup). This option is only
 valid in the \fIsubvolume\fR section. Defaults to
-\fI<subvolume-name>\fR.
+\fI<subvolume\-name>\fR.
 .RE
 .PP
 \fBsnapshot_create\fR  always|onchange|ondemand|no
@@ -183,7 +183,7 @@ Defines on what day a backup/snapshot is considered as a weekly
 backup. Defaults to \[lq]sunday\[rq].
 .RE
 .PP
-\fBgroup\fR  <group-name>[,<group-name>]...
+\fBgroup\fR  <group\-name>[,<group\-name>]...
 .RS 4
 Add the current section (volume, subvolume or target) to a
 user-defined group, which can be used as filter for several btrbk
@@ -199,9 +199,9 @@ which is usually not desired.
 .PP
 \fBssh_user\fR  <username>
 .RS 4
-Remote username for ssh. Defaults to \[lq]root\[rq]. Note that you will
-have to make sure that the remote user is able to run /sbin/btrfs
-(which needs root privileges).
+Remote username for ssh. Defaults to \[lq]root\[rq]. Note that you
+will have to make sure that the remote user is able to run
+"/sbin/btrfs" (which needs root privileges).
 .RE
 .PP
 \fBssh_port\fR  <port>
@@ -219,7 +219,7 @@ Enables or disables the compression of ssh connections. Defaults to
 \fBssh_cipher_spec\fR  <cipher_spec>
 .RS 4
 Selects the cipher specification for encrypting the session
-(comma-separated list of ciphers in order of preference). See the "-c
+(comma-separated list of ciphers in order of preference). See the "\-c
 cipher_spec" option in ssh(1) for more information. Defaults to
 \[lq]default\[rq] (the ciphers specified in \fIssh_config\fR).
 .RE
@@ -263,8 +263,8 @@ With the following semantics:
 Defines how many hours back hourly backups should be preserved. The
 first backup of an hour is considered an hourly backup. Note that if
 you use <hourly> scheduling, make sure to also set
-\fItimestamp_format\fR to \[lq]long\[rq] or \[lq]long-iso\[rq], or the
-scheduler will interpret the time as "00:00" (midnight).
+\fItimestamp_format\fR to \[lq]long\[rq] or \[lq]long\-iso\[rq], or
+the scheduler will interpret the time as "00:00" (midnight).
 .RE
 .PP
 .B daily
@@ -311,27 +311,27 @@ instance on the backup server), it makes perfectly sense to run btrbk
 with different local time on the clients, in order to make sure the
 backups from all the remote hosts are preserved for "midnight", and
 not at "00:00 UTC" (which would be "14:00" in Honolulu). If you want
-this behaviour, do NOT use "timestamp_format long-iso".
+this behaviour, do NOT use "timestamp_format long\-iso".
 .IP \[bu] 2
-If "timestamp_format long-iso" is set, running btrbk from different
+If "timestamp_format long\-iso" is set, running btrbk from different
 time zones leads to different interpretation of "first in day, week,
 month, or year". Make sure to run btrbk with the same time zone on
 every host, e.g. by setting the TZ environment variable (see
 tzset(3)).
 .SH TARGET TYPES
 .PP
-\fBsend-receive\fR
+\fBsend\-receive\fR
 .RS 4
 Backup to a btrfs filesystem, using "btrfs send/receive". This is the
-recommended (standard) target type. The \fI<target-directory>\fR must
+recommended (standard) target type. The \fI<target\-directory>\fR must
 be an absolute path and point to a btrfs volume (or subvolume), or to
-a directory within a subvolume. See btrfs-send(8), btrfs-receive(8).
+a directory within a subvolume. See btrfs\-send(8), btrfs\-receive(8).
 .RE
 .PP
 \fBraw\fR  \fI*experimental*\fR
 .RS 4
 Backup to a raw (filesystem independent) file from the output of
-btrfs-send(8), with optional compression and encryption.
+btrfs\-send(8), with optional compression and encryption.
 .PP
 Note that the target preserve mechanism is currently disabled for raw
 backups (btrbk does not delete any raw files)!
