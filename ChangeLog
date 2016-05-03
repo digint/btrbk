@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.23.1
 
   * Bugfix: set correct parent section when propagating targets
     (close: #85).
