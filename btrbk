@@ -46,13 +46,13 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = "0.23.1-dev";
+our $VERSION         = '0.23.1-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 
-our $BTRFS_PROGS_MIN = "3.18.2";  # required since btrbk-v0.23.0
+our $BTRFS_PROGS_MIN = '3.18.2';  # required since btrbk-v0.23.0
 
-my $VERSION_INFO     = "btrbk command line client, version $VERSION";
+my  $VERSION_INFO    = "btrbk command line client, version $VERSION";
 
 
 my @config_src = ("/etc/btrbk.conf", "/etc/btrbk/btrbk.conf");
@@ -2043,13 +2043,13 @@ sub get_latest_common($$$;$)
       die "multiple parents for $svol->{node}{parent_uuid}" if(scalar(@candidate) > 1);
       TRACE "get_latest_common: subvolume has a read-only parent, add parent candidate" if(scalar(@candidate) > 0);
 
-      # add snapshots with same parent_uuid
-      my @brothers = grep { $_->{node}{readonly} && ($_->{node}{parent_uuid} eq $svol->{node}{parent_uuid}) } @$sroot_subvol_list;
-      my @brothers_older = grep { $_->{node}{cgen} <= $svol->{node}{cgen} } @brothers;
-      my @brothers_newer = grep { $_->{node}{cgen} >  $svol->{node}{cgen} } @brothers;
-      push @candidate, sort { $b->{node}{cgen} <=> $a->{node}{cgen} } @brothers_older; # older first, descending by cgen
-      push @candidate, sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @brothers_newer; # then newer, ascending by cgen
-      TRACE "get_latest_common: subvolume has brothers (same parent_uuid), add " . scalar(@brothers_older) . " older and " . scalar(@brothers_newer) . " newer (by cgen) candidates";
+      # add snapshots with same parent_uuid (siblings)
+      my @siblings = grep { $_->{node}{readonly} && ($_->{node}{parent_uuid} eq $svol->{node}{parent_uuid}) } @$sroot_subvol_list;
+      my @siblings_older = grep { $_->{node}{cgen} <= $svol->{node}{cgen} } @siblings;
+      my @siblings_newer = grep { $_->{node}{cgen} >  $svol->{node}{cgen} } @siblings;
+      push @candidate, sort { $b->{node}{cgen} <=> $a->{node}{cgen} } @siblings_older; # older first, descending by cgen
+      push @candidate, sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @siblings_newer; # then newer, ascending by cgen
+      TRACE "get_latest_common: subvolume has siblings (same parent_uuid), add " . scalar(@siblings_older) . " older and " . scalar(@siblings_newer) . " newer (by cgen) candidates";
     }
 
     if(defined($snapshot_dir) && exists($svol->{node}{BTRBK_BASENAME})) {
@@ -2511,16 +2511,6 @@ sub _config_propagate_target
       }
 
       my %copy = ( %$target, PARENT => $subsection );
-      # foreach my $key (keys %copy) {
-      #   # config keys which are strongly related to target section are
-      #   # superseded by their presence in later defined sections.
-      #   next unless($key =~ /^target_/);
-      #   next if($key eq "target_type");  # not really necessary, but make sure the target_type is not deleted
-      #   if(exists($subsection->{$key})) {
-      #     TRACE "delete superseded config option from target: $key=" . ($copy{$key} // "<undef>");
-      #     delete $copy{$key};
-      #   }
-      # }
       push @propagate_target, \%copy;
     }
     $subsection->{TARGET} //= [];
@@ -3562,23 +3552,8 @@ MAIN:
       exit 1;
     }
 
-    my $lastgen;
-
-    # check if given src and target share same parent
-    if($src_vol->{node}{parent_uuid} eq $target_vol->{node}{uuid}) {
-      DEBUG "target subvolume is direct parent of source subvolume";
-    }
-    elsif($src_vol->{node}{parent_uuid} eq $target_vol->{node}{parent_uuid}) {
-      DEBUG "target subvolume and source subvolume share same parent";
-    }
-    else {
-      # TODO: this rule only applies to snapshots. find a way to distinguish snapshots from received backups
-      # ERROR "Subvolumes \"$target_url\" and \"$src_url\" do not share the same parents";
-      # exit 1;
-    }
-
     # NOTE: in some cases "cgen" differs from "gen", even for read-only snapshots (observed: gen=cgen+1)
-    $lastgen = $src_vol->{node}{gen} + 1;
+    my $lastgen = $src_vol->{node}{gen} + 1;
 
     # dump files, sorted and unique
     my $ret = btrfs_subvolume_find_new($target_vol, $lastgen);
