@@ -22,6 +22,7 @@ install-systemd:
 	@echo 'installing systemd service units...'
 	install -Dm644 contrib/systemd/btrbk.service "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
 	install -Dm644 contrib/systemd/btrbk.timer "$(DESTDIR)$(SYSTEMDDIR)/btrbk.timer"
+	sed -i -e "s#/usr/sbin/btrbk#$(BINDIR)/btrbk#g" "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
 
 install-share:
 	@echo 'installing auxiliary scripts...'
