@@ -22,11 +22,13 @@ install-systemd:
 	@echo 'installing systemd service units...'
 	install -Dm644 contrib/systemd/btrbk.service "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
 	install -Dm644 contrib/systemd/btrbk.timer "$(DESTDIR)$(SYSTEMDDIR)/btrbk.timer"
+	sed -i -e "s#@BINDIR@#$(BINDIR)#g" "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
 
 install-share:
 	@echo 'installing auxiliary scripts...'
 	install -Dm755 ssh_filter_btrbk.sh "$(DESTDIR)$(SCRIPTDIR)/ssh_filter_btrbk.sh"
 	install -Dm755 contrib/cron/btrbk-mail "$(DESTDIR)$(SCRIPTDIR)/btrbk-mail"
+	sed -i -e "s#@BINDIR@#$(BINDIR)#g" "$(DESTDIR)$(SCRIPTDIR)/btrbk-mail"
 
 install-man:
 	@echo 'installing manpages...'
