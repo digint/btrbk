@@ -106,7 +106,7 @@ done
 # run btrbk
 #
 log_info "running btrbk"
-ret=$(/usr/sbin/btrbk -c "$config" ${btrbk_opts:-} run 2>&1)
+ret=$(@BINDIR@/btrbk -c "$config" ${btrbk_opts:-} run 2>&1)
 exitcode=$?
 case $exitcode in
     0)  status="All backups successful"
