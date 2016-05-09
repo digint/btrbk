@@ -1,5 +1,7 @@
 btrbk-current
 
+  * Bugfix: raw targets: correctly handle multiple backups in same
+    target directory (close: #87).
   * Use relative instead of absolute binary calls in btrbk-mail.
 
 btrbk-0.23.1

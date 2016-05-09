@@ -46,7 +46,7 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = '0.23.1';
+our $VERSION         = '0.23.2-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 
@@ -4219,6 +4219,7 @@ MAIN:
             next;
           }
 
+          my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my %child_uuid_list;
           foreach (split("\n", $ret))
           {
@@ -4231,18 +4232,26 @@ MAIN:
               ABORTED($droot, "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
               last;
             }
-            my $snapshot_basename = config_key($svol, "snapshot_name") // die;
 
             # Set btrfs subvolume information (received_uuid, parent_uuid) from filename info.
             #
             # NOTE: remote_parent_uuid in BTRBK_RAW is the "parent of the source subvolume", NOT the
             #       "parent of the received subvolume".
             my $subvol = vinfo_child($droot, $file);
-            unless(vinfo_inject_child($droot, $subvol, { TARGET_TYPE => 'raw' }) &&
-                   defined($subvol->{node}{BTRBK_RAW}) &&
-                   ($snapshot_basename eq $subvol->{node}{BTRBK_BASENAME}))
+            unless(vinfo_inject_child($droot, $subvol, { TARGET_TYPE => 'raw' }))
             {
               DEBUG "Skipping file (filename scheme mismatch): \"$file\"";
+              next;
+            }
+            unless(defined($subvol->{node}{BTRBK_RAW}) &&
+                   ($snapshot_basename eq $subvol->{node}{BTRBK_BASENAME}))
+            {
+              # vinfo_inject_child() pushes all "valid" subvols to $droot->{SUBVOL_LIST},
+              # remove the non-matching ones again.
+              # If we don't remove them from the list, they will also
+              # be taken into account for incremental backups!
+              pop @{$droot->{SUBVOL_LIST}};
+              DEBUG "Skipping file (base name != \"$snapshot_basename\"): \"$file\"";
               next;
             }
 
