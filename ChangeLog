@@ -1,3 +1,7 @@
+btrbk-current
+
+  * Use relative instead of absolute binary calls in btrbk-mail.
+
 btrbk-0.23.1
 
   * Bugfix: set correct parent section when propagating targets

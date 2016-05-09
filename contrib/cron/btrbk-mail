@@ -4,7 +4,7 @@
 
 set -uf
 declare -A rsync_src rsync_dst rsync_log rsync_key rsync_opt
-now=$(/bin/date +%Y%m%d)
+now=$(date +%Y%m%d)
 
 
 #####  start config section  #####
@@ -48,25 +48,25 @@ mail_body=""
 
 die()
 {
-    /bin/echo "$0 FATAL: $1"      1>&2
-    /bin/echo "$0 FATAL: exiting" 1>&2
+    echo "$0 FATAL: $1"      1>&2
+    echo "$0 FATAL: exiting" 1>&2
     exit 1
 }
-log_error()   { [ $loglevel -ge 1 ] && /bin/echo "$0 ERROR: $1"   1>&2 ; }
-log_warning() { [ $loglevel -ge 2 ] && /bin/echo "$0 WARNING: $1" 1>&2 ; }
-log_info()    { [ $loglevel -ge 3 ] && /bin/echo "$0 INFO: $1"    1>&2 ; }
+log_error()   { [ $loglevel -ge 1 ] && echo "$0 ERROR: $1"   1>&2 ; }
+log_warning() { [ $loglevel -ge 2 ] && echo "$0 WARNING: $1" 1>&2 ; }
+log_info()    { [ $loglevel -ge 3 ] && echo "$0 INFO: $1"    1>&2 ; }
 
 
 #
 # mount all mountpoints listed in $mount_targets
 #
 for mountpoint in $mount_targets; do
-    $(/bin/findmnt -r -n -t btrfs $mountpoint 1>&2)
+    $(findmnt -r -n -t btrfs $mountpoint 1>&2)
     if [ $? = 0 ]; then
 	log_warning "btrfs filesystem already mounted: $mountpoint"
     else
 	log_info "mount $mountpoint"
-	$(/bin/mount --target $mountpoint 1>&2)
+	$(mount --target $mountpoint 1>&2)
 	[ $? = 0 ] || log_error "mount failed: $mountpoint"
     fi
 done
@@ -87,8 +87,8 @@ for key in $rsync_enable; do
     rsync_header="### rsync ${rsync_opt[$key]} ${rsync_src[$key]} ${rsync_dst[$key]}"
 
     if [ -d ${rsync_dst[$key]} ]; then
-	/bin/echo "$rsync_header" >> ${rsync_log[$key]}
-	ret=$(/usr/bin/rsync ${rsync_opt[$key]} --info=STATS --log-file=${rsync_log[$key]} -e "/usr/bin/ssh -i ${rsync_key[$key]}" ${rsync_src[$key]} ${rsync_dst[$key]})
+	echo "$rsync_header" >> ${rsync_log[$key]}
+	ret=$(rsync ${rsync_opt[$key]} --info=STATS --log-file=${rsync_log[$key]} -e "ssh -i ${rsync_key[$key]}" ${rsync_src[$key]} ${rsync_dst[$key]})
 	if [ $? != 0 ]; then
 	    log_error "rsync failed: $key"
 	    ret+="\nERROR: rsync failed with exit code $?\n"
@@ -106,7 +106,7 @@ done
 # run btrbk
 #
 log_info "running btrbk"
-ret=$(/usr/sbin/btrbk -c "$config" ${btrbk_opts:-} run 2>&1)
+ret=$(btrbk -c "$config" ${btrbk_opts:-} run 2>&1)
 exitcode=$?
 case $exitcode in
     0)  status="All backups successful"
@@ -123,10 +123,10 @@ if [ "${skip_empty_mail:-no}" = "yes" ] && [ -z "$mail_body" ] && [ $exitcode -e
     : # skip email sending if skip_empty_mail=yes
 else
     # send email
-    /bin/echo -e "$mail_body" | /bin/mail -s "$mail_subject_prefix - $status" $mailto
+    echo -e "$mail_body" | mail -s "$mail_subject_prefix - $status" $mailto
     if [ $? != 0 ]; then
 	log_error "failed to send btrbk mail to \"$mailto\", dumping mail body:"
-	/bin/echo -e "$mail_body" 1>&2
+	echo -e "$mail_body" 1>&2
     fi
 fi
 
@@ -137,7 +137,7 @@ fi
 # exit on failure!
 #for mountpoint in $umount_targets; do
 #    log_info "btrfs filesystem sync $mountpoint"
-#    $(/sbin/btrfs filesystem sync $mountpoint 1>&2)
+#    $(btrfs filesystem sync $mountpoint 1>&2)
 #    [ $? = 0 ] || die "btrfs filesystem sync failed: $mountpoint"
 #    sleep 1
 #done
@@ -148,6 +148,6 @@ fi
 #
 for mountpoint in $umount_targets; do
     log_info "umount $mountpoint"
-    $(/bin/umount $mountpoint 1>&2)
+    $(umount $mountpoint 1>&2)
     [ $? = 0 ] || log_error "umount failed: $mountpoint"
 done
