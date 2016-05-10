@@ -212,6 +212,7 @@ my $current_transaction;
 my @transaction_log;
 my %config_override;
 my @tm_now;  # current localtime ( sec, min, hour, mday, mon, year, wday, yday, isdst )
+my %warn_once;
 
 
 $SIG{__DIE__} = sub {
@@ -281,6 +282,12 @@ sub DEBUG { my $t = shift; print STDERR "$t\n" if($loglevel >= 3);  }
 sub INFO  { my $t = shift; print STDERR "$t\n" if($loglevel >= 2);  }
 sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
 sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
+
+sub WARN_ONCE {
+  my $t = shift;
+  if($warn_once{$t}) { DEBUG("WARN AGAIN: " . $t); }
+  else { $warn_once{$t} = 1; WARN($t); }
+}
 
 sub VINFO {
   return undef unless($do_dumper);
