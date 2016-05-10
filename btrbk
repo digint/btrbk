@@ -46,7 +46,7 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = '0.23.3';
+our $VERSION         = '0.24.0-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 
@@ -560,7 +560,7 @@ sub btrfs_filesystem_show($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   return run_cmd( cmd => [ qw(btrfs filesystem show), $path ],
-                  rsh => $vol->{RSH},
+                  rsh => vinfo_rsh($vol),
                   non_destructive => 1
                  );
 }
@@ -571,7 +571,7 @@ sub btrfs_filesystem_df($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   return run_cmd( cmd => [qw(btrfs filesystem df), $path],
-                  rsh => $vol->{RSH},
+                  rsh => vinfo_rsh($vol),
                   non_destructive => 1
                  );
 }
@@ -582,7 +582,7 @@ sub btrfs_filesystem_usage($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $ret = run_cmd( cmd => [ qw(btrfs filesystem usage), $path ],
-                     rsh => $vol->{RSH},
+                     rsh => vinfo_rsh($vol),
                      non_destructive => 1
                     );
   return undef unless(defined($ret));
@@ -638,7 +638,7 @@ sub btrfs_subvolume_show($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume show), $path],
-                    rsh => $vol->{RSH},
+                    rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                     catch_stderr => 1, # hack for shell-based run_cmd()
                     filter_stderr => sub {
@@ -738,7 +738,7 @@ sub btrfs_subvolume_list_readonly_flag($)
   my $path = $vol->{PATH} // die;
 
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume list), '-a', '-r', $path ],
-                    rsh => $vol->{RSH},
+                    rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
   return undef unless(defined($ret));
@@ -767,7 +767,7 @@ sub btrfs_subvolume_list($;@)
   #       btrbk-0.23, the received_uuid flag very essential!
   my @display_options = ('-c', '-u', '-q', '-R');
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume list), @filter_options, @display_options, $path ],
-                    rsh => $vol->{RSH},
+                    rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
   return undef unless(defined($ret));
@@ -828,7 +828,7 @@ sub btrfs_subvolume_find_new($$;$)
   my $path = $vol->{PATH} // die;
   my $lastgen = shift // die;
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume find-new), $path, $lastgen ],
-                    rsh => $vol->{RSH},
+                    rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
   unless(defined($ret)) {
@@ -895,7 +895,7 @@ sub btrfs_subvolume_snapshot($$)
                     vinfo_prefixed_keys("source", $svol),
                    );
   my $ret = run_cmd(cmd => [ qw(btrfs subvolume snapshot), '-r', $src_path, $target_path ],
-                    rsh => $svol->{RSH},
+                    rsh => vinfo_rsh($svol),
                    );
   end_transaction("snapshot", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
   unless(defined($ret)) {
@@ -914,7 +914,7 @@ sub btrfs_subvolume_delete($@)
   die if($commit && ($commit ne "after") && ($commit ne "each"));
   $targets = [ $targets ] unless(ref($targets) eq "ARRAY");
   return 0 unless(scalar(@$targets));
-  my $rsh = $targets->[0]->{RSH};
+  my $rsh = vinfo_rsh($targets->[0]);
   my $rsh_host_check = $targets->[0]->{HOST} || "";
   foreach (@$targets) {
     # make sure all targets share same HOST
@@ -967,14 +967,14 @@ sub btrfs_send_receive($$$$;@)
   my @cmd_pipe;
   push @cmd_pipe, {
     cmd => [ qw(btrfs send), @send_options, $snapshot_path ],
-    rsh => $snapshot->{RSH},
+    rsh => vinfo_rsh($snapshot),
     name => "btrfs send",
     catch_stderr => 1, # hack for shell-based run_cmd()
   };
   add_pv_command(\@cmd_pipe, show_progress => $show_progress, rate_limit => $opts{rate_limit});
   push @cmd_pipe, {
     cmd => [ qw(btrfs receive), @receive_options, $target_path . '/' ],
-    rsh => $target->{RSH},
+    rsh => vinfo_rsh($target),
     name => "btrfs receive",
     catch_stderr => 1, # hack for shell-based run_cmd()
     filter_stderr => sub { $err = $_; $_ = undef }
@@ -1063,7 +1063,7 @@ sub btrfs_send_to_file($$$$;@)
   my @cmd_pipe;
   push @cmd_pipe, {
     cmd => [ qw(btrfs send), @send_options, $source_path ],
-    rsh => $source->{RSH},
+    rsh => vinfo_rsh($source),
     name => "btrfs send",
   };
   add_pv_command(\@cmd_pipe, show_progress => $show_progress, rate_limit => $opts{rate_limit});
@@ -1109,7 +1109,7 @@ sub btrfs_send_to_file($$$$;@)
   }
   push @cmd_pipe, {
     cmd => [ 'dd', 'status=none', "of=${target_path}/${target_filename}.part" ],
-    rsh => $target->{RSH},
+    rsh => vinfo_rsh($target),
     name => 'dd',
   };
 
@@ -1134,14 +1134,14 @@ sub btrfs_send_to_file($$$$;@)
     DEBUG "Testing target file (non-zero size): $target->{PRINT}.part";
     $ret = run_cmd({
       cmd  => ['test', '-s', "${target_path}/${target_filename}.part"],
-      rsh  => $target->{RSH},
+      rsh  => vinfo_rsh($target),
       name => "test",
     });
     if(defined($ret)) {
       DEBUG "Renaming target file (remove postfix '.part'): $target->{PRINT}";
       $ret = run_cmd({
         cmd  => ['mv', "${target_path}/${target_filename}.part", "${target_path}/${target_filename}"],
-        rsh  => $target->{RSH},
+        rsh  => vinfo_rsh($target),
         name => "mv",
       });
     }
@@ -1160,7 +1160,7 @@ sub system_list_mounts($)
   my $vol = shift // die;
   my $file = '/proc/self/mounts';
   my $ret = run_cmd(cmd => [ qw(cat), $file ],
-                    rsh => $vol->{RSH},
+                    rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                     catch_stderr => 1, # hack for shell-based run_cmd()
                    );
@@ -1204,7 +1204,7 @@ sub system_realpath($)
   my $path = $vol->{PATH} // die;;
   my @quiet = ($loglevel < 3) ? ('-q') : ();
   my $ret = run_cmd(cmd => [ qw(readlink), '-e', @quiet, $path ],
-                    rsh => $vol->{RSH},
+                    rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
   return undef unless(defined($ret));
@@ -1225,7 +1225,7 @@ sub system_mkdir($)
   my $path = $vol->{PATH} // die;;
   INFO "Creating directory: $vol->{PRINT}/";
   my $ret = run_cmd(cmd => [ qw(mkdir), '-p', $path ],
-                    rsh => $vol->{RSH},
+                    rsh => vinfo_rsh($vol),
                    );
   action("mkdir",
          vinfo_prefixed_keys("target", $vol),
@@ -1491,97 +1491,80 @@ sub vinfo($;$)
 
   my ($url_prefix, $path) = check_url($url);
   die "invalid url: $url" unless(defined($path));
+  my $print = $path;
   my $name = $path;
   $name =~ s/^.*\///;
   $name = '/' if($name eq "");
 
-  %info = (
-    URL        => $url_prefix . $path,
+  my $host = undef;
+  if($url_prefix) {
+    $host = $url_prefix;
+    die unless($host =~ s/^ssh:\/\///);
+    $print = "$host:$path";
+  }
+
+  return {
+    HOST       => $host,
     NAME       => $name,
     PATH       => $path,
-    PRINT      => $path,
+    PRINT      => $print,
+    URL        => $url_prefix . $path,
     URL_PREFIX => $url_prefix,
-   );
-
-  if($url_prefix) {
-    my $host = $url_prefix;
-    die unless($host =~ s/^ssh:\/\///);
-
-    %info = (
-      %info,
-      HOST     => $host,
-      PRINT    => "$host:$path",
-      RSH_TYPE => "UNKNOWN",
-      RSH      => [ '/bin/false' ],
-     );
-    if($config) {
-      my $ssh_port        = config_key($config, "ssh_port");
-      my $ssh_user        = config_key($config, "ssh_user");
-      my $ssh_identity    = config_key($config, "ssh_identity");
-      my $ssh_compression = config_key($config, "ssh_compression");
-      my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
-      my @ssh_options;
-      push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
-      push(@ssh_options, '-C') if($ssh_compression);
-      push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
-      if($ssh_identity) {
-        push(@ssh_options, '-i', $ssh_identity);
-      } else {
-        WARN "No SSH identity provided (option ssh_identity is not set) for: $url";
-      }
-      %info = (
-        %info,
-        RSH_TYPE     => "ssh",
-        SSH_USER     => $ssh_user,
-        SSH_IDENTITY => $ssh_identity,
-        SSH_PORT     => $ssh_port,
-        RSH          => ['ssh', @ssh_options, $ssh_user . '@' . $host ],
-       );
-    }
-  }
-
-  return \%info;
-}
-
-
-sub vinfo_copy_flags($$)
-{
-  my $vinfo = shift // die;
-  my $copy_src = shift // die;
-  foreach (qw( HOST
-               RSH_TYPE
-               SSH_USER
-               SSH_IDENTITY
-               SSH_PORT
-               RSH
-            ) )
-  {
-    $vinfo->{$_} = $copy_src->{$_} if(exists $copy_src->{$_});
+    CONFIG     => $config,
   }
 }
 
 
-sub vinfo_child($$)
+sub vinfo_child($$;$)
 {
   my $parent = shift || die;
   my $rel_path = shift // die;
+  my $config = shift;   # override parent config
   my $name = $rel_path;
   my $subvol_dir = "";
   $subvol_dir = $1 if($name =~ s/^(.*)\///);
 
   my $vinfo = {
+    HOST         => $parent->{HOST},
     NAME         => $name,
-    URL          => "$parent->{URL}/$rel_path",
     PATH         => "$parent->{PATH}/$rel_path",
     PRINT        => "$parent->{PRINT}/$rel_path",
+    URL          => "$parent->{URL}/$rel_path",
     URL_PREFIX   => $parent->{URL_PREFIX},
     SUBVOL_PATH  => $rel_path,
     SUBVOL_DIR   => $subvol_dir,  # SUBVOL_PATH=SUBVOL_DIR/NAME
+    CONFIG       => $config // $parent->{CONFIG},
    };
-  vinfo_copy_flags($vinfo, $parent);
 
   # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
   return $vinfo;
+}
+
+
+sub vinfo_rsh($)
+{
+  my $vinfo = shift || die;
+  my $host = $vinfo->{HOST};
+  return undef unless(defined($host));
+
+  my $config = $vinfo->{CONFIG};
+  die unless($config);
+
+  my $ssh_port        = config_key($config, "ssh_port");
+  my $ssh_user        = config_key($config, "ssh_user");
+  my $ssh_identity    = config_key($config, "ssh_identity");
+  my $ssh_compression = config_key($config, "ssh_compression");
+  my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
+  my @ssh_options;
+  push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
+  push(@ssh_options, '-C') if($ssh_compression);
+  push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
+  if($ssh_identity) {
+    push(@ssh_options, '-i', $ssh_identity);
+  } else {
+    WARN_ONCE "No SSH identity provided (option ssh_identity is not set) for: " . ($vinfo->{CONFIG}->{url} // $vinfo->{PRINT});
+  }
+  return ['ssh', @ssh_options, $ssh_user . '@' . $host ];
 }
 
 
@@ -1694,8 +1677,7 @@ sub vinfo_init_root($;@)
       my $mnt_tree_root = $url_cache{$vol->{URL_PREFIX} . $mnt_path};
       unless($mnt_tree_root) {
         # read btrfs tree for the mount point
-        my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path);
-        vinfo_copy_flags($mnt_vol, $vol);
+        my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
         unless($id) {
           DEBUG "No subvolid provided in btrfs mounts for: $mnt_path";
           unless($id) {
@@ -1869,19 +1851,17 @@ sub vinfo_prefixed_keys($$)
     $ret{$prefix . lc($_)} = $vinfo->{$_};
   }
   $ret{$prefix . "subvol"} = $vinfo->{PATH};
-  $ret{$prefix . "rsh"} = ($vinfo->{RSH} ? join(" ", @{$vinfo->{RSH}}) : undef),
+  my $rsh = vinfo_rsh($vinfo);
+  $ret{$prefix . "rsh"} = ($rsh ? join(" ", @$rsh) : undef),
   return %ret;
 }
 
 
-sub vinfo_assign_config($$)
+sub vinfo_assign_config($)
 {
   my $vinfo = shift || die;
-  my $config = shift || die;
-
+  my $config = $vinfo->{CONFIG} || die;
   die if($config->{VINFO});
-  die if($vinfo->{CONFIG});
-  $vinfo->{CONFIG} = $config;
   $config->{VINFO} = $vinfo;
 }
 
@@ -3731,7 +3711,7 @@ MAIN:
       push(@{$config->{SUBSECTION}}, $config_sroot);
 
       my $sroot = vinfo($sroot_url, $config_sroot);
-      vinfo_assign_config($sroot, $config_sroot);
+      vinfo_assign_config($sroot);
       unless(vinfo_init_root($sroot, resolve_subdir => 1)) {
         ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
         WARN "Skipping archive source \"$sroot->{PRINT}\": $abrt";
@@ -3739,7 +3719,7 @@ MAIN:
       }
 
       my $droot = vinfo($droot_url, $config_droot);
-      vinfo_assign_config($droot, $config_droot);
+      vinfo_assign_config($droot);
       unless(vinfo_init_root($droot, resolve_subdir => 1)) {
         DEBUG("Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
         unless(system_mkdir($droot)) {
@@ -3974,15 +3954,15 @@ MAIN:
   foreach my $config_vol (@{$config->{SUBSECTION}}) {
     die unless($config_vol->{CONTEXT} eq "volume");
     my $sroot = vinfo($config_vol->{url}, $config_vol);
-    vinfo_assign_config($sroot, $config_vol);
+    vinfo_assign_config($sroot);
     foreach my $config_subvol (@{$config_vol->{SUBSECTION}}) {
       die unless($config_subvol->{CONTEXT} eq "subvolume");
-      my $svol = vinfo_child($sroot, $config_subvol->{rel_path});
-      vinfo_assign_config($svol, $config_subvol);
+      my $svol = vinfo_child($sroot, $config_subvol->{rel_path}, $config_subvol);
+      vinfo_assign_config($svol);
       foreach my $config_target (@{$config_subvol->{SUBSECTION}}) {
         die unless($config_target->{CONTEXT} eq "target");
         my $droot = vinfo($config_target->{url}, $config_target);
-        vinfo_assign_config($droot, $config_target);
+        vinfo_assign_config($droot);
       }
     }
   }
@@ -4243,7 +4223,7 @@ MAIN:
           $droot->{SUBVOL_LIST} = [];
           my $ret = run_cmd(
             cmd => [ 'find', $droot->{PATH} . '/', '-maxdepth', '1', '-type', 'f' ],
-            rsh => $droot->{RSH},
+            rsh => vinfo_rsh($droot),
             # note: use something like this to get the real (link resolved) path
             # cmd => [ "find", $droot->{PATH} . '/', "-maxdepth", "1", "-name", "$snapshot_basename.\*.raw\*", '-printf', '%f\0', '-exec', 'realpath', '-z', '{}', ';' ],
             non_destructive => 1,
@@ -4628,7 +4608,7 @@ MAIN:
               DEBUG "[raw]   file: $_->{PRINT}" foreach(@delete);
               $ret = run_cmd({
                 cmd  => ['rm', (map { $_->{PATH} } @delete) ],
-                rsh  => $droot->{RSH},
+                rsh  => vinfo_rsh($droot),
               });
             } else {
               $ret = 0;
