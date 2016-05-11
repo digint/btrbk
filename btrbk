@@ -71,9 +71,12 @@ my $safe_cmd_match = $file_match;  # good enough
 my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
 my @syslog_facilities = qw( user mail daemon auth lpr news cron authpriv local0 local1 local2 local3 local4 local5 local6 local7 );
 my %compression = (
-  gzip  => { name => 'gzip' , format => 'gz',  compress_cmd => [ 'gzip',  '-c' ], decompress_cmd => [ 'gzip',  '-d', '-c' ], level_min => 1, level_max => 9 },
-  bzip2 => { name => 'bzip2', format => 'bz2', compress_cmd => [ 'bzip2', '-c' ], decompress_cmd => [ 'bzip2', '-d', '-c' ], level_min => 1, level_max => 9 },
-  xz    => { name => 'xz'   , format => 'xz',  compress_cmd => [ 'xz',    '-c' ], decompress_cmd => [ 'xz',    '-d', '-c' ], level_min => 0, level_max => 9, threads => '-T ' },
+  gzip   => { name => 'gzip',   format => 'gz',  compress_cmd => [ 'gzip',   '-c' ], decompress_cmd => [ 'gzip',   '-d', '-c' ], level_min => 1, level_max => 9 },
+  pigz   => { name => 'pigz',   format => 'gz',  compress_cmd => [ 'pigz',   '-c' ], decompress_cmd => [ 'pigz',   '-d', '-c' ], level_min => 1, level_max => 9, threads => '-p' },
+  bzip2  => { name => 'bzip2',  format => 'bz2', compress_cmd => [ 'bzip2',  '-c' ], decompress_cmd => [ 'bzip2',  '-d', '-c' ], level_min => 1, level_max => 9 },
+  pbzip2 => { name => 'pbzip2', format => 'bz2', compress_cmd => [ 'pbzip2', '-c' ], decompress_cmd => [ 'pbzip2', '-d', '-c' ], level_min => 1, level_max => 9, threads => '-p' },
+  xz     => { name => 'xz',     format => 'xz',  compress_cmd => [ 'xz',     '-c' ], decompress_cmd => [ 'xz',     '-d', '-c' ], level_min => 0, level_max => 9, threads => '-T' },
+  lzo    => { name => 'lzo',    format => 'lzo', compress_cmd => [ 'lzop',   '-c' ], decompress_cmd => [ 'lzop',   '-d', '-c' ], level_min => 1, level_max => 9 },
  );
 
 my %config_options = (
@@ -107,7 +110,7 @@ my %config_options = (
   stream_compress_level       => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   stream_compress_threads     => { default => "default", accept => [ "default" ], accept_numeric => 1 },
 
-  raw_target_compress         => { default => undef,     accept => [ "no", "gzip", "bzip2", "xz" ] },
+  raw_target_compress         => { default => undef,     accept => [ "no", (keys %compression) ] },
   raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   raw_target_compress_threads => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   raw_target_encrypt          => { default => undef,     accept => [ "no", "gpg" ] },
