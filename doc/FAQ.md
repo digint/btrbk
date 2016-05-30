@@ -82,7 +82,7 @@ subvolume tree.
 Here, `/mnt/btr_pool` is mounted with `subvolid=0`:
 
     # btrfs sub show /mnt/btr_pool/
-    /mnt/btr_pool is btrfs root
+    /mnt/btr_data is toplevel subvolume
 
     # btrfs sub show /mnt/btr_pool/rootfs
     /mnt/btr_pool/rootfs
