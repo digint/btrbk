@@ -1,4 +1,4 @@
-.TH "btrbk" "1" "2016-05-03" "btrbk v0.23.1" ""
+.TH "btrbk" "1" "2016-06-07" "btrbk v0.23.2-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -117,6 +117,14 @@ between different output formats.
 .RS 4
 Override a configuration option <config_option> with <value>.
 Globally, for ALL contexts. Use with care!
+.RE
+.PP
+\-\-lockfile <file>
+.RS 4
+Create lockfile <file> on startup; checks lockfile before running any
+btrfs commands (using perl "flock"), and exits if the lock is held by
+another btrbk instance. Overrides configuration option
+"lockfile". Ignored on dryrun (\fI\-n\fR, \fI\-\-dry\-run\fR).
 .RE
 .SH COMMANDS
 .PP
@@ -324,6 +332,8 @@ No problems occurred.
 Generic error code.
 .IP "2" 4
 Parse error: when parsing command-line options or configuration file.
+.IP "3" 4
+Lockfile error: if lockfile is present on startup.
 .IP "10" 4
 Backup abort: At least one backup task aborted.
 .IP "255" 4

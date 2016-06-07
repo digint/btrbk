@@ -96,6 +96,7 @@ my %config_options = (
   rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgt]?$/, require_bin => 'pv' },
   transaction_log             => { default => undef,     accept_file => { absolute => 1 } },
   transaction_syslog          => { default => undef,     accept => \@syslog_facilities },
+  lockfile                    => { default => undef,     accept_file => { absolute => 1 }, context => [ "root" ] },
 
   raw_target_compress         => { default => undef,     accept => [ "no", "gzip", "bzip2", "xz" ] },
   raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
@@ -204,6 +205,7 @@ my $show_progress = 0;
 my $err = "";
 my $abrt = "";  # last ABORTED() message
 my $output_format;
+my $lockfile;
 my $tlog_fh;
 my $syslog_enabled = 0;
 my $current_transaction;
@@ -3379,7 +3381,7 @@ MAIN:
   @tm_now = localtime($start_time);
 
   my %config_override_cmdline;
-  my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only, $print_schedule);
+  my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only, $print_schedule, $lockfile_cmdline);
   unless(GetOptions(
     'help|h'         => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
     'version'        => sub { VERSION_MESSAGE(); exit 0; },
@@ -3394,6 +3396,7 @@ MAIN:
     'table|t'        => sub { $output_format = "table" },
     'format=s'       => \$output_format,
     'print-schedule' => \$print_schedule,
+    'lockfile=s'     => \$lockfile_cmdline,
     'override=s'    => \%config_override_cmdline,  # e.g. --override=incremental=no
    ))
   {
@@ -3535,6 +3538,15 @@ MAIN:
       exit 2;
     }
   }
+  if(defined($lockfile_cmdline)) {
+    if($lockfile_cmdline =~ /^($file_match)$/) {
+      $lockfile = $1; # untaint argument
+    } else {
+      ERROR "Option \"--lockfile\" is not a valid file name: \"$lockfile_cmdline\"";
+      HELP_MESSAGE(0);
+      exit 2;
+    }
+  }
 
 
   INFO "$VERSION_INFO  (" . localtime($start_time) . ")";
@@ -3635,6 +3647,22 @@ MAIN:
   unless(ref($config->{SUBSECTION}) eq "ARRAY") {
     ERROR "No volumes defined in configuration file";
     exit 2;
+  }
+
+  #
+  # try exclusive lock if set in config or command-line option
+  #
+  $lockfile //= config_key($config, "lockfile");
+  if(defined($lockfile) && (not $dryrun)) {
+    unless(open(LOCKFILE, ">>$lockfile")) {
+      # NOTE: the lockfile is never deleted by design
+      ERROR "Failed to open lock file '$lockfile': $!";
+      exit 3;
+    }
+    unless(flock(LOCKFILE, 6)) {  #  exclusive, non-blocking (LOCK_EX | LOCK_NB)
+      ERROR "Failed to take lock (another btrbk instance is running): $lockfile";
+      exit 3;
+    }
   }
 
 

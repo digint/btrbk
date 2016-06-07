@@ -1,4 +1,4 @@
-.TH "btrbk.conf" "5" "2016-05-03" "btrbk v0.23.1" ""
+.TH "btrbk.conf" "5" "2016-06-07" "btrbk v0.23.2-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -229,6 +229,14 @@ cipher_spec" option in ssh(1) for more information. Defaults to
 Limit the transfer to a maximum of \fI<rate>\fR bytes per second. A
 suffix of "k", "m", "g", or "t" can be added to denote kilobytes
 (*1024), megabytes, and so on. Defaults to \[lq]no\[rq].
+.RE
+.PP
+\fBlockfile\fR  <file>
+.RS 4
+Create lockfile <file> on startup; checks lockfile before running any
+btrfs commands (using perl "flock"), and exits if the lock is held by
+another btrbk instance. Ignored on dryrun (\fI\-n\fR,
+\fI\-\-dry\-run\fR). See also \fI\-\-lockfile\fR command-line option.
 .RE
 .PP
 \fBbtrfs_commit_delete\fR  after|each|no

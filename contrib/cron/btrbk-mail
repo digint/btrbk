@@ -111,6 +111,8 @@ exitcode=$?
 case $exitcode in
     0)  status="All backups successful"
 	;;
+    3)  status="Another instance of btrbk is running, no backup tasks performed!"
+	;;
     10) status="ERROR: At least one backup task aborted!"
 	;;
     *)  status="ERROR: btrbk failed with error code $exitcode"
