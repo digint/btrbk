@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.23.2
 
   * Added "lockfile" configuration option and --lockfile command line
     option (close: #81).
