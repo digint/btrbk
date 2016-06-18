@@ -46,7 +46,7 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = '0.23.2';
+our $VERSION         = '0.23.3-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 
@@ -1196,7 +1196,7 @@ sub system_realpath($)
 
   my $path = $vol->{PATH} // die;;
   my @quiet = ($loglevel < 3) ? ('-q') : ();
-  my $ret = run_cmd(cmd => [ qw(realpath), '-e', @quiet, $path ],
+  my $ret = run_cmd(cmd => [ qw(readlink), '-e', @quiet, $path ],
                     rsh => $vol->{RSH},
                     non_destructive => 1,
                    );

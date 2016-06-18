@@ -1,3 +1,8 @@
+btrbk-current
+
+  * Replace "realpath -e" with "readlink -e" for mountpoint discovery
+    (close #92).
+
 btrbk-0.23.2
 
   * Added "lockfile" configuration option and --lockfile command line
