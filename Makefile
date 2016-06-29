@@ -10,6 +10,17 @@ SYSTEMDDIR = $(PREFIX)/lib/systemd/system
 MAN1DIR    = $(PREFIX)/share/man/man1
 MAN5DIR    = $(PREFIX)/share/man/man5
 
+process = sed \
+	-e "s|@PN@|$(PN)|g" \
+	-e "s|@CONFDIR@|$(CONFDIR)|g" \
+	-e "s|@CRONDIR@|$(CRONDIR)|g" \
+	-e "s|@BINDIR@|$(BINDIR)|g" \
+	-e "s|@DOCDIR@|$(DOCDIR)|g" \
+	-e "s|@SCRIPTDIR@|$(SCRIPTDIR)|g" \
+	-e "s|@SYSTEMDDIR@|$(SYSTEMDDIR)|g" \
+	-e "s|@MAN1DIR@|$(MAN1DIR)|g" \
+	-e "s|@MAN5DIR@|$(MAN5DIR)|g"
+
 all:
 	@echo 'nothing to do for "all"'
 
@@ -20,9 +31,12 @@ install-bin:
 
 install-systemd:
 	@echo 'installing systemd service units...'
-	install -Dm644 contrib/systemd/btrbk.service "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
-	install -Dm644 contrib/systemd/btrbk.timer "$(DESTDIR)$(SYSTEMDDIR)/btrbk.timer"
-	sed -i -e "s#/usr/sbin/btrbk#$(BINDIR)/btrbk#g" "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
+	$(process) contrib/systemd/btrbk.service.in > contrib/systemd/btrbk.service.tmp
+	$(process) contrib/systemd/btrbk.timer.in > contrib/systemd/btrbk.timer.tmp
+	install -Dm644 contrib/systemd/btrbk.service.tmp "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
+	install -Dm644 contrib/systemd/btrbk.timer.tmp "$(DESTDIR)$(SYSTEMDDIR)/btrbk.timer"
+	rm contrib/systemd/btrbk.service.tmp
+	rm contrib/systemd/btrbk.timer.tmp
 
 install-share:
 	@echo 'installing auxiliary scripts...'
