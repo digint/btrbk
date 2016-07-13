@@ -1,7 +1,9 @@
-btrbk-current
+btrbk-0.23.3
 
   * Replace "realpath -e" with "readlink -e" for mountpoint discovery
     (close #92).
+  * Dynamically set BINDIR in btrbk.service by Makefile.
+  * Add ChangeLog to DOCDIR in Makefile.
 
 btrbk-0.23.2
 
