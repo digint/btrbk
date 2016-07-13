@@ -40,6 +40,7 @@ install-man:
 
 install-doc:
 	@echo 'installing documentation...'
+	install -Dm644 ChangeLog "$(DESTDIR)$(DOCDIR)/ChangeLog"
 	install -Dm644 README.md "$(DESTDIR)$(DOCDIR)/README.md"
 	install -Dm644 doc/FAQ.md "$(DESTDIR)$(DOCDIR)/FAQ.md"
 	install -Dm644 doc/upgrade_to_v0.23.0.md "$(DESTDIR)$(DOCDIR)/upgrade_to_v0.23.0.md"
