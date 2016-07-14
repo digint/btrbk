@@ -73,8 +73,7 @@ Download and unpack the newest stable [btrbk source tarball] and type:
 
 ### Gentoo Linux
 
-Grab the digint portage overlay from:
-`git://dev.tty0.ch/portage/digint-overlay.git`
+btrbk is in portage:
 
     emerge app-backup/btrbk
 
