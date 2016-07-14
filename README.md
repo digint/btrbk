@@ -33,7 +33,8 @@ instantly creating additional snapshots).
 
 ###Upgrading from v0.22.2
 
-Please read the [upgrade guide](doc/upgrade_to_v0.23.0.md) if you are updating from btrbk <= v0.22.2.
+Please read the [upgrade guide](doc/upgrade_to_v0.23.0.md) if you are
+updating from btrbk <= v0.22.2.
 
 
 Installation
@@ -103,8 +104,8 @@ btrbk is in `testing`, install with:
 Synopsis
 ========
 
-Please consult the [btrbk(1)] man-page provided with this package for a
-full description of the command line options.
+Please consult the [btrbk(1)] man-page provided with this package for
+a full description of the command line options.
 
   [btrbk(1)]: http://digint.ch/btrbk/doc/btrbk.html
 
@@ -229,7 +230,8 @@ fileserver, the config would be something like:
       subvolume dbdata
         target send-receive    /mnt/btr_backup/beta
 
-This will pull backups from alpha/beta.mydomain.com and locally create:
+This will pull backups from alpha/beta.mydomain.com and locally
+create:
 
   * `/mnt/btr_backup/alpha/rootfs.YYYYMMDD`
   * `/mnt/btr_backup/alpha/home.YYYYMMDD`
@@ -524,4 +526,3 @@ btrbk is free software, available under the [GNU General Public
 License, Version 3][GPLv3].
 
   [GPLv3]: http://www.gnu.org/licenses/gpl.html
-
