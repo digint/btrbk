@@ -1102,7 +1102,7 @@ sub btrfs_send_to_file($$$$;@)
     };
   }
   push @cmd_pipe, {
-    cmd => [ 'dd', 'status=none', "of=${target_path}/${target_filename}.part" ],
+    cmd => [ 'dd', 'status=none', 'bs=4M', "of=${target_path}/${target_filename}.part" ],
     rsh => $target->{RSH},
     name => 'dd',
   };
