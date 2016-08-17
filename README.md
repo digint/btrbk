@@ -299,7 +299,7 @@ First create a btrfs subvolume on the backup server:
 In your daily cron script, prior to running btrbk, sync your source to
 `myhost_sync`, something like:
 
-    rsync -a --delete -e ssh myhost.mydomain.com://data/ /mnt/btr_backup/myhost_sync/
+    rsync -a --inplace --delete -e ssh myhost.mydomain.com:/data/ /mnt/btr_backup/myhost_sync/
 
 Then run btrbk, with myhost_sync configured *without any targets* as
 follows:

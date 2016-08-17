@@ -32,7 +32,7 @@ rsync_src[example_data]=user@example.com:/data/
 rsync_dst[example_data]=/mnt/backup/example.com/data/
 rsync_log[example_data]=/mnt/backup/example.com/data-${now}.log
 rsync_key[example_data]=/mnt/backup/ssh_keys/id_rsa
-rsync_opt[example_data]="-az --delete"
+rsync_opt[example_data]="-az --inplace --delete"
 
 # Enabled rsync declarations (space separated list)
 #rsync_enable="example_data"
