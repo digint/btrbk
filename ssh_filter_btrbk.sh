@@ -10,6 +10,8 @@ use_sudo=
 restrict_path_list=
 allow_list=
 allow_exact_list=
+allow_compress=
+compress_list="gzip|pigz|bzip2|pbzip2|xz|lzo|lz4"
 
 log_cmd()
 {
@@ -57,8 +59,16 @@ reject_filtered_cmd()
 	path_match="/${file_match}"
     fi
 
+    if [[ -n "$allow_compress" ]]; then
+        decompress_match="((${compress_list}) -d -c( -[0-9])?( -[pT][0-9]+)? \| )?"
+        compress_match="( \| (${compress_list}) -c( -[0-9])?( -[pT][0-9]+)?)?"
+    else
+        decompress_match=
+        compress_match=
+    fi
+
     # allow multiple paths (e.g. "btrfs subvolume snapshot <src> <dst>")
-    btrfs_cmd_match="^(${allow_list})( ${option_match})*( $path_match)+$"
+    btrfs_cmd_match="^${decompress_match}(${allow_list})( ${option_match})*( ${path_match})+${compress_match}$"
 
     if [[ $SSH_ORIGINAL_COMMAND =~ $btrfs_cmd_match ]] ; then
         return 0
@@ -106,6 +116,10 @@ while [[ "$#" -ge 1 ]]; do
           allow_exact_cmd "cat /proc/self/mounts"
           ;;
 
+      -c|--compress)
+          allow_compress=1
+          ;;
+
       -d|--delete)
           allow_cmd "btrfs subvolume delete"
           ;;
@@ -140,8 +154,8 @@ allow_list=${allow_list#\|}
 allow_exact_list=${allow_exact_list#\|}
 restrict_path_list=${restrict_path_list#\|}
 
-
 case "$SSH_ORIGINAL_COMMAND" in
+    *\.\./*)  reject_and_die "directory traversal"  ;;
     *\$*)     reject_and_die "unsafe character"     ;;
     *\&*)     reject_and_die "unsafe character"     ;;
     *\(*)     reject_and_die "unsafe character"     ;;
@@ -150,10 +164,8 @@ case "$SSH_ORIGINAL_COMMAND" in
     *\<*)     reject_and_die "unsafe character"     ;;
     *\>*)     reject_and_die "unsafe character"     ;;
     *\`*)     reject_and_die "unsafe character"     ;;
-    *\|*)     reject_and_die "unsafe character"     ;;
-    *\.\./*)  reject_and_die "directory traversal"  ;;
-    *)
-	reject_filtered_cmd
-	run_cmd
-	;;
+    *\|*)     [[ -n "$allow_compress" ]] || reject_and_die "unsafe character (compression disallowed)" ;;
 esac
+
+reject_filtered_cmd
+run_cmd

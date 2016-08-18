@@ -58,6 +58,7 @@ my  $VERSION_INFO    = "btrbk command line client, version $VERSION";
 my @config_src = ("/etc/btrbk.conf", "/etc/btrbk/btrbk.conf");
 
 my %compression = (
+  # NOTE: also adapt "compress_list" in ssh_filter_btrbk.sh if you change this
   gzip   => { name => 'gzip',   format => 'gz',  compress_cmd => [ 'gzip',   '-c' ], decompress_cmd => [ 'gzip',   '-d', '-c' ], level_min => 1, level_max => 9 },
   pigz   => { name => 'pigz',   format => 'gz',  compress_cmd => [ 'pigz',   '-c' ], decompress_cmd => [ 'pigz',   '-d', '-c' ], level_min => 1, level_max => 9, threads => '-p' },
   bzip2  => { name => 'bzip2',  format => 'bz2', compress_cmd => [ 'bzip2',  '-c' ], decompress_cmd => [ 'bzip2',  '-d', '-c' ], level_min => 1, level_max => 9 },

@@ -24,7 +24,7 @@ Example line in /root/.ssh/authorized_keys on a backup target host:
 .PP
 .RS 4
 .nf
-command="ssh_filter_btrbk.sh \-\-target \-\-delete \-\-restrict\-path /mnt/btr_backup" ssh\-rsa AAAAB3NzaC1...hwumXFRQBL btrbk@mydomain.com
+command="ssh_filter_btrbk.sh \-\-target \-\-delete \-\-compress \-\-restrict\-path /mnt/btr_backup" ssh\-rsa AAAAB3NzaC1...hwumXFRQBL btrbk@mydomain.com
 .fi
 .RE
 .SH OPTIONS
@@ -47,6 +47,12 @@ Allow commands for subvolume deletion: "btrfs subvolume delete". This
 is used for backup source if \fIsnapshot_preserve_daily\fR is not set
 to \[lq]all\[rq], and for backup targets if
 \fItarget_preserve_daily\fR is not set to \[lq]all\[rq].
+.RE
+.PP
+\-c, \-\-compress
+.RS 4
+Allow commands for stream compression (pipes through gzip, pigz,
+bzip2, pbzip2, xz, lzo, lz4). Needed if \fIstream_compress\fR is set.
 .RE
 .PP
 \-i, \-\-info
