@@ -102,7 +102,7 @@ while [[ "$#" -ge 1 ]]; do
       -t|--target)
           allow_cmd "btrfs receive"
           # the following are needed if targets point to a directory
-          allow_cmd "realpath"
+          allow_cmd "readlink"
           allow_exact_cmd "cat /proc/self/mounts"
           ;;
 

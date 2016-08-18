@@ -1,3 +1,7 @@
+btrbk-current
+
+  * Bugfix: Replace "realpath" with "readlink" in ssh_filter_btrbk.sh
+
 btrbk-0.23.3
 
   * Replace "realpath -e" with "readlink -e" for mountpoint discovery
