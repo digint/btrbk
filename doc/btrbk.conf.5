@@ -225,6 +225,29 @@ cipher_spec" option in ssh(1) for more information. Defaults to
 \[lq]default\[rq] (the ciphers specified in \fIssh_config\fR).
 .RE
 .PP
+\fBstream_compress\fR  <compress_command>|no
+.RS 4
+Compress the btrfs send stream before transferring it from/to remote
+locations. Defaults to \[lq]no\[rq]. If enabled, make sure that
+<compress_command> is available on the source and target
+hosts. Supported \fI<compress_command>\fR: gzip, pigz, bzip2, pbzip2,
+xz, lzo, lz4.
+.RE
+.PP
+\fBstream_compress_level\fR  default|<number>
+.RS 4
+Compression level for the specified <compress_command>. Refer to the
+related man-page for details (usually [1..9], where 1 means fastest
+compression). Defaults to \[lq]default\[rq] (the default compression
+level of <compress_command>).
+.RE
+.PP
+\fBstream_compress_threads\fR  default|<number>
+.RS 4
+Number of threads to use for <compress_command>. Only supported for
+"pigz", "pbzip2" and recent versions of "xz".
+.RE
+.PP
 \fBrate_limit\fR  <rate>|no
 .RS 4
 Limit the transfer to a maximum of \fI<rate>\fR bytes per second. A

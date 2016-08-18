@@ -56,6 +56,11 @@ snapshot_dir               _btrbk_snap
 #ssh_compression            no
 #ssh_cipher_spec            default
 
+# Enable compression for remote btrfs send/receive operations:
+#stream_compress            no
+#stream_compress_level      default
+#stream_compress_threads    default
+
 # Enable lock file support: Ensures that only one instance of btrbk
 # can be run at a time.
 #lockfile                   /var/lock/btrbk.lock
