@@ -63,7 +63,7 @@ my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the sub
 my $glob_match = qr/[0-9a-zA-Z_@\+\-\.\/\*]+/;  # file_match plus '*'
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 my $timestamp_postfix_match = qr/\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
-my $raw_postfix_match = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uuid_match))?\.btrfs?(\.(?<compress>(gz|bz2|xz)))?(\.(?<encrypt>gpg))?(\.(?<incomplete>part))?/;  # matches ".btrfs_<received_uuid>[@<parent_uuid>][.gz|bz2|xz][.gpg][.part]"
+my $raw_postfix_match = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uuid_match))?\.btrfs?(\.(?<compress>(gz|bz2|lz4|xz)))?(\.(?<encrypt>gpg))?(\.(?<incomplete>part))?/;  # matches ".btrfs_<received_uuid>[@<parent_uuid>][.gz|bz2|lz4|xz][.gpg][.part]"
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
 my $safe_cmd_match = qr/[0-9a-zA-Z_@=\+\-\.\/]+/;  # $file_match plus '=': good enough for our purpose
@@ -98,7 +98,7 @@ my %config_options = (
   transaction_syslog          => { default => undef,     accept => \@syslog_facilities },
   lockfile                    => { default => undef,     accept_file => { absolute => 1 }, context => [ "root" ] },
 
-  raw_target_compress         => { default => undef,     accept => [ "no", "gzip", "bzip2", "xz" ] },
+  raw_target_compress         => { default => undef,     accept => [ "no", "gzip", "bzip2", "lz4", "xz" ] },
   raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   raw_target_compress_threads => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   raw_target_encrypt          => { default => undef,     accept => [ "no", "gpg" ] },
@@ -1046,6 +1046,7 @@ sub btrfs_send_to_file($$$$;@)
 
   my %compress = ( gzip  => { name => 'gzip' , cmd => [ 'gzip'  ], postfix => '.gz',  level_min => 1, level_max => 9 },
                    bzip2 => { name => 'bzip2', cmd => [ 'bzip2' ], postfix => '.bz2', level_min => 1, level_max => 9 },
+                   lz4   => { name => 'lz4'  , cmd => [ 'lz4' ],   postfix => '.lz4', level_min => 1, level_max => 9 },
                    xz    => { name => 'xz'   , cmd => [ 'xz'    ], postfix => '.xz',  level_min => 0, level_max => 9, threads => '--threads=' },
                   );
 
@@ -1101,7 +1102,7 @@ sub btrfs_send_to_file($$$$;@)
     };
   }
   push @cmd_pipe, {
-    cmd => [ 'dd', 'status=none', "of=${target_path}/${target_filename}.part" ],
+    cmd => [ 'dd', 'status=none', 'bs=4M', "of=${target_path}/${target_filename}.part" ],
     rsh => $target->{RSH},
     name => 'dd',
   };
