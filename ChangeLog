@@ -7,6 +7,8 @@ btrbk-current
       is enabled. Also add "--compress" option to ssh_filter_btrbk.sh
       invocation if "stream_compress" is enabled.
   * Add "stream_compress" configuration option.
+  * Perform extra metadata check on target subvolume after "btrfs
+    receive" (adds an additional call to "btrfs subvolume show").
   * Bugfix: Replace "realpath" with "readlink" in ssh_filter_btrbk.sh
 
 btrbk-0.23.3

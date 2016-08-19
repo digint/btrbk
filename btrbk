@@ -811,7 +811,7 @@ sub btrfs_subvolume_show($)
     TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
     # NOTE: received_uuid is not required here, as btrfs-progs < 4.1 does not give us that information.
     #       no worries, we get this from btrfs_subvolume_list() for all subvols.
-    my @required_keys = qw(name uuid parent_uuid id gen cgen top_level);
+    my @required_keys = qw(name uuid parent_uuid id gen cgen top_level readonly);
     my %trans = (
       "Name"                  => "name",
       "uuid"                  => "uuid",
@@ -841,6 +841,10 @@ sub btrfs_subvolume_show($)
       }
     }
     DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
+
+    # NOTE: as of btrfs-progs v4.6.1, flags are either "-" or "readonly"
+    $detail{readonly} = ($detail{flags} =~ /readonly/) ? 1 : 0;
+
     VINFO(\%detail, "detail") if($loglevel >=4);
     foreach(@required_keys) {
       unless(defined($detail{$_})) {
@@ -1118,6 +1122,7 @@ sub btrfs_send_receive($$$$;@)
     $send_receive_error = 1;
     $ret = $err;  # print the errors below
   }
+  # TODO: This might not be needed anymore. check if we can remove this.
   if(defined($ret)) {
     # NOTE: if "btrfs send" fails, "btrfs receive" returns 0! so we need to parse the output...
     foreach(split("\n", $ret)) {
@@ -1134,8 +1139,51 @@ sub btrfs_send_receive($$$$;@)
     }
   }
 
-  end_transaction("send-receive", ($dryrun ? "DRYRUN" : ($send_receive_error ? "ERROR" : "success")));
+  unless($dryrun) {
+    # Read in target subvolume metadata (btrfs subvolume show):
+    # Double checking the output increases robustness against exotic
+    # revisions of external commands (btrfs-progs, pv, xz, lz4, ...).
+    #
+    # NOTE: we cannot rely on the underlying shell to have
+    # "pipefail" functionality.
+    #
+    # NOTE (bug?) (checked with btrfs-progs v4.6.1 and earlier):
+    # "cat /dev/null | btrfs receive" returns with exitcode=0 and no
+    # error message, having the effect that silently no subvolume is
+    # created if any command in @cmd_pipe fail.
 
+    INFO "[send/receive] checking target metadata: $vol_received->{PRINT}";
+    my $detail = btrfs_subvolume_show($vol_received);
+    if(defined($detail)) {
+      # plausibility checks on target detail
+      unless($detail->{readonly}) {
+        ERROR "[send/receive] target is not readonly: $vol_received->{PRINT}";
+        $send_receive_error = 1;
+      }
+      if($detail->{received_uuid} && ($detail->{received_uuid} eq '-')) {
+        # NOTE: received_uuid is not in @required_keys (needs btrfs-progs >= 4.1 (BTRFS_PROGS_MIN))
+        # so we only check it if it's really present
+        ERROR "[send/receive] received_uuid is not set on target: $vol_received->{PRINT}";
+        $send_receive_error = 1;
+      }
+      if($parent && ($detail->{parent_uuid} eq '-')) {
+        ERROR "[send/receive] parent_uuid is not set on target: $vol_received->{PRINT}";
+        $send_receive_error = 1;
+      }
+      if((not $parent) && ($detail->{parent_uuid} ne '-')) {
+        ERROR "[send/receive] parent_uuid is set on target: $vol_received->{PRINT}";
+        $send_receive_error = 1;
+      }
+    }
+    else {
+      $send_receive_error = 1;
+    }
+  }
+  else {
+    INFO "[send/receive] (dryrun, skip) checking target metadata: $vol_received->{PRINT}";
+  }
+
+  end_transaction("send-receive", ($dryrun ? "DRYRUN" : ($send_receive_error ? "ERROR" : "success")));
 
   if($send_receive_error) {
     ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
@@ -2798,6 +2846,9 @@ sub macro_send_receive(@)
   }
 
   # inject fake vinfo
+
+  # NOTE: it's not possible to add (and compare) correct target $detail
+  # from btrfs_send_receive(), as source detail also has fake uuid.
   if($ret) {
     vinfo_inject_child($target, $vol_received, {
       # NOTE: this is not necessarily the correct parent_uuid (on
