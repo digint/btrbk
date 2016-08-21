@@ -41,7 +41,7 @@ reject_and_die()
 run_cmd()
 {
     log_cmd "auth.info" "btrbk ACCEPT"
-    $use_sudo $SSH_ORIGINAL_COMMAND
+    eval " $use_sudo $SSH_ORIGINAL_COMMAND"
 }
 
 reject_filtered_cmd()
