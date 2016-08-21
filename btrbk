@@ -506,122 +506,133 @@ sub decompress_cmd($)
 }
 
 
+sub _assemble_cmd($;$)
+{
+  my $cmd_pipe = shift;
+  my $catch_stderr = shift;
+  my $cmd = "";
+
+  # simple single-command
+  if(scalar(@$cmd_pipe) == 1) {
+    $cmd = $cmd_pipe->[0]->{safe_cmd_text};
+    $cmd .= ' 2>&1' if($catch_stderr && $cmd_pipe->[0]->{catch_stderr});
+    return $cmd;
+  }
+
+  # cmd result is something like this:
+  #    { btrfs send <src> 2>&3 | pv | btrfs receive <dst> 2>&3 ; } 3>&1
+  my $pipe = "";
+  $cmd = "{ " if($catch_stderr);
+  foreach (@$cmd_pipe) {
+    if($_->{safe_cmd_text} =~ /^>/) {
+      die unless($pipe);
+      $cmd .= ' ' . $_->{safe_cmd_text};
+      $pipe = undef; # this dies if it is not last command
+    } else {
+      $cmd .= $pipe . $_->{safe_cmd_text};
+      $cmd .= ' 2>&3' if($catch_stderr && $_->{catch_stderr});
+      $pipe = ' | ';
+    }
+  }
+  $cmd .= ' ; } 3>&1' if($catch_stderr);
+
+  return $cmd;
+}
+
 sub run_cmd(@)
 {
   # shell-based implementation.
   # this needs some redirection magic for filter_stderr to work.
   # NOTE: multiple filters are not supported!
 
-  my @cmd_pipe = (ref($_[0]) eq "HASH") ? @_ : { @_ };
-  die unless(scalar(@cmd_pipe));
+  my @cmd_pipe_in = (ref($_[0]) eq "HASH") ? @_ : { @_ };
+  die unless(scalar(@cmd_pipe_in));
   $err = "";
 
   my $destructive = 0;
   my $catch_stderr = 0;
   my $filter_stderr = undef;
-  my @cmd_text;
+  my @cmd_pipe;
   my $compressed = undef;
-  foreach my $href (@cmd_pipe)
+
+  foreach my $href (@cmd_pipe_in)
   {
+    die if(defined($href->{safe_cmd_text}));
+
     $catch_stderr = 1 if($href->{catch_stderr});
     $filter_stderr = $href->{filter_stderr} if($href->{filter_stderr});  # NOTE: last filter wins!
     $destructive = 1 unless($href->{non_destructive});
 
     if($href->{compress}) {
       if($compressed && ($compression{$compressed->{key}}->{format} ne $compression{$href->{compress}->{key}}->{format})) {
-        push @cmd_text, { text => decompress_cmd($compressed) };
+        push @cmd_pipe, { safe_cmd_text => decompress_cmd($compressed) };
         $compressed = undef;
       }
       unless($compressed) {
-        push @cmd_text, { text => compress_cmd($href->{compress}) };
+        push @cmd_pipe, { safe_cmd_text => compress_cmd($href->{compress}) };
         $compressed = $href->{compress};
       }
     }
-    elsif($href->{redirect}) {
-      my $file = safe_cmd([ $href->{redirect} ]);
-      return undef unless(defined($file));
-      if($href->{rsh}) {
-        my $rsh_text = safe_cmd($href->{rsh});
-        return undef unless(defined($rsh_text));
-        push @cmd_text, { text => $rsh_text . " 'cat > " . $file . "'" };
+    else {
+      if($href->{redirect_to_file}) {
+        my $file = safe_cmd([ $href->{redirect_to_file} ]);
+        return undef unless(defined($file));
+        $href->{safe_cmd_text} = "> $file";
       }
-      else {
-        push @cmd_text, { redirect => $file };
+      elsif($href->{cmd}) {
+        $href->{safe_cmd_text} = safe_cmd($href->{cmd});
       }
-    }
-    elsif($href->{cmd}) {
-      my $sc = safe_cmd($href->{cmd});
-      return undef unless(defined($sc));
+      return undef unless(defined($href->{safe_cmd_text}));
 
       if($href->{rsh}) {
-        my $rsh_text = safe_cmd($href->{rsh});
-        return undef unless(defined($rsh_text));
+        my @rsh_cmd_pipe = ( $href );
 
         if($href->{rsh_compress_in}) {
-          if($compressed && ((not $href->{compressed_ok}) ||
-                             ($compression{$compressed->{key}}->{format} ne $compression{$href->{rsh_compress_in}->{key}}->{format})))
+          if($compressed && ($compression{$compressed->{key}}->{format} ne $compression{$href->{rsh_compress_in}->{key}}->{format}))
           {
-            push @cmd_text, { text => decompress_cmd($compressed) };
+            push @cmd_pipe, { safe_cmd_text => decompress_cmd($compressed) };
             $compressed = undef;
           }
           unless($compressed) {
-            push @cmd_text, { text => compress_cmd($href->{rsh_compress_in}) };
+            push @cmd_pipe, { safe_cmd_text => compress_cmd($href->{rsh_compress_in}) };
             $compressed = $href->{rsh_compress_in};
           }
-          unless($href->{compressed_ok}) {
-            $sc = decompress_cmd($href->{rsh_compress_in}) . ' | ' . $sc;
-            $compressed = undef;
-          }
         }
+
+        if($compressed && (not ($href->{compressed_ok}))) {
+          unshift @rsh_cmd_pipe, { safe_cmd_text => decompress_cmd($compressed) };
+          $compressed = undef;
+        }
+
         if($href->{rsh_compress_out}) {
-          $sc .= ' | ' . compress_cmd($href->{rsh_compress_out});
+          die if($href->{redirect_to_file});
+          push @rsh_cmd_pipe, { safe_cmd_text => compress_cmd($href->{rsh_compress_out}) };
           $compressed = $href->{rsh_compress_out};
         }
-        $sc = $rsh_text . " '" . $sc . "'";
+
+        if((scalar(@rsh_cmd_pipe) == 1) && ($rsh_cmd_pipe[0]->{redirect_to_file})) {
+          # NOTE: direct redirection in ssh command does not work: "ssh '> outfile'"
+          # we need to assemble: "ssh 'cat > outfile'"
+          unshift @rsh_cmd_pipe, { safe_cmd_text => 'cat' };
+        }
+
+        my $rsh_text = safe_cmd($href->{rsh});
+        return undef unless(defined($rsh_text));
+        $href->{safe_cmd_text} = $rsh_text . " '" . _assemble_cmd(\@rsh_cmd_pipe) . "'";
       }
       else {
         if($compressed && (not ($href->{compressed_ok}))) {
-          push @cmd_text, { text => decompress_cmd($compressed) };
+          push @cmd_pipe, { safe_cmd_text => decompress_cmd($compressed) };
           $compressed = undef;
         }
       }
-      push @cmd_text, { text => $sc,
-                        catch_stderr => $href->{catch_stderr} };
+      push @cmd_pipe, $href;
     }
   }
 
-  # cmd result is something like this:
-  #    { btrfs send <src> 2>&3 | pv | btrfs receive <dst> 2>&3 ; } 3>&1
-  my $cmd_print = "";
-  my $cmd = "{ ";
-  my $pipe = "";
-  foreach (@cmd_text) {
-    if($_->{redirect}) {
-      die unless($pipe);
-      $cmd_print .= ' > ' . $_->{redirect};
-      $cmd       .= ' > ' . $_->{redirect};
-      $pipe = undef; # this dies if it is not last command
-    } else {
-      $cmd_print .= $pipe . $_->{text};
-      $cmd       .= $pipe . $_->{text};
-      $cmd       .= ' 2>&3' if($_->{catch_stderr});
-      $pipe = ' | ';
-    }
-  }
-  $cmd .= ' ; } 3>&1';
+  my $cmd = _assemble_cmd(\@cmd_pipe, $catch_stderr);
+  my $cmd_print = _assemble_cmd(\@cmd_pipe);    # hide redirection magic from debug output
 
-  if($catch_stderr) {
-    if(scalar(@cmd_text) == 1) {
-      # no pipes, simply redirect stderr to stdout
-      $cmd = $cmd_print . ' 2>&1';
-    }
-  }
-  else {
-    $cmd = $cmd_print;
-  }
-
-
-  # hide redirection magic from debug output
   if($dryrun && $destructive) {
     DEBUG "### (dryrun) $cmd_print";
     return "";
@@ -1233,14 +1244,14 @@ sub btrfs_send_to_file($$$$;@)
   my @cmd_pipe;
   push @cmd_pipe, {
     cmd => [ qw(btrfs send), @send_options, $source_path ],
-    rsh => vinfo_rsh($source, disable_compression => config_compress_hash($source, "stream_compress")),
+    rsh => vinfo_rsh($source, disable_compression => $opts{compress} || config_compress_hash($source, "stream_compress")),
     name => "btrfs send",
-    rsh_compress_out => config_compress_hash($source, "stream_compress"),
+    rsh_compress_out => $opts{compress} || config_compress_hash($source, "stream_compress"),
   };
   add_pv_command(\@cmd_pipe, show_progress => $show_progress, rate_limit => $opts{rate_limit});
   if($opts{compress}) {
     $target_filename .= '.' . $compression{$opts{compress}->{key}}->{format};
-    push @cmd_pipe, { compress => $opts{compress} };
+    push @cmd_pipe, { compress => $opts{compress} }; # does nothing if already compressed by rsh_compress_out
   }
   if($opts{encrypt}) {
     die unless($opts{encrypt}->{type} eq "gpg");
@@ -1251,13 +1262,14 @@ sub btrfs_send_to_file($$$$;@)
     push @cmd_pipe, {
       cmd => [ 'gpg', @gpg_options, '--encrypt' ],
       name => 'gpg',
-      compressed_ok => 1,
+      compressed_ok => ($opts{compress} ? 1 : 0),
     };
   }
   push @cmd_pipe, {
-    redirect => "${target_path}/${target_filename}.part",
-    rsh => vinfo_rsh($target),
-    compressed_ok => 1,
+    redirect_to_file => "${target_path}/${target_filename}.part",
+    rsh => vinfo_rsh($target, disable_compression => $opts{compress} || config_compress_hash($target, "stream_compress")),
+    rsh_compress_in => $opts{compress} || config_compress_hash($target, "stream_compress"),
+    compressed_ok => ($opts{compress} ? 1 : 0),
   };
 
   my $vol_received = vinfo_child($target, $target_filename);

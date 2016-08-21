@@ -1,7 +1,5 @@
 btrbk-current
 
-  * KNOWN BUG: for raw targets, the send stream is not decompressed if
-    stream_compress is set and raw_target_compress is not set.
   * MIGRATION
     - update ssh_filter_btrbk.sh on remote hosts if "stream_compress"
       is enabled. Also add "--compress" option to ssh_filter_btrbk.sh
