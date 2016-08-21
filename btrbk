@@ -1726,16 +1726,20 @@ sub vinfo_rsh($;@)
   my $ssh_port        = config_key($config, "ssh_port");
   my $ssh_user        = config_key($config, "ssh_user");
   my $ssh_identity    = config_key($config, "ssh_identity");
-  my $ssh_compression = $opts{disable_compression} ? undef : config_key($config, "ssh_compression");
+  my $ssh_compression = config_key($config, "ssh_compression");
   my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
   my @ssh_options;
   push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
-  push(@ssh_options, '-C') if($ssh_compression);
   push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
   if($ssh_identity) {
     push(@ssh_options, '-i', $ssh_identity);
   } else {
     WARN_ONCE "No SSH identity provided (option ssh_identity is not set) for: " . ($vinfo->{CONFIG}->{url} // $vinfo->{PRINT});
+  }
+  if($opts{disable_compression}) {
+    push(@ssh_options, '-o', 'compression=no');  # force ssh compression=no (in case it is defined in ssh_config)
+  } elsif($ssh_compression) {
+    push(@ssh_options, '-C');
   }
   return ['ssh', @ssh_options, $ssh_user . '@' . $host ];
 }
