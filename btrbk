@@ -501,7 +501,7 @@ sub _assemble_cmd($;$)
 
   # simple single-command
   if(scalar(@$cmd_pipe) == 1) {
-    $cmd = $cmd_pipe->[0]->{safe_cmd_text};
+    $cmd = $cmd_pipe->[0]->{cmd_text};
     $cmd .= ' 2>&1' if($catch_stderr && $cmd_pipe->[0]->{catch_stderr});
     return $cmd;
   }
@@ -511,12 +511,12 @@ sub _assemble_cmd($;$)
   my $pipe = "";
   $cmd = "{ " if($catch_stderr);
   foreach (@$cmd_pipe) {
-    if($_->{safe_cmd_text} =~ /^>/) {
+    if($_->{cmd_text} =~ /^>/) {
       die unless($pipe);
-      $cmd .= ' ' . $_->{safe_cmd_text};
+      $cmd .= ' ' . $_->{cmd_text};
       $pipe = undef; # this dies if it is not last command
     } else {
-      $cmd .= $pipe . $_->{safe_cmd_text};
+      $cmd .= $pipe . $_->{cmd_text};
       $cmd .= ' 2>&3' if($catch_stderr && $_->{catch_stderr});
       $pipe = ' | ';
     }
@@ -562,7 +562,7 @@ sub run_cmd(@)
 
   foreach my $href (@cmd_pipe_in)
   {
-    die if(defined($href->{safe_cmd_text}));
+    die if(defined($href->{cmd_text}));
 
     $catch_stderr = 1 if($href->{catch_stderr});
     $filter_stderr = $href->{filter_stderr} if($href->{filter_stderr});  # NOTE: last filter wins!
@@ -574,22 +574,22 @@ sub run_cmd(@)
 
     if($href->{compress}) {
       if($compressed && ($compression{$compressed->{key}}->{format} ne $compression{$href->{compress}->{key}}->{format})) {
-        push @cmd_pipe, { safe_cmd_text => decompress_cmd($compressed) };
+        push @cmd_pipe, { cmd_text => decompress_cmd($compressed) };
         $compressed = undef;
       }
       unless($compressed) {
-        push @cmd_pipe, { safe_cmd_text => compress_cmd($href->{compress}) };
+        push @cmd_pipe, { cmd_text => compress_cmd($href->{compress}) };
         $compressed = $href->{compress};
       }
     }
     else {
       if($href->{redirect_to_file}) {
-        $href->{safe_cmd_text} = _safe_cmd([ '>', $href->{redirect_to_file} ], \@unsafe_cmd);
+        $href->{cmd_text} = _safe_cmd([ '>', $href->{redirect_to_file} ], \@unsafe_cmd);
       }
       elsif($href->{cmd}) {
-        $href->{safe_cmd_text} = _safe_cmd($href->{cmd}, \@unsafe_cmd);
+        $href->{cmd_text} = _safe_cmd($href->{cmd}, \@unsafe_cmd);
       }
-      return undef unless(defined($href->{safe_cmd_text}));
+      return undef unless(defined($href->{cmd_text}));
 
       if($href->{rsh}) {
         my @rsh_cmd_pipe = ( $href );
@@ -597,39 +597,39 @@ sub run_cmd(@)
         if($href->{rsh_compress_in}) {
           if($compressed && ($compression{$compressed->{key}}->{format} ne $compression{$href->{rsh_compress_in}->{key}}->{format}))
           {
-            push @cmd_pipe, { safe_cmd_text => decompress_cmd($compressed) };
+            push @cmd_pipe, { cmd_text => decompress_cmd($compressed) };
             $compressed = undef;
           }
           unless($compressed) {
-            push @cmd_pipe, { safe_cmd_text => compress_cmd($href->{rsh_compress_in}) };
+            push @cmd_pipe, { cmd_text => compress_cmd($href->{rsh_compress_in}) };
             $compressed = $href->{rsh_compress_in};
           }
         }
 
         if($compressed && (not ($href->{compressed_ok}))) {
-          unshift @rsh_cmd_pipe, { safe_cmd_text => decompress_cmd($compressed) };
+          unshift @rsh_cmd_pipe, { cmd_text => decompress_cmd($compressed) };
           $compressed = undef;
         }
 
         if($href->{rsh_compress_out}) {
           die if($href->{redirect_to_file});
-          push @rsh_cmd_pipe, { safe_cmd_text => compress_cmd($href->{rsh_compress_out}) };
+          push @rsh_cmd_pipe, { cmd_text => compress_cmd($href->{rsh_compress_out}) };
           $compressed = $href->{rsh_compress_out};
         }
 
         if((scalar(@rsh_cmd_pipe) == 1) && ($rsh_cmd_pipe[0]->{redirect_to_file})) {
           # NOTE: direct redirection in ssh command does not work: "ssh '> outfile'"
           # we need to assemble: "ssh 'cat > outfile'"
-          unshift @rsh_cmd_pipe, { safe_cmd_text => 'cat' };
+          unshift @rsh_cmd_pipe, { cmd_text => 'cat' };
         }
 
         my $rsh_text = _safe_cmd($href->{rsh}, \@unsafe_cmd);
         return undef unless(defined($rsh_text));
-        $href->{safe_cmd_text} = $rsh_text . " '" . _assemble_cmd(\@rsh_cmd_pipe) . "'";
+        $href->{cmd_text} = $rsh_text . " '" . _assemble_cmd(\@rsh_cmd_pipe) . "'";
       }
       else {
         if($compressed && (not ($href->{compressed_ok}))) {
-          push @cmd_pipe, { safe_cmd_text => decompress_cmd($compressed) };
+          push @cmd_pipe, { cmd_text => decompress_cmd($compressed) };
           $compressed = undef;
         }
       }
