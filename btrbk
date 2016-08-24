@@ -79,7 +79,6 @@ my $raw_postfix_match = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uui
 
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
-my $safe_cmd_match = $file_match;  # good enough
 
 my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
 my @syslog_facilities = qw( user mail daemon auth lpr news cron authpriv local0 local1 local2 local3 local4 local5 local6 local7 );
@@ -456,18 +455,6 @@ sub check_exe($)
   return 0;
 }
 
-sub safe_cmd($)
-{
-  my $aref = shift;
-  foreach(@$aref) {
-    unless(/^$safe_cmd_match$/) {
-      ERROR "Unsafe command `" . join(' ', @$aref) . "` (offending string: \"$_\")";
-      return undef;
-    }
-  }
-  return join(' ', @$aref);
-}
-
 sub compress_cmd($;$)
 {
   my $def = shift;
@@ -539,6 +526,23 @@ sub _assemble_cmd($;$)
   return $cmd;
 }
 
+sub _safe_cmd($$)
+{
+  # NOTE: this function alters $aref: hashes of form: "{ unsafe => 'string' }" get translated to "string"
+  my $aref = shift;
+  my $offending = shift;
+  foreach(@$aref) {
+    if(ref($_) eq 'HASH') {
+      $_ = $_->{unsafe};  # replace in-place
+      # NOTE: all files must be absolute
+      unless(check_file($_, { absolute => 1 })) {  # TODO: don't sanitize
+        push @$offending, "\"$_\"";
+      }
+    }
+  }
+  return join(' ', @$aref);
+}
+
 sub run_cmd(@)
 {
   # shell-based implementation.
@@ -553,6 +557,7 @@ sub run_cmd(@)
   my $catch_stderr = 0;
   my $filter_stderr = undef;
   my @cmd_pipe;
+  my @unsafe_cmd;
   my $compressed = undef;
 
   foreach my $href (@cmd_pipe_in)
@@ -562,6 +567,10 @@ sub run_cmd(@)
     $catch_stderr = 1 if($href->{catch_stderr});
     $filter_stderr = $href->{filter_stderr} if($href->{filter_stderr});  # NOTE: last filter wins!
     $destructive = 1 unless($href->{non_destructive});
+
+    if($href->{check_unsafe}) {
+      _safe_cmd($href->{check_unsafe}, \@unsafe_cmd);
+    }
 
     if($href->{compress}) {
       if($compressed && ($compression{$compressed->{key}}->{format} ne $compression{$href->{compress}->{key}}->{format})) {
@@ -575,12 +584,10 @@ sub run_cmd(@)
     }
     else {
       if($href->{redirect_to_file}) {
-        my $file = safe_cmd([ $href->{redirect_to_file} ]);
-        return undef unless(defined($file));
-        $href->{safe_cmd_text} = "> $file";
+        $href->{safe_cmd_text} = _safe_cmd([ '>', $href->{redirect_to_file} ], \@unsafe_cmd);
       }
       elsif($href->{cmd}) {
-        $href->{safe_cmd_text} = safe_cmd($href->{cmd});
+        $href->{safe_cmd_text} = _safe_cmd($href->{cmd}, \@unsafe_cmd);
       }
       return undef unless(defined($href->{safe_cmd_text}));
 
@@ -616,7 +623,7 @@ sub run_cmd(@)
           unshift @rsh_cmd_pipe, { safe_cmd_text => 'cat' };
         }
 
-        my $rsh_text = safe_cmd($href->{rsh});
+        my $rsh_text = _safe_cmd($href->{rsh}, \@unsafe_cmd);
         return undef unless(defined($rsh_text));
         $href->{safe_cmd_text} = $rsh_text . " '" . _assemble_cmd(\@rsh_cmd_pipe) . "'";
       }
@@ -632,6 +639,11 @@ sub run_cmd(@)
 
   my $cmd = _assemble_cmd(\@cmd_pipe, $catch_stderr);
   my $cmd_print = _assemble_cmd(\@cmd_pipe);    # hide redirection magic from debug output
+
+  if(scalar(@unsafe_cmd)) {
+    ERROR "Unsafe command `$cmd_print` (offending string: " . join(', ', @unsafe_cmd) . ')';
+    return undef;
+  }
 
   if($dryrun && $destructive) {
     DEBUG "### (dryrun) $cmd_print";
@@ -695,7 +707,7 @@ sub btrfs_filesystem_show($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
-  return run_cmd( cmd => [ qw(btrfs filesystem show), $path ],
+  return run_cmd( cmd => [ qw(btrfs filesystem show), { unsafe => $path } ],
                   rsh => vinfo_rsh($vol),
                   non_destructive => 1
                  );
@@ -706,7 +718,7 @@ sub btrfs_filesystem_df($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
-  return run_cmd( cmd => [qw(btrfs filesystem df), $path],
+  return run_cmd( cmd => [qw(btrfs filesystem df), { unsafe => $path }],
                   rsh => vinfo_rsh($vol),
                   non_destructive => 1
                  );
@@ -717,7 +729,7 @@ sub btrfs_filesystem_usage($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
-  my $ret = run_cmd( cmd => [ qw(btrfs filesystem usage), $path ],
+  my $ret = run_cmd( cmd => [ qw(btrfs filesystem usage), { unsafe => $path } ],
                      rsh => vinfo_rsh($vol),
                      non_destructive => 1
                     );
@@ -773,7 +785,7 @@ sub btrfs_subvolume_show($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume show), $path],
+  my $ret = run_cmd(cmd => [ qw(btrfs subvolume show), { unsafe => $path }],
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                     catch_stderr => 1, # hack for shell-based run_cmd()
@@ -877,7 +889,7 @@ sub btrfs_subvolume_list_readonly_flag($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
 
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume list), '-a', '-r', $path ],
+  my $ret = run_cmd(cmd => [ qw(btrfs subvolume list), '-a', '-r', { unsafe => $path } ],
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
@@ -906,7 +918,7 @@ sub btrfs_subvolume_list($;@)
   # NOTE: Support for btrfs-progs <= 3.17 has been dropped in
   #       btrbk-0.23, the received_uuid flag very essential!
   my @display_options = ('-c', '-u', '-q', '-R');
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume list), @filter_options, @display_options, $path ],
+  my $ret = run_cmd(cmd => [ qw(btrfs subvolume list), @filter_options, @display_options, { unsafe => $path } ],
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
@@ -967,7 +979,7 @@ sub btrfs_subvolume_find_new($$;$)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $lastgen = shift // die;
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume find-new), $path, $lastgen ],
+  my $ret = run_cmd(cmd => [ qw(btrfs subvolume find-new), { unsafe => $path }, $lastgen ],
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
@@ -1034,7 +1046,7 @@ sub btrfs_subvolume_snapshot($$)
                     vinfo_prefixed_keys("target", $target_vol),
                     vinfo_prefixed_keys("source", $svol),
                    );
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume snapshot), '-r', $src_path, $target_path ],
+  my $ret = run_cmd(cmd => [ qw(btrfs subvolume snapshot), '-r', { unsafe => $src_path }, { unsafe => $target_path } ],
                     rsh => vinfo_rsh($svol),
                    );
   end_transaction("snapshot", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
@@ -1065,11 +1077,11 @@ sub btrfs_subvolume_delete($@)
   INFO "[delete] target: $_->{PRINT}" foreach(@$targets);
   my @options;
   @options = ("--commit-$commit") if($commit);
-  my @target_paths = map( { $_->{PATH} } @$targets);
   start_transaction($opts{type} // "delete",
                     map( { { vinfo_prefixed_keys("target", $_) }; } @$targets)
                    );
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume delete), @options, @target_paths ],
+  my @cmd_target_paths = map { { unsafe => $_->{PATH} } } @$targets;
+  my $ret = run_cmd(cmd => [ qw(btrfs subvolume delete), @options, @cmd_target_paths ],
                     rsh => $rsh,
                    );
   end_transaction($opts{type} // "delete", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
@@ -1100,13 +1112,13 @@ sub btrfs_send_receive($$$$;@)
 
   my @send_options;
   my @receive_options;
-  push(@send_options, '-p', $parent_path) if($parent_path);
+  push(@send_options, '-p', { unsafe => $parent_path} ) if($parent_path);
   # push(@send_options, '-v') if($loglevel >= 3);
   # push(@receive_options, '-v') if($loglevel >= 3);
 
   my @cmd_pipe;
   push @cmd_pipe, {
-    cmd => [ qw(btrfs send), @send_options, $snapshot_path ],
+    cmd => [ qw(btrfs send), @send_options, { unsafe => $snapshot_path } ],
     rsh => vinfo_rsh($snapshot, disable_compression => config_compress_hash($snapshot, "stream_compress")),
     rsh_compress_out => config_compress_hash($snapshot, "stream_compress"),
     name => "btrfs send",
@@ -1114,7 +1126,7 @@ sub btrfs_send_receive($$$$;@)
   };
   add_pv_command(\@cmd_pipe, show_progress => $show_progress, rate_limit => $opts{rate_limit});
   push @cmd_pipe, {
-    cmd => [ qw(btrfs receive), @receive_options, $target_path . '/' ],
+    cmd => [ qw(btrfs receive), @receive_options, { unsafe => $target_path . '/' } ],
     rsh => vinfo_rsh($target, disable_compression => config_compress_hash($target, "stream_compress")),
     name => "btrfs receive",
     rsh_compress_in => config_compress_hash($target, "stream_compress"),
@@ -1243,7 +1255,7 @@ sub btrfs_send_to_file($$$$;@)
 
   my @cmd_pipe;
   push @cmd_pipe, {
-    cmd => [ qw(btrfs send), @send_options, $source_path ],
+    cmd => [ qw(btrfs send), @send_options, { unsafe => $source_path } ],
     rsh => vinfo_rsh($source, disable_compression => $opts{compress} || config_compress_hash($source, "stream_compress")),
     name => "btrfs send",
     rsh_compress_out => $opts{compress} || config_compress_hash($source, "stream_compress"),
@@ -1266,7 +1278,7 @@ sub btrfs_send_to_file($$$$;@)
     };
   }
   push @cmd_pipe, {
-    redirect_to_file => "${target_path}/${target_filename}.part",
+    redirect_to_file => { unsafe => "${target_path}/${target_filename}.part" },
     rsh => vinfo_rsh($target, disable_compression => $opts{compress} || config_compress_hash($target, "stream_compress")),
     rsh_compress_in => $opts{compress} || config_compress_hash($target, "stream_compress"),
     compressed_ok => ($opts{compress} ? 1 : 0),
@@ -1293,14 +1305,14 @@ sub btrfs_send_to_file($$$$;@)
     # and the shell command always creates the target file.
     DEBUG "Testing target file (non-zero size): $target->{PRINT}.part";
     $ret = run_cmd({
-      cmd  => ['test', '-s', "${target_path}/${target_filename}.part"],
+      cmd  => ['test', '-s', { unsafe => "${target_path}/${target_filename}.part" } ],
       rsh  => vinfo_rsh($target),
       name => "test",
     });
     if(defined($ret)) {
       DEBUG "Renaming target file (remove postfix '.part'): $target->{PRINT}";
       $ret = run_cmd({
-        cmd  => ['mv', "${target_path}/${target_filename}.part", "${target_path}/${target_filename}"],
+        cmd  => ['mv', { unsafe => "${target_path}/${target_filename}.part" }, { unsafe => "${target_path}/${target_filename}" } ],
         rsh  => vinfo_rsh($target),
         name => "mv",
       });
@@ -1363,7 +1375,7 @@ sub system_realpath($)
 
   my $path = $vol->{PATH} // die;;
   my @quiet = ($loglevel < 3) ? ('-q') : ();
-  my $ret = run_cmd(cmd => [ qw(readlink), '-e', @quiet, $path ],
+  my $ret = run_cmd(cmd => [ qw(readlink), '-e', @quiet, { unsafe => $path } ],
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
@@ -1384,7 +1396,7 @@ sub system_mkdir($)
   my $vol = shift // die;
   my $path = $vol->{PATH} // die;;
   INFO "Creating directory: $vol->{PRINT}/";
-  my $ret = run_cmd(cmd => [ qw(mkdir), '-p', $path ],
+  my $ret = run_cmd(cmd => [ qw(mkdir), '-p', { unsafe => $path } ],
                     rsh => vinfo_rsh($vol),
                    );
   action("mkdir",
@@ -4398,7 +4410,7 @@ MAIN:
           DEBUG "Creating raw subvolume list: $droot->{PRINT}";
           $droot->{SUBVOL_LIST} = [];
           my $ret = run_cmd(
-            cmd => [ 'find', $droot->{PATH} . '/', '-maxdepth', '1', '-type', 'f' ],
+            cmd => [ 'find', { unsafe => $droot->{PATH} . '/' }, '-maxdepth', '1', '-type', 'f' ],
             rsh => vinfo_rsh($droot),
             # note: use something like this to get the real (link resolved) path
             # cmd => [ "find", $droot->{PATH} . '/', "-maxdepth", "1", "-name", "$snapshot_basename.\*.raw\*", '-printf', '%f\0', '-exec', 'realpath', '-z', '{}', ';' ],
@@ -4783,7 +4795,7 @@ MAIN:
               DEBUG "[raw] delete:";
               DEBUG "[raw]   file: $_->{PRINT}" foreach(@delete);
               $ret = run_cmd({
-                cmd  => ['rm', (map { $_->{PATH} } @delete) ],
+                cmd  => ['rm', (map { { unsafe => $_->{PATH} } } @delete) ],
                 rsh  => vinfo_rsh($droot),
               });
             } else {
