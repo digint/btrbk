@@ -1268,7 +1268,8 @@ sub btrfs_send_to_file($$$$;@)
   if($opts{encrypt}) {
     die unless($opts{encrypt}->{type} eq "gpg");
     $target_filename .= '.gpg';
-    my @gpg_options = ( '--batch', '--no-tty', '--trust-model', 'always', '--compress-algo', 'none' );
+    my @gpg_options = ( '--batch', '--no-tty', '--trust-model', 'always' );
+    push @gpg_options, ( '--compress-algo', 'none' ) if($opts{compress});  # NOTE: if --compress-algo is not set, gpg might still compress according to OpenPGP standard.
     push(@gpg_options, ( '--no-default-keyring', '--keyring', $opts{encrypt}->{keyring} )) if($opts{encrypt}->{keyring});
     push(@gpg_options, ( '--default-recipient', $opts{encrypt}->{recipient} )) if($opts{encrypt}->{recipient});
     push @cmd_pipe, {
