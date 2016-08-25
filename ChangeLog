@@ -8,6 +8,7 @@ btrbk-current
   * Perform extra metadata check on target subvolume after "btrfs
     receive" (adds an additional call to "btrfs subvolume show").
   * Bugfix: Replace "realpath" with "readlink" in ssh_filter_btrbk.sh
+  * Add "raw_target_block_size" configuration option (close #105).
 
 btrbk-0.23.3
 

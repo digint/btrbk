@@ -118,6 +118,7 @@ my %config_options = (
   raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   raw_target_compress_threads => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   raw_target_encrypt          => { default => undef,     accept => [ "no", "gpg" ] },
+  raw_target_block_size       => { default => "128K",    accept_regexp => qr/^[0-9]+(kB|k|K|KiB|MB|M|MiB)?$/ },
   gpg_keyring                 => { default => undef,     accept_file => { absolute => 1 } },
   gpg_recipient               => { default => undef,     accept_regexp => qr/^[0-9a-zA-Z_@\+\-\.]+$/ },
 
@@ -1279,7 +1280,18 @@ sub btrfs_send_to_file($$$$;@)
     };
   }
   push @cmd_pipe, {
-    redirect_to_file => { unsafe => "${target_path}/${target_filename}.part" },
+    # NOTE: We use "dd" instead of shell redirections here, as it is
+    # common to have special filesystems (like NFS, SMB, FUSE) mounted
+    # on $target_path. By using "dd" we make sure to write in
+    # reasonably large blocks (default=128K), which is not always the
+    # case when using redirections (e.g. "gpg > outfile" writes in 8K
+    # blocks).
+    # Another approach would be to always pipe through "cat", which
+    # uses st_blksize from fstat(2) (with a minimum of 128K) to
+    # determine the block size.
+    cmd => [ 'dd', 'status=none', 'bs=' . config_key($target, "raw_target_block_size"), "of=${target_path}/${target_filename}.part" ],
+    check_unsafe => [ { unsafe => "${target_path}/${target_filename}.part" } ],
+    #redirect_to_file => { unsafe => "${target_path}/${target_filename}.part" },  # alternative (use shell redirection), less overhead on local filesystems (barely measurable):
     rsh => vinfo_rsh($target, disable_compression => $opts{compress} || config_compress_hash($target, "stream_compress")),
     rsh_compress_in => $opts{compress} || config_compress_hash($target, "stream_compress"),
     compressed_ok => ($opts{compress} ? 1 : 0),
