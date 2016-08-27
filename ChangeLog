@@ -9,6 +9,7 @@ btrbk-current
     receive" (adds an additional call to "btrfs subvolume show").
   * Bugfix: Replace "realpath" with "readlink" in ssh_filter_btrbk.sh
   * Add "raw_target_block_size" configuration option (close #105).
+  * Add "backend" configuration option (experimental).
 
 btrbk-0.23.3
 

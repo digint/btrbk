@@ -124,6 +124,10 @@ my %config_options = (
 
   group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
 
+  backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk" ] },
+  backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk" ] },
+  backend_remote              => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk" ] },
+
   # deprecated options
   btrfs_progs_compat          => { default => undef, accept => [ "yes", "no" ],
                                    deprecated => { DEFAULT => { ABORT => 1, warn => 'This feature has been dropped in btrbk-v0.23.0. Please update to newest btrfs-progs, AT LEAST >= $BTRFS_PROGS_MIN' } } },
@@ -205,6 +209,16 @@ my %table_formats = (
                    long  => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
                    raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
                  },
+);
+
+my %backend_cmd_map = (
+  "btrfs-progs-btrbk" => { "btrfs subvolume list"     => [ "btrfs-subvolume-list"     ],
+                           "btrfs subvolume show"     => [ "btrfs-subvolume-show"     ],
+                           "btrfs subvolume snapshot" => [ "btrfs-subvolume-snapshot" ],
+                           "btrfs subvolume delete"   => [ "btrfs-subvolume-delete"   ],
+                           "btrfs send"               => [ "btrfs-send"               ],
+                           "btrfs receive"            => [ "btrfs-receive"            ],
+                         },
 );
 
 my %url_cache;       # map URL to btr_tree node
@@ -696,19 +710,11 @@ sub add_pv_command($@)
 }
 
 
-sub btrfs_filesystem_show_all_local()
-{
-  return run_cmd( cmd => [ qw(btrfs filesystem show) ],
-                  non_destructive => 1
-                 );
-}
-
-
 sub btrfs_filesystem_show($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
-  return run_cmd( cmd => [ qw(btrfs filesystem show), { unsafe => $path } ],
+  return run_cmd( cmd => vinfo_cmd($vol, "btrfs filesystem show", { unsafe => $path } ),
                   rsh => vinfo_rsh($vol),
                   non_destructive => 1
                  );
@@ -719,7 +725,7 @@ sub btrfs_filesystem_df($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
-  return run_cmd( cmd => [qw(btrfs filesystem df), { unsafe => $path }],
+  return run_cmd( cmd => vinfo_cmd($vol, "btrfs filesystem df", { unsafe => $path }),
                   rsh => vinfo_rsh($vol),
                   non_destructive => 1
                  );
@@ -730,7 +736,7 @@ sub btrfs_filesystem_usage($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
-  my $ret = run_cmd( cmd => [ qw(btrfs filesystem usage), { unsafe => $path } ],
+  my $ret = run_cmd( cmd => vinfo_cmd($vol, "btrfs filesystem usage", { unsafe => $path } ),
                      rsh => vinfo_rsh($vol),
                      non_destructive => 1
                     );
@@ -786,7 +792,7 @@ sub btrfs_subvolume_show($)
 {
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume show), { unsafe => $path }],
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "btrfs subvolume show", { unsafe => $path }),
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                     catch_stderr => 1, # hack for shell-based run_cmd()
@@ -890,7 +896,7 @@ sub btrfs_subvolume_list_readonly_flag($)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
 
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume list), '-a', '-r', { unsafe => $path } ],
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "btrfs subvolume list", '-a', '-r', { unsafe => $path } ),
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
@@ -919,7 +925,7 @@ sub btrfs_subvolume_list($;@)
   # NOTE: Support for btrfs-progs <= 3.17 has been dropped in
   #       btrbk-0.23, the received_uuid flag very essential!
   my @display_options = ('-c', '-u', '-q', '-R');
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume list), @filter_options, @display_options, { unsafe => $path } ],
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "btrfs subvolume list", @filter_options, @display_options, { unsafe => $path } ),
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
@@ -980,7 +986,7 @@ sub btrfs_subvolume_find_new($$;$)
   my $vol = shift || die;
   my $path = $vol->{PATH} // die;
   my $lastgen = shift // die;
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume find-new), { unsafe => $path }, $lastgen ],
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "btrfs subvolume find-new", { unsafe => $path }, $lastgen ),
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
@@ -1047,7 +1053,7 @@ sub btrfs_subvolume_snapshot($$)
                     vinfo_prefixed_keys("target", $target_vol),
                     vinfo_prefixed_keys("source", $svol),
                    );
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume snapshot), '-r', { unsafe => $src_path }, { unsafe => $target_path } ],
+  my $ret = run_cmd(cmd => vinfo_cmd($svol, "btrfs subvolume snapshot", '-r', { unsafe => $src_path }, { unsafe => $target_path } ),
                     rsh => vinfo_rsh($svol),
                    );
   end_transaction("snapshot", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
@@ -1067,13 +1073,14 @@ sub btrfs_subvolume_delete($@)
   die if($commit && ($commit ne "after") && ($commit ne "each"));
   $targets = [ $targets ] unless(ref($targets) eq "ARRAY");
   return 0 unless(scalar(@$targets));
-  my $rsh = vinfo_rsh($targets->[0]);
+
+  # assert all targets share same HOST
+  # NOTE: rsh and backend command is taken from first target
   my $rsh_host_check = $targets->[0]->{HOST} || "";
   foreach (@$targets) {
-    # make sure all targets share same HOST
-    my $host = $_->{HOST} || "";
-    die if($rsh_host_check ne $host);
+    die if($rsh_host_check ne ($_->{HOST} || ""));
   }
+
   INFO "[delete] options: commit-$commit" if($commit);
   INFO "[delete] target: $_->{PRINT}" foreach(@$targets);
   my @options;
@@ -1082,8 +1089,8 @@ sub btrfs_subvolume_delete($@)
                     map( { { vinfo_prefixed_keys("target", $_) }; } @$targets)
                    );
   my @cmd_target_paths = map { { unsafe => $_->{PATH} } } @$targets;
-  my $ret = run_cmd(cmd => [ qw(btrfs subvolume delete), @options, @cmd_target_paths ],
-                    rsh => $rsh,
+  my $ret = run_cmd(cmd => vinfo_cmd($targets->[0], "btrfs subvolume delete", @options, @cmd_target_paths ),
+                    rsh => vinfo_rsh($targets->[0]),
                    );
   end_transaction($opts{type} // "delete", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
@@ -1119,7 +1126,7 @@ sub btrfs_send_receive($$$$;@)
 
   my @cmd_pipe;
   push @cmd_pipe, {
-    cmd => [ qw(btrfs send), @send_options, { unsafe => $snapshot_path } ],
+    cmd => vinfo_cmd($snapshot, "btrfs send", @send_options, { unsafe => $snapshot_path } ),
     rsh => vinfo_rsh($snapshot, disable_compression => config_compress_hash($snapshot, "stream_compress")),
     rsh_compress_out => config_compress_hash($snapshot, "stream_compress"),
     name => "btrfs send",
@@ -1127,7 +1134,7 @@ sub btrfs_send_receive($$$$;@)
   };
   add_pv_command(\@cmd_pipe, show_progress => $show_progress, rate_limit => $opts{rate_limit});
   push @cmd_pipe, {
-    cmd => [ qw(btrfs receive), @receive_options, { unsafe => $target_path . '/' } ],
+    cmd => vinfo_cmd($target, "btrfs receive", @receive_options, { unsafe => $target_path . '/' } ),
     rsh => vinfo_rsh($target, disable_compression => config_compress_hash($target, "stream_compress")),
     name => "btrfs receive",
     rsh_compress_in => config_compress_hash($target, "stream_compress"),
@@ -1257,7 +1264,7 @@ sub btrfs_send_to_file($$$$;@)
 
   my @cmd_pipe;
   push @cmd_pipe, {
-    cmd => [ qw(btrfs send), @send_options, { unsafe => $source_path } ],
+    cmd => vinfo_cmd($source, "btrfs send", @send_options, { unsafe => $source_path } ),
     rsh => vinfo_rsh($source, disable_compression => $opts{compress} || config_compress_hash($source, "stream_compress")),
     name => "btrfs send",
     rsh_compress_out => $opts{compress} || config_compress_hash($source, "stream_compress"),
@@ -1756,6 +1763,29 @@ sub vinfo_rsh($;@)
     push(@ssh_options, '-C');
   }
   return ['ssh', @ssh_options, $ssh_user . '@' . $host ];
+}
+
+
+sub vinfo_cmd($$@)
+{
+  my $vinfo = shift || die;
+  my $cmd = shift || die;
+  my @cmd_args = @_;
+  my $ret;
+  my $backend = $vinfo->{HOST} ? config_key($vinfo, "backend_remote") : config_key($vinfo, "backend_local");
+  $backend = $backend // config_key($vinfo, "backend") // die;
+  my $cmd_mapped = $backend_cmd_map{$backend}{$cmd};
+  if(defined($cmd_mapped)) {
+    TRACE "vinfo_cmd: found mapping for backend=$backend cmd=\"$cmd\": " . join(' ', @$cmd_mapped);
+    $ret = [ @$cmd_mapped, @cmd_args ];
+  }
+  else {
+    my @ret_cmd = split(/\s/, $cmd);
+    die unless($ret_cmd[0] eq 'btrfs');
+    TRACE "vinfo_cmd: no mapping found for backend=$backend cmd=\"$cmd\", assuming btrfs-progs: " . join(' ', @ret_cmd);
+    $ret = [ @ret_cmd, @cmd_args ];
+  }
+  return $ret;
 }
 
 

@@ -269,6 +269,19 @@ If set, make sure the deletion of snapshot and backup subvolumes are
 committed to disk when btrbk terminates. Defaults to \[lq]no\[rq].
 .RE
 .PP
+\fBbackend\fR  btrfs-progs|btrfs-progs-btrbk  \fI*experimental*\fR
+.RS 4
+Btrfs filesystem utilities to be used for subvolume operations. If set
+to \[lq]btrfs-progs-btrbk\[rq], specific btrfs(8) commands groups
+needs to be separated by a dash instead of a whitespace
+(e.g. "btrfs-subvolume-show" instead of "btrfs subvolume
+show"). Useful for setting suid or file capabilities (setcap) on
+specific btrfs commands. For convenience, it is also possible to set
+\fIbackend_local\fR or \fIbackend_remote\fR, which will override the
+\fIbackend\fR option for local or remote sources/targets. Defaults to
+\[lq]btrfs-progs\[rq].
+.RE
+.PP
 Lines that contain a hash character (#) in the first column are
 treated as comments.
 .SH RETENTION POLICY
