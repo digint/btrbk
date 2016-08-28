@@ -102,6 +102,9 @@ snapshot_preserve       14d
 target_preserve_min     no
 target_preserve         20d 10w *m
 
+archive_preserve_min    1y
+archive_preserve        2y
+
 # Backup to external disk mounted on /mnt/btr_backup
 volume /mnt/btr_pool
   # no action if external disk is not attached
