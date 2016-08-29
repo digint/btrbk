@@ -178,6 +178,16 @@ backup only). If set to \[lq]no\[rq], only the backups following the
 \fItarget_preserve\fR policy are created. Defaults to \[lq]all\[rq].
 .RE
 .PP
+\fBarchive_preserve\fR  no|<retention_policy>
+.PD 0
+.PP
+\fBarchive_preserve_min\fR  all|latest|no|<number>{h,d,w,m,y}
+.PD
+.RS 4
+Set retention policy for archives ("btrbk archive" command), with same
+semantics as \fItarget_preserve\fR, \fItarget_preserve_min\fR.
+.RE
+.PP
 \fBpreserve_day_of_week\fR  monday|tuesday|...|sunday
 .RS 4
 Defines on what day a backup/snapshot is considered as a weekly

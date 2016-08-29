@@ -46,8 +46,12 @@ snapshot_dir               _btrbk_snap
 # Preserve all backup targets for a minimum period of time.
 #target_preserve_min        no
 
-# Preserve matrix for backup targets:
+# Retention policy for backup targets:
 #target_preserve            <NN>h <NN>d <NN>w <NN>m <NN>y
+
+# Retention policy for archives ("btrbk archive" command):
+#archive_preserve_min       no
+#archive_preserve           <NN>h <NN>d <NN>w <NN>m <NN>y
 
 # Specify SSH private key for "ssh://" volumes / targets:
 #ssh_identity               /etc/btrbk/ssh/id_ed25519
@@ -107,6 +111,9 @@ snapshot_preserve       14d
 target_preserve_min     no
 target_preserve         20d 10w *m
 
+archive_preserve_min    latest
+archive_preserve        12m 10y
+
 # Backup to external disk mounted on /mnt/btr_backup
 volume /mnt/btr_pool
   # no action if external disk is not attached
@@ -116,7 +123,7 @@ volume /mnt/btr_pool
     target send-receive      /mnt/btr_backup/_btrbk
 
   subvolume  kvm
-    # use different preserve matrix for kvm backups
+    # use different retention policy for kvm backups
     target_preserve          7d 4w
     target send-receive      /mnt/btr_backup/_btrbk
 
