@@ -536,7 +536,7 @@ sub _safe_cmd($$)
     if(ref($_) eq 'HASH') {
       $_ = $_->{unsafe};  # replace in-place
       # NOTE: all files must be absolute
-      unless(check_file($_, { absolute => 1 })) {  # TODO: don't sanitize
+      unless(defined(check_file($_, { absolute => 1 }))) {
         push @$offending, "\"$_\"";
       }
     }
@@ -813,7 +813,7 @@ sub btrfs_subvolume_show($)
   my $real_path;
   if($ret =~ /^($file_match)/) {
     $real_path = $1;
-    $real_path = check_file($real_path, { absolute => 1 });
+    $real_path = check_file($real_path, { absolute => 1 }, sanitize => 1);
     return undef unless(defined($real_path));
     DEBUG "Real path for subvolume \"$vol->{PRINT}\" is: $real_path" if($real_path ne $path);
     $realpath_cache{$vol->{URL}} = $real_path if($real_path ne $path);
@@ -2302,12 +2302,14 @@ sub get_latest_snapshot_child($$)
 }
 
 
-sub check_file($$;$$)
+sub check_file($$;@)
 {
   my $file = shift // die;
   my $accept = shift || die;
-  my $key = shift;  # only for error text
-  my $config_file = shift;  # only for error text
+  my %opts = @_;
+  my $key = $opts{config_key};  # only for error text
+  my $config_file = $opts{config_file};  # only for error text
+  my $sanitize = $opts{sanitize};
 
   my $match = $file_match;
   $match = $glob_match if($accept->{wildcards});
@@ -2345,9 +2347,11 @@ sub check_file($$;$$)
     ERROR "Illegal directory traversal for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
     return undef;
   }
-  $file =~ s/\/+/\//g;     # sanitize multiple slash
-  $file =~ s/\/\.\//\//g;  # sanitize "/./" -> "/"
-  $file =~ s/\/$// unless($file eq '/');   # remove trailing slash
+  if($sanitize) {
+    $file =~ s/\/+/\//g;     # sanitize multiple slash
+    $file =~ s/\/\.\//\//g;  # sanitize "/./" -> "/"
+    $file =~ s/\/$// unless($file eq '/');   # remove trailing slash
+  }
   return $file;
 }
 
@@ -2367,7 +2371,7 @@ sub check_url($;$$)
     $url_prefix = "ssh://" . $1;
   }
 
-  return ( $url_prefix, check_file($url, { absolute => 1 }, $key, $config_file) );
+  return ( $url_prefix, check_file($url, { absolute => 1 }, sanitize => 1, config_key => $key, config_file => $config_file) );
 }
 
 
@@ -2514,7 +2518,7 @@ sub append_config_option($$$$;$)
   elsif($opt->{accept_file})
   {
     # be very strict about file options, for security sake
-    $value = check_file($value, $opt->{accept_file}, $key, $config_file);
+    $value = check_file($value, $opt->{accept_file}, sanitize => 1, config_key => $key, config_file => $config_file);
     return undef unless(defined($value));
 
     TRACE "option \"$key=$value\" is a valid file, accepted";
@@ -2636,7 +2640,7 @@ sub parse_config_line($$$$$)
       TRACE "config: context changed to: $cur->{CONTEXT}";
     }
     # be very strict about file options, for security sake
-    my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, $key, $file);
+    my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, sanitize => 1, config_key => $key, config_file => $file);
     return undef unless(defined($rel_path));
 
     TRACE "config: adding subvolume \"$rel_path\" to volume context: $cur->{url}";
