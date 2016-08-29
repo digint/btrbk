@@ -302,7 +302,7 @@ sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
 
 sub WARN_ONCE {
   my $t = shift;
-  if($warn_once{$t}) { DEBUG("WARN AGAIN: " . $t); }
+  if($warn_once{$t}) { TRACE("WARNING(again): $t"); }
   else { $warn_once{$t} = 1; WARN($t); }
 }
 
