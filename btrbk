@@ -4770,7 +4770,7 @@ MAIN:
           unless($found) {
             my $latest_snapshot = get_latest_snapshot_child($sroot, $svol);
             push @data, { type => "latest_snapshot",
-                          status => ($latest_snapshot->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
+                          status => ($latest_snapshot && ($latest_snapshot->{node}{cgen} == $svol->{node}{gen})) ? "up-to-date" : undef,
                           vinfo_prefixed_keys("source", $svol),
                           vinfo_prefixed_keys("snapshot", $latest_snapshot), # all unset if no $latest_snapshot
                         };

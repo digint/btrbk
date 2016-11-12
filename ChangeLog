@@ -10,6 +10,7 @@ btrbk-current
   * Bugfix: Replace "realpath" with "readlink" in ssh_filter_btrbk.sh
   * Add "raw_target_block_size" configuration option (close #105).
   * Add "backend" configuration option (experimental).
+  * Bugfix: fix "list latest" with no snapshots (close #111).
 
 btrbk-0.23.3
 
