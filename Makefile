@@ -48,9 +48,9 @@ install-man:
 	install -Dm644 doc/btrbk.1 "$(DESTDIR)$(MAN1DIR)/btrbk.1"
 	install -Dm644 doc/ssh_filter_btrbk.1 "$(DESTDIR)$(MAN1DIR)/ssh_filter_btrbk.1"
 	install -Dm644 doc/btrbk.conf.5 "$(DESTDIR)$(MAN5DIR)/btrbk.conf.5"
-	gzip -9 "$(DESTDIR)$(MAN1DIR)/btrbk.1"
-	gzip -9 "$(DESTDIR)$(MAN1DIR)/ssh_filter_btrbk.1"
-	gzip -9 "$(DESTDIR)$(MAN5DIR)/btrbk.conf.5"
+	gzip -9f "$(DESTDIR)$(MAN1DIR)/btrbk.1"
+	gzip -9f "$(DESTDIR)$(MAN1DIR)/ssh_filter_btrbk.1"
+	gzip -9f "$(DESTDIR)$(MAN5DIR)/btrbk.conf.5"
 
 install-doc:
 	@echo 'installing documentation...'
@@ -58,9 +58,9 @@ install-doc:
 	install -Dm644 README.md "$(DESTDIR)$(DOCDIR)/README.md"
 	install -Dm644 doc/FAQ.md "$(DESTDIR)$(DOCDIR)/FAQ.md"
 	install -Dm644 doc/upgrade_to_v0.23.0.md "$(DESTDIR)$(DOCDIR)/upgrade_to_v0.23.0.md"
-	gzip -9 "$(DESTDIR)$(DOCDIR)/ChangeLog"
-	gzip -9 "$(DESTDIR)$(DOCDIR)/README.md"
-	gzip -9 "$(DESTDIR)$(DOCDIR)/FAQ.md"
-	gzip -9 "$(DESTDIR)$(DOCDIR)/upgrade_to_v0.23.0.md"
+	gzip -9f "$(DESTDIR)$(DOCDIR)/ChangeLog"
+	gzip -9f "$(DESTDIR)$(DOCDIR)/README.md"
+	gzip -9f "$(DESTDIR)$(DOCDIR)/FAQ.md"
+	gzip -9f "$(DESTDIR)$(DOCDIR)/upgrade_to_v0.23.0.md"
 
 install: install-bin install-systemd install-share install-man install-doc
