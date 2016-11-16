@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.24.0
 
   * MIGRATION
     - update ssh_filter_btrbk.sh on remote hosts if "stream_compress"
