@@ -828,14 +828,13 @@ sub btrfs_subvolume_show($)
     $real_path = $path;
     WARN "No real path provided by \"btrfs subvolume show\" for subvolume \"$vol->{PRINT}\", using: $path";
   }
-  my %detail = ( REAL_PATH  => $real_path );
 
+  my %detail;
   if($ret =~ /^\Q$real_path\E is (btrfs root|toplevel subvolume)/) {
     # btrfs-progs <  4.4 prints: "<subvol> is btrfs root"
     # btrfs-progs >= 4.4 prints: "<subvol> is toplevel subvolume"
-    DEBUG "found btrfs root: $vol->{PRINT}";
-    $detail{id}      = 5;
-    $detail{is_root} = 1;
+    # btrfs-progs >= 4.8.3 does not enter here, as output shares format with regular subvolumes
+    $detail{id} = 5;
   }
   elsif($ret =~ /^\Q$real_path\E/) {
     TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
@@ -887,6 +886,17 @@ sub btrfs_subvolume_show($)
     ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
     return undef;
   }
+
+  if($detail{id} == 5) {
+    # NOTE: as of btrfs-progs v4.8.3, we get full output for root
+    # subvolume, with lots of '0' and '-' (especially uuid='-').
+    # This breaks things, set $detail to sane values:
+    DEBUG "found btrfs root: $vol->{PRINT}";
+    %detail = ( id => 5, is_root => 1 );
+  }
+
+  $detail{REAL_PATH} = $real_path;
+
   return \%detail;
 }
 

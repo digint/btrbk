@@ -11,6 +11,8 @@ btrbk-current
   * Add "raw_target_block_size" configuration option (close #105).
   * Add "backend" configuration option (experimental).
   * Bugfix: fix "list latest" with no snapshots (close #111).
+  * Support for btrfs-progs v4.8.3: fix parsing of "btrfs sub show"
+    output, which has changed for toplevel subvolume.
 
 btrbk-0.23.3
 
