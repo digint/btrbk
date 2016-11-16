@@ -286,10 +286,11 @@ to \[lq]btrfs-progs-btrbk\[rq], specific btrfs(8) commands groups
 needs to be separated by a dash instead of a whitespace
 (e.g. "btrfs-subvolume-show" instead of "btrfs subvolume
 show"). Useful for setting suid or file capabilities (setcap) on
-specific btrfs commands. For convenience, it is also possible to set
-\fIbackend_local\fR or \fIbackend_remote\fR, which will override the
-\fIbackend\fR option for local or remote sources/targets. Defaults to
-\[lq]btrfs-progs\[rq].
+specific btrfs commands, as implemented in
+<https://github.com/digint/btrfs-progs-btrbk>. For convenience, it is
+also possible to set \fIbackend_local\fR or \fIbackend_remote\fR,
+which will override the \fIbackend\fR option for local or remote
+sources/targets. Defaults to \[lq]btrfs-progs\[rq].
 .RE
 .PP
 Lines that contain a hash character (#) in the first column are
