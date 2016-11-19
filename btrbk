@@ -2194,6 +2194,9 @@ sub get_receive_targets($$;@)
     elsif(defined($received_uuid) && ($_->{node}{received_uuid} eq $received_uuid)) {
       $matched = 'by-received_uuid';
     }
+    elsif(defined($received_uuid) && ($_->{node}{uuid} eq $received_uuid)) {
+      $matched = 'reverse by-uuid';
+    }
     next unless($matched);
 
     TRACE "get_receive_targets: $matched: Found receive target: $_->{SUBVOL_PATH}";
