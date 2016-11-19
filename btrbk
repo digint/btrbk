@@ -2208,23 +2208,28 @@ sub get_receive_targets($$;@)
 
   foreach (@$droot_subvols) {
     next unless($_->{node}{readonly});
+
+    # match uuid/received_uuid combinations (silently ignore uuid==uuid matches)
     my $matched = undef;
     if($_->{node}{received_uuid} eq $uuid) {
-      $matched = 'by-uuid';
+      $matched = 'src.uuid == target.received_uuid';
     }
     elsif(defined($received_uuid) && ($_->{node}{received_uuid} eq $received_uuid)) {
-      $matched = 'by-received_uuid';
+      $matched = 'src.received_uuid == target.received_uuid';
+    }
+    elsif(defined($received_uuid) && ($_->{node}{uuid} eq $received_uuid)) {
+      $matched = 'src.received_uuid == target.uuid';
     }
     next unless($matched);
 
-    TRACE "get_receive_targets: $matched: Found receive target: $_->{SUBVOL_PATH}";
+    TRACE "get_receive_targets: Found receive target ($matched): $_->{SUBVOL_PATH}";
     push(@{$opts{seen}}, $_) if($opts{seen});
     if($opts{exact_match} && !exists($_->{node}{BTRBK_RAW})) {
       if($_->{direct_leaf} && ($_->{NAME} eq $src_vol->{NAME})) {
         TRACE "get_receive_targets: exact_match: $_->{SUBVOL_PATH}";
       }
       else {
-        TRACE "get_receive_targets: $matched: skip non-exact match: $_->{PRINT}";
+        TRACE "get_receive_targets: skip non-exact match ($matched): $_->{PRINT}";
         WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $_->{PRINT}" if($opts{warn});
         next;
       }
@@ -2255,8 +2260,9 @@ sub get_receive_targets_fsroot($$@)
   # search in filesystem for matching received_uuid
   foreach my $node (
     grep({ (not $_->{is_root}) &&
-           (($_->{received_uuid} eq $uuid) ||
-            (defined($received_uuid) && ($_->{received_uuid} eq $received_uuid)))
+           (($_->{received_uuid} eq $uuid) ||                                        # match src.uuid == target.received_uuid
+            (defined($received_uuid) && ($_->{received_uuid} eq $received_uuid)) ||  # match src.received_uuid == target.received_uuid
+            (defined($received_uuid) && ($_->{uuid} eq $received_uuid)))             # match src.received_uuid == target.uuid
           } values(%{$droot->{node}{TREE_ROOT}{ID_HASH}}) ) )
   {
     next if(scalar grep($_ == $node->{id}, @exclude));
