@@ -6,7 +6,6 @@ set -u
 export PATH=/sbin:/bin:/usr/sbin:/usr/bin
 
 enable_log=
-use_sudo=
 restrict_path_list=
 allow_list=
 allow_exact_list=
@@ -41,7 +40,7 @@ reject_and_die()
 run_cmd()
 {
     log_cmd "auth.info" "btrbk ACCEPT"
-    eval " $use_sudo $SSH_ORIGINAL_COMMAND"
+    eval " $SSH_ORIGINAL_COMMAND"
 }
 
 reject_filtered_cmd()
@@ -83,10 +82,8 @@ reject_filtered_cmd()
 }
 
 
-
-allow_cmd "btrfs subvolume show"; # subvolume queries are always allowed
-allow_cmd "btrfs subvolume list"; # subvolume queries are always allowed
-
+# FIXME: "--sudo" must be set before all other options!
+sudo_prefix=
 while [[ "$#" -ge 1 ]]; do
     key="$1"
 
@@ -96,7 +93,7 @@ while [[ "$#" -ge 1 ]]; do
           ;;
 
       --sudo)
-          use_sudo="sudo"
+          sudo_prefix="sudo -n "
           ;;
 
       -p|--restrict-path)
@@ -105,12 +102,12 @@ while [[ "$#" -ge 1 ]]; do
           ;;
 
       -s|--source)
-          allow_cmd "btrfs subvolume snapshot"
-          allow_cmd "btrfs send"
+          allow_cmd "${sudo_prefix}btrfs subvolume snapshot"
+          allow_cmd "${sudo_prefix}btrfs send"
           ;;
 
       -t|--target)
-          allow_cmd "btrfs receive"
+          allow_cmd "${sudo_prefix}btrfs receive"
           # the following are needed if targets point to a directory
           allow_cmd "readlink"
           allow_exact_cmd "cat /proc/self/mounts"
@@ -121,24 +118,24 @@ while [[ "$#" -ge 1 ]]; do
           ;;
 
       -d|--delete)
-          allow_cmd "btrfs subvolume delete"
+          allow_cmd "${sudo_prefix}btrfs subvolume delete"
           ;;
 
       -i|--info)
-          allow_cmd "btrfs subvolume find-new"
-          allow_cmd "btrfs filesystem usage"
+          allow_cmd "${sudo_prefix}btrfs subvolume find-new"
+          allow_cmd "${sudo_prefix}btrfs filesystem usage"
           ;;
 
       --snapshot)
-          allow_cmd "btrfs subvolume snapshot"
+          allow_cmd "${sudo_prefix}btrfs subvolume snapshot"
           ;;
 
       --send)
-          allow_cmd "btrfs send"
+          allow_cmd "${sudo_prefix}btrfs send"
           ;;
 
       --receive)
-          allow_cmd "btrfs receive"
+          allow_cmd "${sudo_prefix}btrfs receive"
           ;;
 
       *)
@@ -148,6 +145,9 @@ while [[ "$#" -ge 1 ]]; do
     esac
     shift
 done
+
+allow_cmd "${sudo_prefix}btrfs subvolume show"; # subvolume queries are always allowed
+allow_cmd "${sudo_prefix}btrfs subvolume list"; # subvolume queries are always allowed
 
 # remove leading "|" on alternation lists
 allow_list=${allow_list#\|}

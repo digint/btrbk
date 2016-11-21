@@ -279,18 +279,29 @@ If set, make sure the deletion of snapshot and backup subvolumes are
 committed to disk when btrbk terminates. Defaults to \[lq]no\[rq].
 .RE
 .PP
-\fBbackend\fR  btrfs-progs|btrfs-progs-btrbk  \fI*experimental*\fR
+\fBbackend\fR  btrfs-progs|btrfs-progs-btrbk|btrfs-progs-sudo
 .RS 4
-Btrfs filesystem utilities to be used for subvolume operations. If set
+Backend filesystem utilities to be used for btrfs specific operations. The
+default \[lq]btrfs-progs\[rq] simply executes btrfs(8) commands groups
+(e.g. "btrfs subvolume show").
+.IP \[bu] 2
+If set
 to \[lq]btrfs-progs-btrbk\[rq], specific btrfs(8) commands groups
 needs to be separated by a dash instead of a whitespace
 (e.g. "btrfs-subvolume-show" instead of "btrfs subvolume
 show"). Useful for setting suid or file capabilities (setcap) on
 specific btrfs commands, as implemented in
-<https://github.com/digint/btrfs-progs-btrbk>. For convenience, it is
-also possible to set \fIbackend_local\fR or \fIbackend_remote\fR,
-which will override the \fIbackend\fR option for local or remote
-sources/targets. Defaults to \[lq]btrfs-progs\[rq].
+<https://github.com/digint/btrfs-progs-btrbk>.
+.IP \[bu] 2
+If set to \[lq]btrfs-progs-sudo\[rq], btrfs commands are prefixed with
+"sudo -n" (e.g. "sudo -n btrfs subvolume show" instead of "btrfs
+subvolume show"). Make sure to have apropriate (root) permissions for
+"btrfs" command groups in /etc/sudoers.
+.PP
+For convenience, it is also possible to set \fIbackend_local\fR or
+\fIbackend_remote\fR options, which will override the backend only for
+local or remote sources/targets (e.g. "backend_remote
+btrfs-progs-btrbk").
 .RE
 .PP
 Lines that contain a hash character (#) in the first column are

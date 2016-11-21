@@ -124,9 +124,9 @@ my %config_options = (
 
   group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
 
-  backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk" ] },
-  backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk" ] },
-  backend_remote              => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk" ] },
+  backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
+  backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
+  backend_remote              => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
 
   # deprecated options
   btrfs_progs_compat          => { default => undef, accept => [ "yes", "no" ],
@@ -218,6 +218,13 @@ my %backend_cmd_map = (
                            "btrfs subvolume delete"   => [ "btrfs-subvolume-delete"   ],
                            "btrfs send"               => [ "btrfs-send"               ],
                            "btrfs receive"            => [ "btrfs-receive"            ],
+                         },
+  "btrfs-progs-sudo" =>  { "btrfs subvolume list"     => [ "sudo", "-n", "btrfs", "subvolume", "list"     ],
+                           "btrfs subvolume show"     => [ "sudo", "-n", "btrfs", "subvolume", "show"     ],
+                           "btrfs subvolume snapshot" => [ "sudo", "-n", "btrfs", "subvolume", "snapshot" ],
+                           "btrfs subvolume delete"   => [ "sudo", "-n", "btrfs", "subvolume", "delete"   ],
+                           "btrfs send"               => [ "sudo", "-n", "btrfs", "send"                  ],
+                           "btrfs receive"            => [ "sudo", "-n", "btrfs", "receive"               ],
                          },
 );
 
