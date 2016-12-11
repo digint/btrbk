@@ -46,7 +46,7 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = '0.24.0';
+our $VERSION         = '0.24.1-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 
@@ -193,9 +193,9 @@ my %table_formats = (
                  },
 
   usage       => { table => [ qw( host path size used free ) ],
-                   long  => [ qw( type host path size device_allocated device_unallocated device_missing used free free_min data_ratio metadata_ratio used global_reserve global_reserve_used ) ],
-                   raw   => [ qw( type host path size device_allocated device_unallocated device_missing used free free_min data_ratio metadata_ratio used global_reserve global_reserve_used ) ],
-                   RALIGN => { size=>1, device_allocated=>1, device_unallocated=>1, device_missing=>1, used=>1, free=>1, free_min=>1, data_ratio=>1, metadata_ratio=>1, used=>1, global_reserve=>1, global_reserve_used=>1 },
+                   long  => [ qw( type host path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
+                   raw   => [ qw( type host path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
+                   RALIGN => { size=>1, used=>1, device_size=>1, device_allocated=>1, device_unallocated=>1, device_missing=>1, device_used=>1, free=>1, free_min=>1, data_ratio=>1, metadata_ratio=>1, global_reserve=>1, global_reserve_used=>1 },
                  },
 
   transaction => { table => [ qw(           type status          target_host target_subvol source_host source_subvol parent_subvol         ) ],
@@ -745,7 +745,7 @@ sub btrfs_filesystem_usage($)
   my %detail;
   foreach (split("\n", $ret)) {
     if(/^\s+Device size:\s+(\S+)/) {
-      $detail{size} = $1;
+      $detail{device_size} = $1;
     }
     elsif(/^\s+Device allocated:\s+(\S+)/) {
       $detail{device_allocated} = $1;
@@ -757,7 +757,7 @@ sub btrfs_filesystem_usage($)
       $detail{device_missing} = $1;
     }
     elsif(/^\s+Used:\s+(\S+)/) {
-      $detail{used} = $1;
+      $detail{device_used} = $1;
     }
     elsif(/^\s+Free \(estimated\):\s+(\S+)\s+\(min: (\S+)\)/) {
       $detail{free} = $1;
@@ -781,6 +781,17 @@ sub btrfs_filesystem_usage($)
     }
   }
   DEBUG "Parsed " . scalar(keys %detail) . " filesystem usage detail items: $vol->{PRINT}";
+
+  # calculate aggregate size / usage
+  if($detail{data_ratio} =~ /^[0-9]+\.[0-9]+$/) {
+    if($detail{device_size} =~ /^([0-9]+\.[0-9]+)(.*)/) {
+      $detail{size} = sprintf('%.2f%s', $1 / $detail{data_ratio}, $2);
+    }
+    if($detail{device_used} =~ /^([0-9]+\.[0-9]+)(.*)/) {
+      $detail{used} = sprintf('%.2f%s', $1 / $detail{data_ratio}, $2);
+    }
+  }
+
   TRACE(Data::Dumper->Dump([\%detail], ["btrfs_filesystem_usage($vol->{URL})"])) if($do_dumper);
   return \%detail;
 }

@@ -254,9 +254,10 @@ not being set on a target (backup) subvolume.
 .B usage
 [filter...]
 .RS 4
-Print filesystem usage information for all source/target
-volumes. Optionally filtered by [filter...] arguments (see \fIFILTER
-STATEMENTS\fR below).
+Print filesystem usage information for all source/target volumes,
+optionally filtered by [filter...] arguments (see \fIFILTER
+STATEMENTS\fR below). Note that the "free" value is an estimate of the
+amount of data that can still be written to the file system.
 .RE
 .PP
 .B origin
