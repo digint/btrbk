@@ -1296,9 +1296,19 @@ sub btrfs_send_to_file($$$$;@)
     push @cmd_pipe, { compress => $opts{compress} }; # does nothing if already compressed by rsh_compress_out
   }
   if($opts{encrypt}) {
+    # NOTE: We set "--no-random-seed-file" since one of the btrbk
+    # design principles is to never create any files unasked. Enabling
+    # "--no-random-seed-file" creates ~/.gnupg/random_seed, and as
+    # such depends on $HOME to be set correctly (which e.g. is set to
+    # "/" by some cron daemons). From gpg2(1) man page:
+    #   --no-random-seed-file GnuPG uses a file to store its
+    #   internal random pool over invocations This makes random
+    #   generation faster; however sometimes write operations are not
+    #   desired. This option can be used to achieve that with the cost
+    #   of slower random generation.
     die unless($opts{encrypt}->{type} eq "gpg");
     $target_filename .= '.gpg';
-    my @gpg_options = ( '--batch', '--no-tty', '--trust-model', 'always' );
+    my @gpg_options = ( '--batch', '--no-tty', '--no-random-seed-file', '--trust-model', 'always' );
     push @gpg_options, ( '--compress-algo', 'none' ) if($opts{compress});  # NOTE: if --compress-algo is not set, gpg might still compress according to OpenPGP standard.
     push(@gpg_options, ( '--no-default-keyring', '--keyring', $opts{encrypt}->{keyring} )) if($opts{encrypt}->{keyring});
     push(@gpg_options, ( '--default-recipient', $opts{encrypt}->{recipient} )) if($opts{encrypt}->{recipient});

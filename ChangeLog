@@ -1,6 +1,9 @@
 btrbk-current
 
   * Show aggregate "size" and "used" for "usage" action (close #119).
+  * raw_target_encrypt: Always set "gpg --no-random-seed-file":
+    prevents creation of "~/.gnupg/random_seed" with slight perfomance
+    penalty.
 
 btrbk-0.24.0
 
