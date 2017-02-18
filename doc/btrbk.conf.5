@@ -80,9 +80,9 @@ target_url source_url parent_url message".
 \fBtransaction_syslog\fR  <facility>
 .RS 4
 If set, all transactions (as described in \fItransaction_log\fR above)
-are logged to syslog. The facility parameter accepts a lowercase
-syslog facility name, like \[lq]daemon\[rq] or \[lq]local7\[rq]. The
-program name used in the messages is "btrbk".
+are logged to syslog. The program name used in the messages is
+"btrbk".  Accepted parameters for \fI<facility>\fR: user, mail, daemon,
+auth, lpr, news, cron, authpriv, local0..local7.
 .RE
 .PP
 \fBtimestamp_format\fR  short|long|long\-iso
