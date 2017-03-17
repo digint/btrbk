@@ -20,11 +20,15 @@ the "\-\-source", "\-\-target", "\-\-delete" and "\-\-info" options.
 Note that the following btrfs commands are always allowed: "btrfs
 subvolume show", "btrfs subvolume list".
 .PP
+Note that commands for stream compression (pipes through gzip, pigz,
+bzip2, pbzip2, xz, lzo, lz4) as well as rate limiting (pipes through
+"pv -L") are always allowed.
+.PP
 Example line in /root/.ssh/authorized_keys on a backup target host:
 .PP
 .RS 4
 .nf
-command="ssh_filter_btrbk.sh \-\-target \-\-delete \-\-compress \-\-restrict\-path /mnt/btr_backup" ssh\-rsa AAAAB3NzaC1...hwumXFRQBL btrbk@mydomain.com
+command="ssh_filter_btrbk.sh \-\-target \-\-delete \-\-restrict\-path /mnt/btr_backup" ssh\-rsa AAAAB3NzaC1...hwumXFRQBL btrbk@mydomain.com
 .fi
 .RE
 .SH OPTIONS

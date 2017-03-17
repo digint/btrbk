@@ -10,7 +10,7 @@ restrict_path_list=
 allow_list=
 allow_exact_list=
 allow_rate_limit=1
-allow_compress=
+allow_compress=1
 compress_list="gzip|pigz|bzip2|pbzip2|xz|lzo|lz4"
 
 log_cmd()
@@ -125,7 +125,7 @@ while [[ "$#" -ge 1 ]]; do
           ;;
 
       -c|--compress)
-          allow_compress=1
+          # deprecated option, compression is always allowed
           ;;
 
       -d|--delete)
