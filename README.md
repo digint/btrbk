@@ -50,7 +50,7 @@ Prerequisites
 
   * [btrfs-progs]: Btrfs filesystem utilities >= v3.18.2
   * [Perl interpreter]: Probably already installed on your system
-  * [OpenSSH]: If you want to tranfer backups from/to remote locations
+  * [OpenSSH]: If you want to transfer backups from/to remote locations
 
   [btrfs-progs]: http://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
   [Perl interpreter]: https://www.perl.org
@@ -259,7 +259,7 @@ regular basis:
     #!/bin/sh
     exec /usr/sbin/btrbk -q run
 
-Note that you can run btrbk more than once an hour, e.g. by by calling
+Note that you can run btrbk more than once an hour, e.g. by calling
 `sudo btrbk run` from the command line. With this setup, all those
 extra snapshots will be kept for 18 hours.
 
