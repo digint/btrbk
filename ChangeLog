@@ -1,6 +1,8 @@
 btrbk-current
 
   * MIGRATION
+    - If you call ssh_filter_btrbk.sh with "--sudo" option, make sure
+      to set "backend btrfs-progs-sudo" in btrbk.conf for this host.
     - If "rate_limit" is enabled, update ssh_filter_btrbk.sh on remote
       source hosts, and make sure the "pv" command is available there.
   * Allow converting backup disks to source disks (close #114).

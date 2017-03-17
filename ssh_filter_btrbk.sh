@@ -89,8 +89,12 @@ reject_filtered_cmd()
 }
 
 
-# FIXME: "--sudo" must be set before all other options!
+# check for "--sudo" option before processing other options
 sudo_prefix=
+for key; do
+    [[ "$key" == "--sudo" ]] && sudo_prefix="sudo -n "
+done
+
 while [[ "$#" -ge 1 ]]; do
     key="$1"
 
@@ -100,7 +104,7 @@ while [[ "$#" -ge 1 ]]; do
           ;;
 
       --sudo)
-          sudo_prefix="sudo -n "
+          # already processed above
           ;;
 
       -p|--restrict-path)
