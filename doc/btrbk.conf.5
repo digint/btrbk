@@ -262,7 +262,9 @@ Number of threads to use for <compress_command>. Only supported for
 .RS 4
 Limit the transfer to a maximum of \fI<rate>\fR bytes per second. A
 suffix of "k", "m", "g", or "t" can be added to denote kilobytes
-(*1024), megabytes, and so on. Defaults to \[lq]no\[rq].
+(*1024), megabytes, and so on. Defaults to \[lq]no\[rq]. If enabled
+for remote sources, make sure that the "pv" command is available on
+the source host.
 .RE
 .PP
 \fBlockfile\fR  <file>

@@ -105,7 +105,7 @@ my %config_options = (
   ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   ssh_compression             => { default => undef,     accept => [ "yes", "no" ] },
   ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
-  rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgt]?$/, require_bin => 'pv' },
+  rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgtKMGT]?$/, require_bin => 'pv' },
   transaction_log             => { default => undef,     accept_file => { absolute => 1 } },
   transaction_syslog          => { default => undef,     accept => \@syslog_facilities },
   lockfile                    => { default => undef,     accept_file => { absolute => 1 }, context => [ "root" ] },
@@ -477,6 +477,12 @@ sub check_exe($)
   return 0;
 }
 
+sub rate_limit_cmd($)
+{
+  my $rate = shift;
+  return "pv -q -L " . lc($rate);
+}
+
 sub compress_cmd($;$)
 {
   my $def = shift;
@@ -628,6 +634,10 @@ sub run_cmd(@)
           }
         }
 
+        if($href->{rsh_rate_limit_in}) {
+          push @cmd_pipe, { cmd_text => rate_limit_cmd($href->{rsh_rate_limit_in}) };
+        }
+
         if($compressed && (not ($href->{compressed_ok}))) {
           unshift @rsh_cmd_pipe, { cmd_text => decompress_cmd($compressed) };
           $compressed = undef;
@@ -637,6 +647,10 @@ sub run_cmd(@)
           die if($href->{redirect_to_file});
           push @rsh_cmd_pipe, { cmd_text => compress_cmd($href->{rsh_compress_out}) };
           $compressed = $href->{rsh_compress_out};
+        }
+
+        if($href->{rsh_rate_limit_out}) {
+          push @rsh_cmd_pipe, { cmd_text => rate_limit_cmd($href->{rsh_rate_limit_out}) };
         }
 
         if((scalar(@rsh_cmd_pipe) == 1) && ($rsh_cmd_pipe[0]->{redirect_to_file})) {
@@ -698,21 +712,11 @@ sub run_cmd(@)
 }
 
 
-sub add_pv_command($@)
+sub add_progress_command($)
 {
   my $cmd_pipe = shift || die;
-  my %opts = @_;
-  my $rate_limit = $opts{rate_limit};
-
-  if($opts{show_progress}) {
-    if($rate_limit) {
-      push @$cmd_pipe, { cmd => [ 'pv', '-trab', '-L', $rate_limit ], compressed_ok => 1 };
-    } else {
-      push @$cmd_pipe, { cmd => [ 'pv', '-trab' ], compressed_ok => 1 };
-    }
-  }
-  elsif($rate_limit) {
-    push @$cmd_pipe, { cmd => [ 'pv', '-q', '-L', $rate_limit ], compressed_ok => 1 };
+  if($show_progress) {
+    push @$cmd_pipe, { cmd => [ 'pv', '-trab' ], compressed_ok => 1 };
   }
 }
 
@@ -1132,7 +1136,7 @@ sub btrfs_send_receive($$$$;@)
   my $target = shift || die;
   my $parent = shift;
   my $ret_vol_received = shift;
-  my %opts = @_;
+  # my %opts = @_;
   my $snapshot_path = $snapshot->{PATH} // die;
   my $target_path = $target->{PATH} // die;
   my $parent_path = $parent ? $parent->{PATH} : undef;
@@ -1157,15 +1161,17 @@ sub btrfs_send_receive($$$$;@)
     cmd => vinfo_cmd($snapshot, "btrfs send", @send_options, { unsafe => $snapshot_path } ),
     rsh => vinfo_rsh($snapshot, disable_compression => config_compress_hash($snapshot, "stream_compress")),
     rsh_compress_out => config_compress_hash($snapshot, "stream_compress"),
+    rsh_rate_limit_out => config_key($snapshot, "rate_limit"),
     name => "btrfs send",
     catch_stderr => 1, # hack for shell-based run_cmd()
   };
-  add_pv_command(\@cmd_pipe, show_progress => $show_progress, rate_limit => $opts{rate_limit});
+  add_progress_command(\@cmd_pipe);
   push @cmd_pipe, {
     cmd => vinfo_cmd($target, "btrfs receive", @receive_options, { unsafe => $target_path . '/' } ),
     rsh => vinfo_rsh($target, disable_compression => config_compress_hash($target, "stream_compress")),
     name => "btrfs receive",
     rsh_compress_in => config_compress_hash($target, "stream_compress"),
+    rsh_rate_limit_in => config_key($target, "rate_limit"),
     catch_stderr => 1, # hack for shell-based run_cmd()
     filter_stderr => sub { $err = $_; $_ = undef }
   };
@@ -1296,8 +1302,9 @@ sub btrfs_send_to_file($$$$;@)
     rsh => vinfo_rsh($source, disable_compression => $opts{compress} || config_compress_hash($source, "stream_compress")),
     name => "btrfs send",
     rsh_compress_out => $opts{compress} || config_compress_hash($source, "stream_compress"),
+    rsh_rate_limit_out => config_key($source, "rate_limit"),
   };
-  add_pv_command(\@cmd_pipe, show_progress => $show_progress, rate_limit => $opts{rate_limit});
+  add_progress_command(\@cmd_pipe);
   if($opts{compress}) {
     $target_filename .= '.' . $compression{$opts{compress}->{key}}->{format};
     push @cmd_pipe, { compress => $opts{compress} }; # does nothing if already compressed by rsh_compress_out
@@ -1340,6 +1347,7 @@ sub btrfs_send_to_file($$$$;@)
     #redirect_to_file => { unsafe => "${target_path}/${target_filename}.part" },  # alternative (use shell redirection), less overhead on local filesystems (barely measurable):
     rsh => vinfo_rsh($target, disable_compression => $opts{compress} || config_compress_hash($target, "stream_compress")),
     rsh_compress_in => $opts{compress} || config_compress_hash($target, "stream_compress"),
+    rsh_rate_limit_in => config_key($target, "rate_limit"),
     compressed_ok => ($opts{compress} ? 1 : 0),
   };
 
@@ -2928,7 +2936,7 @@ sub macro_send_receive(@)
   my $vol_received;
   if($target_type eq "send-receive")
   {
-    $ret = btrfs_send_receive($source, $target, $parent, \$vol_received, rate_limit => config_key($config_target, "rate_limit"));
+    $ret = btrfs_send_receive($source, $target, $parent, \$vol_received);
     ABORTED($config_target, "Failed to send/receive subvolume") unless($ret);
   }
   elsif($target_type eq "raw")
@@ -2956,7 +2964,6 @@ sub macro_send_receive(@)
     $ret = btrfs_send_to_file($source, $target, $parent, \$vol_received,
                               compress   => config_compress_hash($config_target, "raw_target_compress"),
                               encrypt    => $encrypt,
-                              rate_limit => config_key($config_target, "rate_limit"),
                              );
     ABORTED($config_target, "Failed to send subvolume to raw file") unless($ret);
   }

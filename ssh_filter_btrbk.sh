@@ -9,6 +9,7 @@ enable_log=
 restrict_path_list=
 allow_list=
 allow_exact_list=
+allow_rate_limit=1
 allow_compress=
 compress_list="gzip|pigz|bzip2|pbzip2|xz|lzo|lz4"
 
@@ -66,8 +67,14 @@ reject_filtered_cmd()
         compress_match=
     fi
 
+    if [[ -n "$allow_rate_limit" ]]; then
+        rate_limit_match="( \| pv -q -L [0-9]+[kmgt]?)?"
+    else
+        rate_limit_match=
+    fi
+
     # allow multiple paths (e.g. "btrfs subvolume snapshot <src> <dst>")
-    btrfs_cmd_match="^${decompress_match}(${allow_list})( ${option_match})*( ${path_match})+${compress_match}$"
+    btrfs_cmd_match="^${decompress_match}(${allow_list})( ${option_match})*( ${path_match})+${compress_match}${rate_limit_match}$"
 
     if [[ $SSH_ORIGINAL_COMMAND =~ $btrfs_cmd_match ]] ; then
         return 0
@@ -164,7 +171,7 @@ case "$SSH_ORIGINAL_COMMAND" in
     *\<*)     reject_and_die "unsafe character"     ;;
     *\>*)     reject_and_die "unsafe character"     ;;
     *\`*)     reject_and_die "unsafe character"     ;;
-    *\|*)     [[ -n "$allow_compress" ]] || reject_and_die "unsafe character (compression disallowed)" ;;
+    *\|*)     [[ -n "$allow_compress" ]] || [[ -n "$allow_rate_limit" ]] || reject_and_die "unsafe character (compression disallowed)" ;;
 esac
 
 reject_filtered_cmd
