@@ -1131,13 +1131,12 @@ sub btrfs_subvolume_delete($@)
 }
 
 
-sub btrfs_send_receive($$$$;@)
+sub btrfs_send_receive($$$$)
 {
   my $snapshot = shift || die;
   my $target = shift || die;
   my $parent = shift;
   my $ret_vol_received = shift;
-  # my %opts = @_;
   my $snapshot_path = $snapshot->{PATH} // die;
   my $target_path = $target->{PATH} // die;
   my $parent_path = $parent ? $parent->{PATH} : undef;
@@ -1273,13 +1272,12 @@ sub btrfs_send_receive($$$$;@)
 }
 
 
-sub btrfs_send_to_file($$$$;@)
+sub btrfs_send_to_file($$$$)
 {
   my $source = shift || die;
   my $target = shift || die;
   my $parent = shift;
   my $ret_vol_received = shift;
-  my %opts = @_;
   my $source_path   = $source->{PATH} // die;
   my $target_path   = $target->{PATH} // die;
   my $parent_path   = $parent ? $parent->{PATH} : undef;
@@ -1293,6 +1291,10 @@ sub btrfs_send_to_file($$$$;@)
   $target_filename .= '@' . $parent_uuid if($parent_uuid);
   $target_filename .= ".btrfs";
 
+  my $compress = config_compress_hash($target, "raw_target_compress");
+  my $encrypt = config_encrypt_hash($target, "raw_target_encrypt");
+  my $split = config_key($target, "raw_target_split");
+
   my @send_options;
   push(@send_options, '-v') if($loglevel >= 3);
   push(@send_options, '-p', $parent_path) if($parent_path);
@@ -1300,17 +1302,17 @@ sub btrfs_send_to_file($$$$;@)
   my @cmd_pipe;
   push @cmd_pipe, {
     cmd => vinfo_cmd($source, "btrfs send", @send_options, { unsafe => $source_path } ),
-    rsh => vinfo_rsh($source, disable_compression => $opts{compress} || config_compress_hash($source, "stream_compress")),
+    rsh => vinfo_rsh($source, disable_compression => $compress || config_compress_hash($source, "stream_compress")),
     name => "btrfs send",
-    rsh_compress_out => $opts{compress} || config_compress_hash($source, "stream_compress"),
+    rsh_compress_out => $compress || config_compress_hash($source, "stream_compress"),
     rsh_rate_limit_out => config_key($source, "rate_limit"),
   };
   add_progress_command(\@cmd_pipe);
-  if($opts{compress}) {
-    $target_filename .= '.' . $compression{$opts{compress}->{key}}->{format};
-    push @cmd_pipe, { compress => $opts{compress} }; # does nothing if already compressed by rsh_compress_out
+  if($compress) {
+    $target_filename .= '.' . $compression{$compress->{key}}->{format};
+    push @cmd_pipe, { compress => $compress }; # does nothing if already compressed by rsh_compress_out
   }
-  if($opts{encrypt}) {
+  if($encrypt) {
     # NOTE: We set "--no-random-seed-file" since one of the btrbk
     # design principles is to never create any files unasked. Enabling
     # "--no-random-seed-file" creates ~/.gnupg/random_seed, and as
@@ -1321,29 +1323,28 @@ sub btrfs_send_to_file($$$$;@)
     #   generation faster; however sometimes write operations are not
     #   desired. This option can be used to achieve that with the cost
     #   of slower random generation.
-    die unless($opts{encrypt}->{type} eq "gpg");
+    die unless($encrypt->{type} eq "gpg");
     $target_filename .= '.gpg';
     my @gpg_options = ( '--batch', '--no-tty', '--no-random-seed-file', '--trust-model', 'always' );
-    push @gpg_options, ( '--compress-algo', 'none' ) if($opts{compress});  # NOTE: if --compress-algo is not set, gpg might still compress according to OpenPGP standard.
-    push(@gpg_options, ( '--no-default-keyring', '--keyring', $opts{encrypt}->{keyring} )) if($opts{encrypt}->{keyring});
-    push(@gpg_options, ( '--default-recipient', $opts{encrypt}->{recipient} )) if($opts{encrypt}->{recipient});
+    push @gpg_options, ( '--compress-algo', 'none' ) if($compress);  # NOTE: if --compress-algo is not set, gpg might still compress according to OpenPGP standard.
+    push(@gpg_options, ( '--no-default-keyring', '--keyring', $encrypt->{keyring} )) if($encrypt->{keyring});
+    push(@gpg_options, ( '--default-recipient', $encrypt->{recipient} )) if($encrypt->{recipient});
     push @cmd_pipe, {
       cmd => [ 'gpg', @gpg_options, '--encrypt' ],
       name => 'gpg',
-      compressed_ok => ($opts{compress} ? 1 : 0),
+      compressed_ok => ($compress ? 1 : 0),
     };
   }
 
-  my $split = config_key($target, "raw_target_split");
   if($split) {
     $target_filename .= '.split';
     push @cmd_pipe, {
       cmd => [ 'split', '-b', uc($split), '-', "${target_path}/${target_filename}_" ],
       check_unsafe => [ { unsafe => "${target_path}/${target_filename}_" } ],
-      rsh => vinfo_rsh($target, disable_compression => $opts{compress} || config_compress_hash($target, "stream_compress")),
-      rsh_compress_in => $opts{compress} || config_compress_hash($target, "stream_compress"),
+      rsh => vinfo_rsh($target, disable_compression => $compress || config_compress_hash($target, "stream_compress")),
+      rsh_compress_in => $compress || config_compress_hash($target, "stream_compress"),
       rsh_rate_limit_in => config_key($target, "rate_limit"),
-      compressed_ok => ($opts{compress} ? 1 : 0),
+      compressed_ok => ($compress ? 1 : 0),
     }
   }
   else {
@@ -1360,10 +1361,10 @@ sub btrfs_send_to_file($$$$;@)
       cmd => [ 'dd', 'status=none', 'bs=' . config_key($target, "raw_target_block_size"), "of=${target_path}/${target_filename}.part" ],
       check_unsafe => [ { unsafe => "${target_path}/${target_filename}.part" } ],
       #redirect_to_file => { unsafe => "${target_path}/${target_filename}.part" },  # alternative (use shell redirection), less overhead on local filesystems (barely measurable):
-      rsh => vinfo_rsh($target, disable_compression => $opts{compress} || config_compress_hash($target, "stream_compress")),
-      rsh_compress_in => $opts{compress} || config_compress_hash($target, "stream_compress"),
+      rsh => vinfo_rsh($target, disable_compression => $compress || config_compress_hash($target, "stream_compress")),
+      rsh_compress_in => $compress || config_compress_hash($target, "stream_compress"),
       rsh_rate_limit_in => config_key($target, "rate_limit"),
-      compressed_ok => ($opts{compress} ? 1 : 0),
+      compressed_ok => ($compress ? 1 : 0),
     };
   }
 
@@ -2549,6 +2550,21 @@ sub config_compress_hash($$)
 }
 
 
+sub config_encrypt_hash($$)
+{
+  my $config = shift || die;
+  my $config_key = shift || die;
+  my $encrypt_type = config_key($config, $config_key);
+  return undef unless($encrypt_type);
+  die unless($encrypt_type eq "gpg");
+  return {
+    type => $encrypt_type,
+    keyring => config_key($config, "gpg_keyring"),
+    recipient => config_key($config, "gpg_recipient"),
+  };
+}
+
+
 sub config_dump_keys($;@)
 {
   my $config = shift || die;
@@ -2981,20 +2997,7 @@ sub macro_send_receive(@)
         $uuid_cache{$detail->{uuid}} = $source->{node};
       }
     }
-
-    my $encrypt = undef;
-    my $encrypt_type = config_key($config_target, "raw_target_encrypt");
-    if($encrypt_type) {
-      die unless($encrypt_type eq "gpg");
-      $encrypt = { type => $encrypt_type,
-                   keyring => config_key($config_target, "gpg_keyring"),
-                   recipient => config_key($config_target, "gpg_recipient"),
-                 }
-    }
-    $ret = btrfs_send_to_file($source, $target, $parent, \$vol_received,
-                              compress   => config_compress_hash($config_target, "raw_target_compress"),
-                              encrypt    => $encrypt,
-                             );
+    $ret = btrfs_send_to_file($source, $target, $parent, \$vol_received);
     ABORTED($config_target, "Failed to send subvolume to raw file") unless($ret);
   }
   else
