@@ -9,6 +9,7 @@ btrbk-current
   * Add "backend btrfs-progs-sudo" configuration option (close #115).
   * Show aggregate "size" and "used" for "usage" action (close #119).
   * Add "raw_target_split" configuration option (close #125).
+  * Allow trailing comments in btrbk.conf (close #129).
   * Bugfix: rate limiting must be done after compression (close #134).
   * raw_target_encrypt: Always set "gpg --no-random-seed-file":
     prevents creation of "~/.gnupg/random_seed" with slight perfomance

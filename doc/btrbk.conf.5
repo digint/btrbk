@@ -19,6 +19,9 @@ defined either globally or within a section.
 The options specified always apply to the last section encountered,
 superseding the values set in upper-level sections. This means that
 global options must be set before any sections are defined.
+.PP
+Blank lines are ignored. A hash character (#) starts a comment
+extending until end of line.
 .SH SECTIONS
 .PP
 \fBvolume\fR  <volume\-directory>|<url>
@@ -305,9 +308,6 @@ For convenience, it is also possible to set \fIbackend_local\fR or
 local or remote sources/targets (e.g. "backend_remote
 btrfs-progs-btrbk").
 .RE
-.PP
-Lines that contain a hash character (#) in the first column are
-treated as comments.
 .SH RETENTION POLICY
 btrbk uses separate retention policies for snapshots and backups,
 which are defined by the \fIsnapshot_preserve_min\fR,
