@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.25.0
 
   * MIGRATION
     - If you call ssh_filter_btrbk.sh with "--sudo" option, make sure
