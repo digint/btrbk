@@ -145,7 +145,7 @@ Retention policy:
 
   * keep all snapshots for 2 days, no matter how frequently you (or
     your cron-job) run btrbk
-  * keep latest daily snapshots for 14 days (very handy if you are on
+  * keep daily snapshots for 14 days (very handy if you are on
     the road and the backup disk is not attached)
   * keep monthly backups forever
   * keep weekly backups for 10 weeks
