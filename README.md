@@ -31,7 +31,7 @@ snapshots and backups, as well as from the command line (e.g. for
 instantly creating additional snapshots).
 
 
-###Upgrading from v0.22.2
+### Upgrading from v0.22.2
 
 Please read the [upgrade guide](doc/upgrade_to_v0.23.0.md) if you are
 updating from btrbk <= v0.22.2.
