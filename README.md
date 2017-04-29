@@ -121,7 +121,7 @@ When playing around with config-files, it is highly recommended to
 check the output using the `dryrun` command before executing the
 backups:
 
-    btrbk -c myconfig -v dryrun
+    btrbk -c /path/to/myconfig -v dryrun
 
 This will read all btrfs information on the source/target filesystems
 and show what actions would be performed (without writing anything to
@@ -135,11 +135,15 @@ Example: laptop with usb-disk for backups
 
 In this example, we assume you have a laptop with:
 
-  * a disk having a btrfs volume mounted as `/mnt/btr_pool`,
-    containing a subvolume `rootfs` for the root filesystem and a
+  * a disk having a btrfs root subvolume (subvolid=5) mounted on `/mnt/btr_pool`,
+    containing a subvolume `rootfs` for the root filesystem (i.e. mounted on `/`) and a
     subvolume `home` for the user data.
   * a backup disk having a btrfs volume mounted as `/mnt/btr_backup`,
-    containing a subvolume `mylaptop` for the incremental backups.
+    containing a subvolume or directory `mylaptop` for the incremental backups.
+    
+Make sure that you have `/mnt/btr_pool/btrbk_snapshots` subvolume or create it: 
+
+    btrfs subvolume create btrbk_snapshots
 
 Retention policy:
 
