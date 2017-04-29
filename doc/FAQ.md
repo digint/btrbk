@@ -149,7 +149,7 @@ Add mount point for subvolid=5 to fstab, something like this:
     /dev/sda1  /mnt/btr_pool  btrfs  subvolid=5,noatime  0 0
     
 > This step is not critical for a proper root change, but will save your time by preventing 
-> further configurations/reboots and manually mount the toplevel subvolume. 
+> further configurations/reboots and manually mounting the toplevel subvolume. 
 
 ### Step 3: boot from the new subvolume "rootfs".
 
