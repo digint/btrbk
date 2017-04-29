@@ -42,13 +42,13 @@ btrbk is designed to never alter your source subvolume. In the config
 above, the btrbk snapshots would be created *inside* the source
 subvolume, altering it.
 
-The same applies to **any "btrfs root" mount point** (subvolid=0). In
+The same applies to **any "btrfs root" mount point** (subvolid=5). In
 the example below, you will **not be able to backup** `/mnt/data`
 using btrbk:
 
 /etc/fstab:
 
-    /dev/sda1  /mnt/data  btrfs  subvolid=0 [...]
+    /dev/sda1  /mnt/data  btrfs  subvolid=5 [...]
 
 btrbk is designed to operate on the subvolumes *within* `/mnt/data`.
 The recommended way is to split your data into subvolumes, e.g.:
@@ -75,11 +75,11 @@ The btrbk configuration for this would be:
 
 ### Tech Answer
 
-While *btrfs root* (subvolid=0) is a regular subvolume, it is still
+While *btrfs root* (subvolid=5) is a regular subvolume, it is still
 special: being the root node, it does not have a "name" inside the
 subvolume tree.
 
-Here, `/mnt/btr_pool` is mounted with `subvolid=0`:
+Here, `/mnt/btr_pool` is mounted with `subvolid=5`:
 
     # btrfs sub show /mnt/btr_pool/
     /mnt/btr_data is toplevel subvolume
@@ -105,7 +105,7 @@ a good entry point.
 
 If your linux root filesystem is btrfs, I recommend booting linux from
 a btrfs subvolume, and use the btrfs root only as a container for
-subvolumes (i.e. NOT booting from "subvolid=0"). This has the big
+subvolumes (i.e. NOT booting from "subvolid=5"). This has the big
 advantage that you can choose the subvolume in which to boot by simply
 switching the `rootflags=subvol=<subvolume>` kernel boot option.
 
@@ -124,7 +124,7 @@ have to create a run-time (rw) snapshot before booting into it:
     # btrfs subvolume snapshot /mnt/btr_pool/backup/btrbk/rootfs-20150101 /mnt/btr_pool/rootfs_testing
 
 
-How do I convert '/' (subvolid=0) into a subvolume?
+How do I convert '/' (subvolid=5) into a subvolume?
 ---------------------------------------------------
 
 There's several ways to achieve this, the solution described below is
@@ -132,7 +132,7 @@ that it guarantees not to create new files (extents) on disk.
 
 ### Step 1: make a snapshot of your root filesystem
 
-Assuming that '/' is mounted with `subvolid=0`:
+Assuming that '/' is mounted with `subvolid=5`:
 
     # btrfs subvolume snapshot / /rootfs
 
@@ -140,26 +140,37 @@ Note that this command does NOT make any physical copy of the files of
 your subvolumes within "/", it will only add some metadata.
 
 
-### Step 2: make sure that "/rootfs/etc/fstab" is ok.
+### Step 2: (OPTIONAL) make sure that "/rootfs/etc/fstab" mounts your toplevel subvolume.
 
-Add mount point for subvolid=0 to fstab, something like this:
+Add mount point for subvolid=5 to fstab, something like this:
 
 /rootfs/etc/fstab:
 
-    /dev/sda1  /mnt/btr_pool  btrfs  subvolid=0,noatime  0 0
-
+    /dev/sda1  /mnt/btr_pool  btrfs  subvolid=5,noatime  0 0
+    
+> This step is not critical for a proper root change, but will save your time by preventing 
+> further configurations/reboots and manually mounting the toplevel subvolume. 
 
 ### Step 3: boot from the new subvolume "rootfs".
 
-Either add `rootflags=subvol=rootfs` to grub.cfg, or set subvolume
-"rootfs" as default:
+Either add `rootflags=subvol=rootfs` to grub.cfg , or set subvolume
+"rootfs" as default (**recommended**):
 
     # btrfs subvolume set-default <subvolid> /
+    
+> You can obtain `<subvolid>` via `btrfs subvolume show /rootfs | grep "Subvolume ID"` 
+
+> Editing grub.cfg manually may lead you some troubles if you perform some actions that will
+> fire `grub-mkconfig`.
 
 
 ### Step 4: after reboot, check if everything went fine:
 
-First check your **system log** for btrfs errors, then:
+First check your **system log** for btrfs errors: 
+
+    cat /var/log/messages | grep btrfs | grep "error" | tail
+
+then check if current `/` is our new subvolume:
 
     # btrfs subvolume show /
             Name:                   rootfs
@@ -167,27 +178,28 @@ First check your **system log** for btrfs errors, then:
 
 Great, this tells us that we just booted into our new snapshot!
 
-    # mount /mnt/btr_pool
     # btrfs subvolume show /mnt/btr_pool
-    /mnt/btr_pool is btrfs root
+    /mnt/btr_pool is toplevel subvolume
 
-This means that the root volume (subvolid=0) is correctly mounted.
+This means that the root volume (subvolid=5) is correctly mounted.
 
 
 ### Step 5: delete old (duplicate) files
 
 Carefully delete all old files from `/mnt/btr_pool`, except "rootfs"
-and all other subvolumes within "/". You can list all these by typing:
+and any other subvolumes within "/mnt/btr_pool". 
 
-    # btrfs subvolume list -a /mnt/btr_pool
-
-Make sure you do NOT delete anything within the directories listed
-here!
-
-something like:
+In other words, delete any folders in `/mnt/btr_pool` that are 
+**NOT LISTED** by `btrfs subvolume list -a /mnt/btr_pool`: 
 
     # cd /mnt/btr_pool
-    # rm -rf bin sbin usr lib var ...
+    # mkdir TO_BE_REMOVED
+    # mv bin sbin usr lib var ... TO_BE_REMOVED
+    
+Then reboot. If everything went OK, then remove the directory: 
+
+    # cd /mnt/btr_pool
+    # rm -rf TO_BE_REMOVED
 
 
 What is the most efficient way to clone btrfs storage?
