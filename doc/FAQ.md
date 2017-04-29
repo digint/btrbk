@@ -189,7 +189,7 @@ This means that the root volume (subvolid=5) is correctly mounted.
 Carefully delete all old files from `/mnt/btr_pool`, except "rootfs"
 and any other subvolumes within "/mnt/btr_pool". 
 
-In other words, relete any folders in `/mnt/btr_pool` that are 
+In other words, delete any folders in `/mnt/btr_pool` that are 
 **NOT LISTED** by `btrfs subvolume list -a /mnt/btr_pool`: 
 
     # cd /mnt/btr_pool
