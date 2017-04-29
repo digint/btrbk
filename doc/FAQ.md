@@ -193,7 +193,13 @@ In other words, delete any folders in `/mnt/btr_pool` that are
 **NOT LISTED** by `btrfs subvolume list -a /mnt/btr_pool`: 
 
     # cd /mnt/btr_pool
-    # rm -rf bin sbin usr lib var ...
+    # mkdir TO_BE_REMOVED
+    # mv bin sbin usr lib var ... TO_BE_REMOVED
+    
+Then reboot. If everything went OK, then remove the directory: 
+
+    # cd /mnt/btr_pool
+    # rm -rf TO_BE_REMOVED
 
 
 What is the most efficient way to clone btrfs storage?
