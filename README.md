@@ -435,6 +435,12 @@ to be done manually. In the examples below, we assume that you have a
 btrfs volume mounted at `/mnt/btr_pool`, and the subvolume you want to
 have restored is at `/mnt/btr_pool/data`.
 
+**Important**: don't use `btrfs property set` to make a subvolume
+read-write after restoring. This is a low-level command, and leaves
+"Received UUID" in a false state which causes btrbk to fail on
+subsequent incremental backups. Instead, use `btrfs subvolume
+snapshot` (without `-r` flag) as described below.
+
 
 Example: Restore a Snapshot
 -----------------------------
