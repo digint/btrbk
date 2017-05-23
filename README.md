@@ -173,11 +173,12 @@ Retention policy:
         target send-receive    /mnt/btr_backup/mylaptop
 
 
-/etc/cron.daily/btrbk:
+/etc/cron.d/btrbk:
 
-    #!/bin/sh
-    exec /usr/sbin/btrbk -q -c /etc/btrbk/btrbk-mylaptop.conf run
+    SHELL=/bin/sh
+    PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
+    0 */1	* * *	root	exec /usr/sbin/btrbk -q -c /etc/btrbk/btrbk-mylaptop.conf run
 
   * This will create snapshots on a daily basis:
     * `/mnt/btr_pool/btrbk_snapshots/rootfs.YYYYMMDD`
