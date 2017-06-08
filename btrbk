@@ -46,7 +46,7 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = '0.25.0';
+our $VERSION         = '0.25.1-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 
@@ -106,6 +106,7 @@ my %config_options = (
   ssh_compression             => { default => undef,     accept => [ "yes", "no" ] },
   ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
   rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgtKMGT]?$/, require_bin => 'pv' },
+  stream_buffer               => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgKMG%]?$/ },  # NOTE: requires 'mbuffer' command on target
   transaction_log             => { default => undef,     accept_file => { absolute => 1 } },
   transaction_syslog          => { default => undef,     accept => \@syslog_facilities },
   lockfile                    => { default => undef,     accept_file => { absolute => 1 }, context => [ "root" ] },
@@ -521,6 +522,12 @@ sub decompress_cmd($)
   return compress_cmd($_[0], 1);
 }
 
+sub stream_buffer_cmd($)
+{
+  my $bufsize = shift;
+  return "mbuffer -q -m " . lc($bufsize);
+}
+
 
 sub _assemble_cmd($;$)
 {
@@ -639,6 +646,10 @@ sub run_cmd(@)
           push @cmd_pipe, { cmd_text => rate_limit_cmd($href->{rsh_rate_limit_in}) };
         }
 
+        if($href->{stream_buffer}) {
+          unshift @rsh_cmd_pipe, { cmd_text => stream_buffer_cmd($href->{stream_buffer}) };
+        }
+
         if($compressed && (not ($href->{compressed_ok}))) {
           unshift @rsh_cmd_pipe, { cmd_text => decompress_cmd($compressed) };
           $compressed = undef;
@@ -669,6 +680,11 @@ sub run_cmd(@)
           push @cmd_pipe, { cmd_text => decompress_cmd($compressed) };
           $compressed = undef;
         }
+
+        if($href->{stream_buffer}) {
+          push @cmd_pipe, { cmd_text => stream_buffer_cmd($href->{stream_buffer}) };
+        }
+
       }
       push @cmd_pipe, $href;
     }
@@ -1172,6 +1188,7 @@ sub btrfs_send_receive($$$$)
     name => "btrfs receive",
     rsh_compress_in => config_compress_hash($target, "stream_compress"),
     rsh_rate_limit_in => config_key($target, "rate_limit"),
+    stream_buffer => config_key($target, "stream_buffer"),
     catch_stderr => 1, # hack for shell-based run_cmd()
     filter_stderr => sub { $err = $_; $_ = undef }
   };

@@ -1,3 +1,7 @@
+btrbk-current
+
+  * Add "stream_buffer" configuration option (close #154).
+
 btrbk-0.25.0
 
   * MIGRATION

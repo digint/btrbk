@@ -261,6 +261,18 @@ Number of threads to use for <compress_command>. Only supported for
 "pigz", "pbzip2" and recent versions of "xz".
 .RE
 .PP
+\fBstream_buffer\fR  <size>|no  \fI*experimental*\fR
+.RS 4
+Add a buffer to the btrfs send stream (in front of "btrfs receive"),
+with a maximum size of \fI<size>\fR. This can give a speed improvement
+(measured up to 20%) on both local or remote operations, but also
+increases system load. A suffix of "k", "m", "g", or "%" can be added
+to \fI<size>\fR to denote kilobytes (*1024), megabytes, gigabytes, or
+a percentage of total physical memory. Defaults to \[lq]no\[rq]. If
+enabled, make sure that the "mbuffer" command is available on the
+target host.
+.RE
+.PP
 \fBrate_limit\fR  <rate>|no
 .RS 4
 Limit the transfer to a maximum of \fI<rate>\fR bytes per second. A
