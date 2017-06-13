@@ -22,6 +22,19 @@ tags in your configuration and dump only the volumes of this group:
   [btrbk(1)]: http://digint.ch/btrbk/doc/btrbk.html
 
 
+How can I setup a debian pre-install hook?
+------------------------------------------
+
+Create a file `/etc/apt/apt.conf.d/70btrbk`, e.g.:
+
+    // create a btrfs snapshot before (un)installing packages
+    Dpkg::Pre-Invoke {"/usr/sbin/btrbk run /mnt/btr_pool/rootfs";};
+
+In order to make sure that the snapshots are always generated and
+nothing is deleted, add the btrbk command line options `--preserve
+--override=snapshot_create=always`.
+
+
 Why is it not possible to backup '/' (btrfs root) ?
 ---------------------------------------------------
 
