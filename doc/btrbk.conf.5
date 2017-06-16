@@ -428,15 +428,34 @@ raw_target_compress_level  default|<number>
 .PP
 raw_target_compress_threads  default|<number>
 .PP
-raw_target_encrypt  gpg|no
-.PP
 raw_target_split  <size>|no
 .PP
 raw_target_block_size  <number>  (defaults to 128K)
 .PP
+raw_target_encrypt  gpg|openssl_enc|no
+.RE
+.PD
+.PP
+Additional options for "raw_target_encrypt gpg":
+.PP
+.RS 4
 gpg_keyring  <file>
+.PD 0
 .PP
 gpg_recipient  <name>
+.RE
+.PD
+.PP
+Additional options for "raw_target_encrypt openssl_enc" (\fIvery
+experimental\fR):
+.PP
+.RS 4
+openssl_ciphername  <name>  (defaults to "aes-256-cbc")
+.PD 0
+.PP
+openssl_iv_size  <size-in-bytes>|no  (depends on selected cipher)
+.PP
+openssl_keyfile  <file>|no
 .RE
 .PD
 .PP

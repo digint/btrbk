@@ -62,7 +62,7 @@ my $glob_match = qr/[0-9a-zA-Z_@\+\-\.\/\*]+/;  # file_match plus '*'
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 my $timestamp_postfix_match = qr/\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
 my $raw_postfix_match_DEPRECATED = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uuid_match))?\.btrfs?(\.(?<compress>($compress_format_alt)))?(\.(?<encrypt>gpg))?(\.(?<split>split))?(\.(?<incomplete>part))?/;  # matches ".btrfs_<received_uuid>[@<parent_uuid>][.gz|bz2|xz][.gpg][.split][.part]"
-my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.gpg)?/;  # matches ".btrfs[.gz|bz2|xz][.gpg]"
+my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))?/;  # matches ".btrfs[.gz|bz2|xz][.gpg|encrypted]"
 
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
@@ -105,11 +105,14 @@ my %config_options = (
   raw_target_compress         => { default => undef,     accept => [ "no", (keys %compression) ] },
   raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   raw_target_compress_threads => { default => "default", accept => [ "default" ], accept_numeric => 1 },
-  raw_target_encrypt          => { default => undef,     accept => [ "no", "gpg" ] },
+  raw_target_encrypt          => { default => undef,     accept => [ "no", "gpg", "openssl_enc" ] },
   raw_target_block_size       => { default => "128K",    accept_regexp => qr/^[0-9]+(kB|k|K|KiB|MB|M|MiB)?$/ },
   raw_target_split            => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+([kmgtpezyKMGTPEZY][bB]?)?$/ },
   gpg_keyring                 => { default => undef,     accept_file => { absolute => 1 } },
   gpg_recipient               => { default => undef,     accept_regexp => qr/^[0-9a-zA-Z_@\+\-\.]+$/ },
+  openssl_ciphername          => { default => "aes-256-cbc", accept_regexp => qr/^[0-9a-zA-Z\-]+$/ },
+  openssl_iv_size             => { default => undef,     accept => [ "no", accept_numeric => 1 ] },
+  openssl_keyfile             => { default => undef,     accept_file => { absolute => 1 } },
 
   group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
 
@@ -231,6 +234,8 @@ my %raw_info_sort = (
   compress             => 9,
   split                => 10,
   encrypt              => 11,
+  cipher               => 12,
+  iv                   => 13,
  );
 
 my %url_cache;       # map URL to btr_tree node
@@ -1380,6 +1385,14 @@ sub btrfs_send_to_file($$$;$$)
     push @cmd_pipe, { compress => $compress }; # does nothing if already compressed by rsh_compress_out
   }
   if($encrypt) {
+    $target_filename .= ($encrypt->{type} eq "gpg") ? '.gpg' : '.encrypted';
+  }
+
+  # NOTE: $ret_vol_received must always be set when function returns!
+  my $vol_received = vinfo_child($target, $target_filename);
+  $$ret_vol_received = $vol_received if(ref $ret_vol_received);
+
+  if($encrypt) {
     $raw_info{encrypt} = $encrypt->{type};
 
     if($encrypt->{type} eq "gpg") {
@@ -1393,7 +1406,6 @@ sub btrfs_send_to_file($$$;$$)
       #   generation faster; however sometimes write operations are not
       #   desired. This option can be used to achieve that with the cost
       #   of slower random generation.
-      $target_filename .= '.gpg';
       my @gpg_options = ( '--batch', '--no-tty', '--no-random-seed-file', '--trust-model', 'always' );
       push @gpg_options, ( '--compress-algo', 'none' ) if($compress);  # NOTE: if --compress-algo is not set, gpg might still compress according to OpenPGP standard.
       push(@gpg_options, ( '--no-default-keyring', '--keyring', $encrypt->{keyring} )) if($encrypt->{keyring});
@@ -1401,6 +1413,35 @@ sub btrfs_send_to_file($$$;$$)
       push @cmd_pipe, {
         cmd => [ 'gpg', @gpg_options, '--encrypt' ],
         name => 'gpg',
+        compressed_ok => ($compress ? 1 : 0),
+      };
+    }
+    elsif($encrypt->{type} eq "openssl_enc") {
+      # encrypt using "openssl enc"
+      $raw_info{cipher} = $encrypt->{ciphername};
+
+      # NOTE: iv is always generated locally!
+      my $iv_size = $encrypt->{iv_size};
+      my $iv;
+      if($iv_size) {
+        INFO "Generating iv for openssl encryption (cipher=$encrypt->{ciphername})";
+        $iv = system_urandom($iv_size, 'hex');
+        unless($iv) {
+          ERROR "Failed generate IV for openssl_enc: $source->{PRINT}";
+          return undef;
+        }
+        $raw_info{iv} = $iv;
+      }
+
+      my @openssl_options = (
+        '-' . $encrypt->{ciphername},
+        '-K $(cat ' . $encrypt->{keyfile} . ')',
+       );
+      push @openssl_options, ('-iv', $iv) if($iv);
+
+      push @cmd_pipe, {
+        cmd => [ 'openssl', 'enc', '-e', @openssl_options ],
+        name => 'openssl_enc',
         compressed_ok => ($compress ? 1 : 0),
       };
     }
@@ -1441,9 +1482,6 @@ sub btrfs_send_to_file($$$;$$)
       compressed_ok => ($compress ? 1 : 0),
     };
   }
-
-  my $vol_received = vinfo_child($target, $target_filename);
-  $$ret_vol_received = $vol_received if(ref $ret_vol_received);
 
   $raw_info{FILE} = $target_filename;
   $raw_info{RECEIVED_PARENT_UUID} = $parent_uuid if($parent_uuid);
@@ -1783,6 +1821,36 @@ sub system_write_raw_info($$)
   return undef unless(defined($ret));
 
   return $info_file;
+}
+
+
+sub system_urandom($;$) {
+  my $size = shift;
+  my $format = shift || 'hex';
+  die unless(($size > 0) && ($size <= 256)); # sanity check
+
+  unless(open(URANDOM, '<', '/dev/urandom')) {
+    ERROR "Failed to open /dev/urandom: $!";
+    return undef;
+  }
+  binmode URANDOM;
+  my $rand;
+  my $rlen = read(URANDOM, $rand, $size);
+  close(FILE);
+  unless(defined($rand) && ($rlen == $size)) {
+    ERROR "Failed to read from /dev/urandom: $!";
+    return undef;
+  }
+
+  if($format eq 'hex') {
+    my $hex = unpack('H*', $rand);
+    die unless(length($hex) == ($size * 2)); # paranoia check
+    return $hex;
+  }
+  elsif($format eq 'bin') {
+    return $rand;
+  }
+  die "unsupported format";
 }
 
 
@@ -2781,6 +2849,9 @@ sub config_encrypt_hash($$)
     type => $encrypt_type,
     keyring => config_key($config, "gpg_keyring"),
     recipient => config_key($config, "gpg_recipient"),
+    iv_size => config_key($config, "openssl_iv_size"),
+    ciphername => config_key($config, "openssl_ciphername"),
+    keyfile => config_key($config, "openssl_keyfile"),
   };
 }
 
