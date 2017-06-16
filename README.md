@@ -364,12 +364,12 @@ compressed and piped through GnuPG.
           # incremental  no
 
 This will create a GnuPG encrypted, compressed files on the target
-host:
+host. For each backup, two files are created:
 
-  * `/backup/home.YYYYMMDD.btrfs_<received_uuid>.xz.gpg` for
-    non-incremental images,
-  * `/backup/home.YYYYMMDD.btrfs_<received_uuid>@<parent_uuid>.xz.gpg`
-    for subsequent incremenal images.
+  * `/backup/home.YYYYMMDD.btrfs.xz.gpg`: main data file containing
+    the btrfs send-stream,
+  * `/backup/home.YYYYMMDD.btrfs.xz.gpg.info`: sidecar file containing
+    metadata used by btrbk.
 
 I you are using raw _incremental_ backups, please make sure you
 understand the implications (see [btrbk.conf(5)], TARGET TYPES).

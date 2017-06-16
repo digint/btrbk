@@ -1,4 +1,4 @@
-.TH "btrbk.conf" "5" "2017-07-30" "btrbk v0.25.1" ""
+.TH "btrbk.conf" "5" "2017-09-28" "btrbk v0.26.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -439,15 +439,13 @@ gpg_recipient  <name>
 .RE
 .PD
 .PP
-Raw targets get an extra file suffix in the format:
+Raw backups consist of two files: the main data file containing the
+btrfs send stream, and a sidecar file ".info" containing metadata:
 .RS 4
 .PP
-<received_uuid>[@<parent_uuid>].btrfs[.gz|.bz2|.xz][.gpg]
+<snapshot\-name>.<timestamp>[_N].btrfs[.gz|.bz2|.xz][.gpg]
+<snapshot\-name>.<timestamp>[_N].btrfs[.gz|.bz2|.xz][.gpg].info
 .RE
-.PP
-The <parent_uuid> is only set on \fIincremental\fR backups, and points
-to the <received_uuid> of the previous backup in a incremental backup
-chain.
 .PP
 For \fIincremental\fR backups ("incremental yes"), please note that:
 .IP 1. 4

@@ -4,6 +4,7 @@ btrbk-current
     line option (which is now deprecated).
   * Add "snapshot" command (close #150).
   * Add "--preserve-snapshots" and "--preserve-backups" options.
+  * Change raw backup format (sidecar file instead of uuid in file).
   * Do not run in "perl taint mode" by default: remove "perl -T" in
     hashbang; hardcode $PATH only if taint mode is enabled.
   * Remove "duration" column from transaction_log/transaction_syslog.
