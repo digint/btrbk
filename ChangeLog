@@ -4,6 +4,7 @@ btrbk-current
   * Bugfix: accept "no" for "transaction_log", "transaction_syslog"
     and "lockfile" configuration options.
   * Show "up-to-date" status for backups in "stats" command.
+  * Show "correlated" status instead of "orphaned" in "stats" command.
 
 btrbk-0.25.0
 
