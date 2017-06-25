@@ -107,9 +107,9 @@ my %config_options = (
   ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
   rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgtKMGT]?$/, require_bin => 'pv' },
   stream_buffer               => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgKMG%]?$/ },  # NOTE: requires 'mbuffer' command on target
-  transaction_log             => { default => undef,     accept_file => { absolute => 1 } },
-  transaction_syslog          => { default => undef,     accept => \@syslog_facilities },
-  lockfile                    => { default => undef,     accept_file => { absolute => 1 }, context => [ "root" ] },
+  transaction_log             => { default => undef,     accept => [ "no" ], accept_file => { absolute => 1 } },
+  transaction_syslog          => { default => undef,     accept => [ "no", @syslog_facilities ] },
+  lockfile                    => { default => undef,     accept => [ "no" ], accept_file => { absolute => 1 }, context => [ "root" ] },
 
   stream_compress             => { default => undef,     accept => [ "no", (keys %compression) ] },
   stream_compress_level       => { default => "default", accept => [ "default" ], accept_numeric => 1 },

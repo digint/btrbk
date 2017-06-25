@@ -1,6 +1,8 @@
 btrbk-current
 
   * Add "stream_buffer" configuration option (close #154).
+  * Bugfix: accept "no" for "transaction_log", "transaction_syslog"
+    and "lockfile" configuration options.
 
 btrbk-0.25.0
 

@@ -72,7 +72,7 @@ allowed.
 .RE
 .SH OPTIONS
 .PP
-\fBtransaction_log\fR  <file>
+\fBtransaction_log\fR  <file>|no
 .RS 4
 If set, all transactions (snapshot create, subvolume send\-receive,
 subvolume delete) as well as abort messages are logged to <file>, in a
@@ -80,7 +80,7 @@ space-separated table format: "localtime type status duration
 target_url source_url parent_url message".
 .RE
 .PP
-\fBtransaction_syslog\fR  <facility>
+\fBtransaction_syslog\fR  <facility>|no
 .RS 4
 If set, all transactions (as described in \fItransaction_log\fR above)
 are logged to syslog. The program name used in the messages is
@@ -282,7 +282,7 @@ for remote sources, make sure that the "pv" command is available on
 the source host.
 .RE
 .PP
-\fBlockfile\fR  <file>
+\fBlockfile\fR  <file>|no
 .RS 4
 Create lockfile <file> on startup; checks lockfile before running any
 btrfs commands (using perl "flock"), and exits if the lock is held by
