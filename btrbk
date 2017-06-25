@@ -4792,6 +4792,7 @@ MAIN:
             my $stats_received = 0;
             my $stats_orphaned = 0;
             my $stats_incomplete = 0;
+            my $target_up_to_date = 0;
             foreach my $target_vol (@{vinfo_subvol_list($droot, sort => 'path')}) {
               my $parent_snapshot;
               my $incomplete_backup;
@@ -4810,12 +4811,14 @@ MAIN:
               }
               if($parent_snapshot) {
                 $stats_received++;
+                my $up_to_date = ($parent_snapshot->{node}{cgen} == $svol->{node}{gen});
                 push @data, { type => "received",
                               vinfo_prefixed_keys("target", $target_vol),
                               vinfo_prefixed_keys("snapshot", $parent_snapshot),
                               vinfo_prefixed_keys("source", $svol),
-                              status => ($parent_snapshot->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
+                              status => $up_to_date ? "up-to-date" : undef,
                             };
+                $target_up_to_date ||= $up_to_date;
               }
               else {
                 # don't display all subvolumes in $droot, only the ones matching snapshot_name
@@ -4839,6 +4842,7 @@ MAIN:
             $stats_backups_total_incomplete += $stats_incomplete;
             $stats_backups_total_orphaned   += $stats_orphaned;
             my @stats_detail;
+            push @stats_detail, "up-to-date" if($target_up_to_date);
             push @stats_detail, "$stats_orphaned orphaned"     if($stats_orphaned);
             push @stats_detail, "$stats_incomplete incomplete" if($stats_incomplete);
             my $stats_detail_print = join(', ', @stats_detail);
@@ -4888,7 +4892,7 @@ MAIN:
                    config => $config,
                    time   => $start_time,
                    legend => [
-                     "up-to-date: latest snapshot is up to date with parent subvolume",
+                     "up-to-date: latest snapshot/backup is up to date with source subvolume",
                      "orphaned  : parent snapshot was deleted (by snapshot_preserve policy)",
                     ],
                   );
