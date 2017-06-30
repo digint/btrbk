@@ -1,5 +1,8 @@
 btrbk-current
 
+  * MIGRATION
+    - If you are using raw targets, make sure to run the
+      "raw_suffix2sidecar" utility in each target directory.
   * Add "resume" command, replacement for "-r, --resume-only" command
     line option (which is now deprecated).
   * Add "snapshot" command (close #150).

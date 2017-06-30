@@ -42,6 +42,7 @@ install-share:
 	@echo 'installing auxiliary scripts...'
 	install -pDm755 ssh_filter_btrbk.sh "$(DESTDIR)$(SCRIPTDIR)/ssh_filter_btrbk.sh"
 	install -pDm755 contrib/cron/btrbk-mail "$(DESTDIR)$(SCRIPTDIR)/btrbk-mail"
+	install -pDm755 contrib/migration/raw_suffix2sidecar "$(DESTDIR)$(SCRIPTDIR)/raw_suffix2sidecar"
 
 install-man:
 	@echo 'installing manpages...'
