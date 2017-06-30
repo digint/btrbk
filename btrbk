@@ -1139,24 +1139,44 @@ sub btrfs_subvolume_delete($@)
   $targets = [ $targets ] unless(ref($targets) eq "ARRAY");
   return 0 unless(scalar(@$targets));
 
-  # assert all targets share same HOST
   # NOTE: rsh and backend command is taken from first target
   my $rsh_host_check = $targets->[0]->{HOST} || "";
+  my $target_type = $targets->[0]->{node}{TARGET_TYPE} || "";
   foreach (@$targets) {
+    # assert all targets share same HOST
     die if($rsh_host_check ne ($_->{HOST} || ""));
+    # assert all targets share same target type
+    die if($target_type && ($_->{node}{TARGET_TYPE} ne $target_type));
   }
 
-  INFO "[delete] options: commit-$commit" if($commit);
+  INFO "[delete] options: commit-$commit" if($commit && (not $target_type));
   INFO "[delete] target: $_->{PRINT}" foreach(@$targets);
-  my @options;
-  @options = ("--commit-$commit") if($commit);
   start_transaction($opts{type} // "delete",
                     map( { { vinfo_prefixed_keys("target", $_) }; } @$targets)
                    );
-  my @cmd_target_paths = map { { unsafe => $_->{PATH} } } @$targets;
-  my $ret = run_cmd(cmd => vinfo_cmd($targets->[0], "btrfs subvolume delete", @options, @cmd_target_paths ),
-                    rsh => vinfo_rsh($targets->[0]),
-                   );
+  my $ret;
+  if($target_type eq "raw") {
+    my @cmd_target_paths;
+    foreach(@$targets) {
+      if($_->{node}{BTRBK_RAW}{split}) {
+        push @cmd_target_paths, "$_->{PATH}.split_??"; # unsafe is checked with path.info below
+      } else {
+        push @cmd_target_paths, { unsafe => $_->{PATH} };
+      }
+      push @cmd_target_paths, { unsafe => "$_->{PATH}.info" };
+    }
+    $ret = run_cmd(cmd  => ['rm', @cmd_target_paths ],
+                   rsh  => vinfo_rsh($targets->[0]),
+                  );
+  }
+  else {
+    my @cmd_target_paths = map { { unsafe => $_->{PATH} } } @$targets;
+    my @options;
+    @options = ("--commit-$commit") if($commit);
+    $ret = run_cmd(cmd => vinfo_cmd($targets->[0], "btrfs subvolume delete", @options, @cmd_target_paths ),
+                   rsh => vinfo_rsh($targets->[0]),
+                  );
+  }
   end_transaction($opts{type} // "delete", ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")));
   ERROR "Failed to delete btrfs subvolumes: " . join(' ', map( { $_->{PRINT} } @$targets)) unless(defined($ret));
   return defined($ret) ? scalar(@$targets) : undef;
@@ -4830,10 +4850,6 @@ MAIN:
               $subvol->{node}{FORCE_PRESERVE}  = "preserve forced: parent of another raw target";
               $child->{node}{FORCE_PRESERVE} ||= "preserve forced: child of another raw target";
             }
-
-            # For now, always preserve all raw files.
-            # TODO: remove this line as soon as incremental rotation is implemented.
-            $subvol->{node}{FORCE_PRESERVE} = "preserve forced: raw target";
           }
           # TRACE(Data::Dumper->Dump([\@subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
         }
@@ -5116,8 +5132,6 @@ MAIN:
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
         my $snapshot_name = config_key($svol, "snapshot_name") // die;
         foreach my $droot (vinfo_subsection($svol, 'target')) {
-          my $target_type = $droot->{CONFIG}->{target_type} || die;
-
           INFO "Cleaning incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
           push @out, "$droot->{PRINT}/$snapshot_name.*";
           my @delete;
@@ -5130,22 +5144,7 @@ MAIN:
               push(@delete, $target_vol);
             }
           }
-          my $ret;
-          if($target_type eq "raw") {
-            if(scalar(@delete)) {
-              DEBUG "[raw] delete:";
-              DEBUG "[raw]   file: $_->{PRINT}" foreach(@delete);
-              $ret = run_cmd({
-                cmd  => ['rm', (map { { unsafe => $_->{PATH} } } @delete) ],
-                rsh  => vinfo_rsh($droot),
-              });
-            } else {
-              $ret = 0;
-            }
-          }
-          else {
-            $ret = btrfs_subvolume_delete(\@delete, commit => config_key($droot, "btrfs_commit_delete"), type => "delete_garbled");
-          }
+          my $ret = btrfs_subvolume_delete(\@delete, commit => config_key($droot, "btrfs_commit_delete"), type => "delete_garbled");
           if(defined($ret)) {
             INFO "Deleted $ret incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
             $droot->{SUBVOL_DELETED} //= [];

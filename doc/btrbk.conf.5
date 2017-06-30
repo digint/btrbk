@@ -414,8 +414,9 @@ a directory within a subvolume. See btrfs\-send(8), btrfs\-receive(8).
 Backup to a raw (filesystem independent) file from the output of
 btrfs\-send(8), with optional compression and encryption.
 .PP
-Note that the target preserve mechanism is currently disabled for raw
-backups (btrbk does not delete any raw files)!
+Note that the target preserve mechanism is currently disabled for
+incremental raw backups (btrbk does not delete any incremental raw
+files)!
 .PP
 Additional options for raw targets:
 .PP
