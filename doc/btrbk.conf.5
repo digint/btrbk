@@ -456,6 +456,12 @@ openssl_ciphername  <name>  (defaults to "aes-256-cbc")
 openssl_iv_size  <size-in-bytes>|no  (depends on selected cipher)
 .PP
 openssl_keyfile  <file>|no
+.PP
+kdf_backend  <file>|no
+.PP
+kdf_keysize  <size>  (defaults to "32")
+.PP
+kdf_keygen  once|each  (defaults to "once")
 .RE
 .PD
 .PP
