@@ -51,11 +51,12 @@ Prerequisites
   * [btrfs-progs]: Btrfs filesystem utilities >= v3.18.2
   * [Perl interpreter]: Probably already installed on your system
   * [OpenSSH]: If you want to transfer backups from/to remote locations
+  * [Pipe Viewer]: If you want rate limiting and progress bars
 
   [btrfs-progs]: http://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
   [Perl interpreter]: https://www.perl.org
   [OpenSSH]: http://www.openssh.org
-
+  [Pipe Viewer]: http://www.ivarch.com/programs/pv.shtml
 
 Instructions
 ------------
@@ -84,6 +85,11 @@ btrbk is in `stretch (testing) (utils)`: https://packages.debian.org/stretch/btr
 
 Packages are also available via NeuroDebian: http://neuro.debian.net/pkgs/btrbk.html
 
+### Fedora Linux
+
+btrbk is in the official Fedora repos: https://apps.fedoraproject.org/packages/btrbk
+
+    sudo dnf install btrbk
 
 ### Arch Linux
 
