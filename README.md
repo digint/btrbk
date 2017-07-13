@@ -503,6 +503,17 @@ Make sure to also read the [btrbk FAQ page](doc/FAQ.md).
 Help improve it by asking!
 
 
+Donate
+======
+
+So btrbk saved your day?
+
+I will definitively continue developing btrbk for free, but if you
+want to support me you can do so:
+
+[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=WFQSSCD9GNM4S)
+
+
 Development
 ===========
 
