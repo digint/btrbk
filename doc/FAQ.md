@@ -260,3 +260,21 @@ This approach has the advantage that you don't need to reformat your
 USB disk. This works fine, but be aware that you may run into trouble
 if a single stream gets corrupted, making all subsequent streams
 unusable.
+
+
+I'm getting an error: Aborted: "Received UUID" is set
+-----------------------------------------------------
+
+You probably restored a backup with send-receive, and made it
+read/write using `btrfs property set`. This is bad, as all snapshots
+and backups will inherit this identical "Received UUID", which results
+in all these subvolumes will be treated as "containing same data".
+
+To fix this, create a "proper" snapshot:
+
+    # cd /mnt/btr_pool
+    # mv mysubvolume mysubvolume.broken
+    # btrfs subvolume snapshot mysubvolume.broken mysubvolume
+
+Now, `mysubvolume` should have an empty "Received UUID", and btrbk
+will not complain any more.

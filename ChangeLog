@@ -5,6 +5,8 @@ btrbk-current
     and "lockfile" configuration options.
   * Show "up-to-date" status for backups in "stats" command.
   * Show "correlated" status instead of "orphaned" in "stats" command.
+  * Check source subvolumes for readonly and received_uuid flags, and
+    abort if one of them is set.
 
 btrbk-0.25.0
 
