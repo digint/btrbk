@@ -276,5 +276,21 @@ To fix this, create a "proper" snapshot:
     # mv mysubvolume mysubvolume.broken
     # btrfs subvolume snapshot mysubvolume.broken mysubvolume
 
-Now, `mysubvolume` should have an empty "Received UUID", and btrbk
-will not complain any more.
+Now, `mysubvolume` should have an empty "Received UUID". Note that in
+order to have a clean environment, you also need to fix all subvolumes
+(snapshots as well as backups) that you created with the broken
+subvolume.
+
+Check if there are more broken subvolumes:
+
+    # btrfs subvolume show mysubvolume.broken
+    # btrfs subvolume list -a -R /mnt/btr_pool | grep <"Received UUID" from above>
+    # btrfs subvolume list -a -R /mnt/btr_backup | grep <"Received UUID" from above>
+
+Now clean all subvolume listed (same as above, but using `btrfs
+subvolume snapshot -r` now). Then delete all the broken subvolumes:
+
+    # btrfs subvolume delete *.broken
+
+Finally, you should have a clean environment, and btrbk will not
+complain any more.
