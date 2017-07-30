@@ -983,14 +983,6 @@ sub btrfs_subvolume_list($;@)
   my @nodes;
   foreach (split(/\n/, $ret))
   {
-    # ID <ID> top level <ID> path <path> where path is the relative path
-    # of the subvolume to the top level subvolume. The subvolume?s ID may
-    # be used by the subvolume set-default command, or at mount time via
-    # the subvolid= option. If -p is given, then parent <ID> is added to
-    # the output between ID and top level. The parent?s ID may be used at
-    # mount time via the subvolrootid= option.
-
-    # NOTE: btrfs-progs prior to v3.17 do not support the -R flag (unsupported since
     my %node;
     unless(/^ID ([0-9]+) gen ([0-9]+) cgen ([0-9]+) top level ([0-9]+) parent_uuid ([0-9a-z-]+) received_uuid ([0-9a-z-]+) uuid ([0-9a-z-]+) path (.+)$/) {
       ERROR "Failed to parse subvolume list (unsupported btrfs-progs) for: $vol->{PRINT}";
@@ -1724,7 +1716,7 @@ sub _fill_url_cache
   my $node = shift;
   my $abs_path = shift;
   my $node_subdir = shift;
-  # TRACE "_fill_url_cache: $abs_path";
+  TRACE "_fill_url_cache: $abs_path" . ($node_subdir ? " (subdir=$node_subdir)" : "");
 
   # traverse tree from given node and update tree cache
   $url_cache{$abs_path} = $node unless(defined($node_subdir));
@@ -1953,7 +1945,6 @@ sub vinfo_init_root($;@)
   my $vol = shift || die;
   my %opts = @_;
   my $tree_root;
-  my @fill_cache;
 
   # use cached info if present
   $tree_root = $url_cache{$vol->{URL}};
@@ -1966,15 +1957,10 @@ sub vinfo_init_root($;@)
     }
   }
 
-  # TODO: replace the subvolume_show part as soon as resolve_subdir stuff has stabilized
   unless($tree_root) {
     # url_cache miss, read the subvolume detail
     my $detail = btrfs_subvolume_show($vol);
     if($detail) {
-      my $real_path = $realpath_cache{$vol->{URL}};
-      push @fill_cache, $vol->{URL};
-      push @fill_cache, $vol->{URL_PREFIX} . $real_path if($real_path && (not $url_cache{$vol->{URL_PREFIX} . $real_path}));
-
       # check uuid_cache
       if($detail->{uuid}) {
         $tree_root = $uuid_cache{$detail->{uuid}};
@@ -1984,9 +1970,26 @@ sub vinfo_init_root($;@)
         # cache miss, read the fresh tree
         $tree_root = btr_tree($vol, $detail->{id});
       }
+
+      # fill cache
+      if($tree_root) {
+        _fill_url_cache($tree_root, $vol->{URL});
+        my $real_path = $realpath_cache{$vol->{URL}};
+        if($real_path) {
+          my $real_url = $vol->{URL_PREFIX} . $real_path;
+          _fill_url_cache($tree_root, $real_url) unless($url_cache{$real_url});
+        }
+      }
     }
     elsif($opts{resolve_subdir}) {
       # $vol is not a subvolume, read btrfs tree from mount point
+
+      # NOTE: for now, this is only used for send-receive targets (in
+      # order to allow subdirs within btrfs filesystems).
+
+      # TODO: use this (replace the subvolume_show part) for source
+      # volumes if we decide to allow subdirs.
+
       my ($mnt_path, $real_path, $id) = btrfs_mountpoint($vol);
       return undef unless($mnt_path && $real_path);
       my $mnt_tree_root = $url_cache{$vol->{URL_PREFIX} . $mnt_path};
@@ -2003,7 +2006,6 @@ sub vinfo_init_root($;@)
           }
         }
         $mnt_tree_root = btr_tree($mnt_vol, $id);
-        TRACE "url_cache fill: $mnt_vol->{PRINT}";
         _fill_url_cache($mnt_tree_root, $mnt_vol->{URL});
       }
 
@@ -2018,7 +2020,6 @@ sub vinfo_init_root($;@)
       $vol->{NODE_SUBDIR} = $node_subdir if($node_subdir ne '');
       $tree_root = $ret->{node};
 
-      TRACE "url_cache fill: $vol->{PRINT}" . ($vol->{NODE_SUBDIR} ? " (subdir=$vol->{NODE_SUBDIR})" : "");
       _fill_url_cache($tree_root, $vol->{URL}, $vol->{NODE_SUBDIR});
     }
     else {
@@ -2026,12 +2027,6 @@ sub vinfo_init_root($;@)
     }
   }
   return undef unless($tree_root);
-
-  # fill cache if needed
-  foreach (@fill_cache) {
-    TRACE "url_cache fill: $_";
-    _fill_url_cache($tree_root, $_);
-  }
 
   $vol->{node} = $tree_root;
 
