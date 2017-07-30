@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.25.1
 
   * Support for btrfs-progs v4.12: fix parsing of "btrfs sub show"
     output, which now prints relative paths (close #171).
