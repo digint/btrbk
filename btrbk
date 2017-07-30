@@ -855,28 +855,37 @@ sub btrfs_subvolume_show($)
 
   return undef unless(defined($ret));
 
-  my $real_path;
-  if($ret =~ /^($file_match)/) {
-    $real_path = $1;
-    $real_path = check_file($real_path, { absolute => 1 }, sanitize => 1);
-    return undef unless(defined($real_path));
-    DEBUG "Real path for subvolume \"$vol->{PRINT}\" is: $real_path" if($real_path ne $path);
-    $realpath_cache{$vol->{URL}} = $real_path if($real_path ne $path);
+  my @ret_lines = split("\n", $ret);
+  unless(@ret_lines) {
+    ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
+    return undef;
   }
-  else {
-    $real_path = $path;
-    WARN "No real path provided by \"btrfs subvolume show\" for subvolume \"$vol->{PRINT}\", using: $path";
+
+  if($ret_lines[0] =~ /^($file_match)/) {
+    # use the resolved full path for realpath_cache (if present)
+    # btrfs-progs <  4.12 prints the full (absolute, resolved) path
+    # btrfs-progs >= 4.12 prints the relative path to btrfs root (or "/" if it is the root)
+    my $real_or_rel_path = $1;
+    if($real_or_rel_path ne '/') {
+      my $real_path = check_file($real_or_rel_path, { absolute => 1 }, sanitize => 1); # returns undef if not absolute
+      if($real_path && ($real_path ne $path)) {
+        DEBUG "Real path for subvolume \"$vol->{PRINT}\" is: $real_path";
+        $realpath_cache{$vol->{URL}} = $real_path;
+      }
+    }
+    else {
+      DEBUG "No real path provided by \"btrfs subvolume show\" for subvolume \"$vol->{PRINT}\"";
+    }
   }
 
   my %detail;
-  if($ret =~ /^\Q$real_path\E is (btrfs root|toplevel subvolume)/) {
+  if($ret_lines[0] =~ / is (btrfs root|toplevel subvolume)$/) {
     # btrfs-progs <  4.4 prints: "<subvol> is btrfs root"
     # btrfs-progs >= 4.4 prints: "<subvol> is toplevel subvolume"
     # btrfs-progs >= 4.8.3 does not enter here, as output shares format with regular subvolumes
     $detail{id} = 5;
   }
-  elsif($ret =~ /^\Q$real_path\E/) {
-    TRACE "btr_detail: found btrfs subvolume: $vol->{PRINT}";
+  else {
     # NOTE: received_uuid is not required here, as btrfs-progs < 4.1 does not give us that information.
     #       no worries, we get this from btrfs_subvolume_list() for all subvols.
     my @required_keys = qw(name uuid parent_uuid id gen cgen top_level readonly);
@@ -921,10 +930,6 @@ sub btrfs_subvolume_show($)
       }
     }
   }
-  else {
-    ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
-    return undef;
-  }
 
   if($detail{id} == 5) {
     # NOTE: as of btrfs-progs v4.8.3, we get full output for root
@@ -933,8 +938,6 @@ sub btrfs_subvolume_show($)
     DEBUG "found btrfs root: $vol->{PRINT}";
     %detail = ( id => 5, is_root => 1 );
   }
-
-  $detail{REAL_PATH} = $real_path;
 
   return \%detail;
 }
@@ -966,7 +969,7 @@ sub btrfs_subvolume_list($;@)
 {
   my $vol = shift || die;
   my %opts = @_;
-  my $path = $vol->{PATH} // die;  # deliberately NOT using REAL_PATH here!
+  my $path = $vol->{PATH} // die;
   my @filter_options = ('-a');
   push(@filter_options, '-o') if($opts{subvol_only});
 

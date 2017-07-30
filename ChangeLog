@@ -1,5 +1,7 @@
 btrbk-current
 
+  * Support for btrfs-progs v4.12: fix parsing of "btrfs sub show"
+    output, which now prints relative paths (close #171).
   * Add "stream_buffer" configuration option (close #154).
   * Bugfix: accept "no" for "transaction_log", "transaction_syslog"
     and "lockfile" configuration options.
