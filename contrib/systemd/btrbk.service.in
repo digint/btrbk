@@ -1,5 +1,6 @@
 [Unit]
 Description=btrbk backup
+After=network.target
 
 [Service]
 Type=oneshot
