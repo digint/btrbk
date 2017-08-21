@@ -22,7 +22,7 @@ Axel Burri <axel@tty0.ch>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (c) 2014-2016 Axel Burri. All rights reserved.
+Copyright (c) 2014-2017 Axel Burri. All rights reserved.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -46,7 +46,7 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = '0.25.1';
+our $VERSION         = '0.26.0-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
 
@@ -280,24 +280,26 @@ sub HELP_MESSAGE
   print STDERR "\n";
   print STDERR "options:\n";
   #            "--------------------------------------------------------------------------------"; # 80
-  print STDERR "   -h, --help            display this help message\n";
-  print STDERR "       --version         display version information\n";
-  print STDERR "   -c, --config=FILE     specify configuration file\n";
-  print STDERR "   -n, --dry-run         perform a trial run with no changes made\n";
-  print STDERR "   -p, --preserve        preserve all backups (do not delete any old targets)\n";
-  print STDERR "   -r, --resume-only     resume only (do not create new snapshots, only resume\n";
-  print STDERR "                         missing backups)\n";
-  print STDERR "   -v, --verbose         be verbose (set loglevel=info)\n";
-  print STDERR "   -q, --quiet           be quiet (do not print summary for the \"run\" command)\n";
-  print STDERR "   -l, --loglevel=LEVEL  set logging level (warn, info, debug, trace)\n";
-  print STDERR "   -t, --table           change output to table format\n";
-  print STDERR "       --format=FORMAT   change output format, FORMAT=table|long|raw\n";
-  print STDERR "       --print-schedule  print scheduler details (for the \"run\" command)\n";
-  print STDERR "       --progress        show progress bar on send-receive operation\n";
+  print STDERR "   -h, --help                display this help message\n";
+  print STDERR "       --version             display version information\n";
+  print STDERR "   -c, --config=FILE         specify configuration file\n";
+  print STDERR "   -n, --dry-run             perform a trial run with no changes made\n";
+  print STDERR "   -p, --preserve            preserve all (do not delete anything)\n";
+  print STDERR "       --preserve-snapshots  preserve snapshots (do not delete snapshots)\n";
+  print STDERR "       --preserve-backups    preserve backups (do not delete backups)\n";
+  print STDERR "   -v, --verbose             be verbose (set loglevel=info)\n";
+  print STDERR "   -q, --quiet               be quiet (do not print backup summary)\n";
+  print STDERR "   -l, --loglevel=LEVEL      set logging level (warn, info, debug, trace)\n";
+  print STDERR "   -t, --table               change output to table format\n";
+  print STDERR "       --format=FORMAT       change output format, FORMAT=table|long|raw\n";
+  print STDERR "       --print-schedule      print scheduler details (for the \"run\" command)\n";
+  print STDERR "       --progress            show progress bar on send-receive operation\n";
   print STDERR "\n";
   print STDERR "commands:\n";
-  print STDERR "   run                   perform backup operations as defined in the config\n";
+  print STDERR "   run                   run snapshot and backup operations\n";
   print STDERR "   dryrun                don't run btrfs commands; show what would be executed\n";
+  print STDERR "   snapshot              run snapshot operations only\n";
+  print STDERR "   resume                run backup operations, and delete snapshots\n";
   print STDERR "   stats                 print snapshot/backup statistics\n";
   print STDERR "   list <subcommand>     available subcommands are:\n";
   print STDERR "      backups            all backups and corresponding snapshots\n";
@@ -3478,6 +3480,11 @@ sub print_header(@)
   if($args{info}) {
     print "\n" . join("\n", grep(defined, @{$args{info}})) . "\n";
   }
+  if($args{options} && (scalar @{$args{options}})) {
+    print "\nOptions:\n    ";
+    print join("\n    ", @{$args{options}});
+    print "\n";
+  }
   if($args{legend}) {
     print "\nLegend:\n    ";
     print join("\n    ", @{$args{legend}});
@@ -3707,23 +3714,26 @@ MAIN:
   @tm_now = localtime($start_time);
 
   my %config_override_cmdline;
-  my ($config_cmdline, $quiet, $verbose, $preserve_backups, $resume_only, $print_schedule, $lockfile_cmdline);
+  my ($config_cmdline, $quiet, $verbose, $preserve_snapshots, $preserve_backups, $skip_snapshots, $skip_backups, $print_schedule, $lockfile_cmdline);
+  my $resume_only_DEPRECATED;  # as of btrbk-v0.26.0
   unless(GetOptions(
-    'help|h'         => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
-    'version'        => sub { VERSION_MESSAGE(); exit 0; },
-    'config|c=s'     => \$config_cmdline,
-    'dry-run|n'      => \$dryrun,
-    'preserve|p'     => \$preserve_backups,
-    'resume-only|r'  => \$resume_only,
-    'quiet|q'        => \$quiet,
-    'verbose|v'      => sub { $loglevel = 2; },
-    'loglevel|l=s'   => \$loglevel,
-    'progress'       => \$show_progress,
-    'table|t'        => sub { $output_format = "table" },
-    'format=s'       => \$output_format,
-    'print-schedule' => \$print_schedule,
-    'lockfile=s'     => \$lockfile_cmdline,
-    'override=s'    => \%config_override_cmdline,  # e.g. --override=incremental=no
+    'help|h'             => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
+    'version'            => sub { VERSION_MESSAGE(); exit 0; },
+    'config|c=s'         => \$config_cmdline,
+    'dry-run|n'          => \$dryrun,
+    'preserve|p'         => sub { $preserve_snapshots = 1, $preserve_backups = 1 },
+    'preserve-snapshots' => \$preserve_snapshots,
+    'preserve-backups'   => \$preserve_backups,
+    'resume-only|r'      => \$resume_only_DEPRECATED,
+    'quiet|q'            => \$quiet,
+    'verbose|v'          => sub { $loglevel = 2; },
+    'loglevel|l=s'       => \$loglevel,
+    'progress'           => \$show_progress,
+    'table|t'            => sub { $output_format = "table" },
+    'format=s'           => \$output_format,
+    'print-schedule'     => \$print_schedule,
+    'lockfile=s'         => \$lockfile_cmdline,
+    'override=s'         => \%config_override_cmdline,  # e.g. --override=incremental=no
    ))
   {
     VERSION_MESSAGE();
@@ -3747,6 +3757,14 @@ MAIN:
   else                            { $loglevel = 1; }
   require_data_dumper() if(($loglevel >= 4) || ($VERSION =~ /-dev$/));
 
+  # DEPRECATED options
+  if($resume_only_DEPRECATED) {
+    WARN "Found deprecated command line option \"-r, --resume-only\": Use \"btrbk resume --preserve\"";
+    $skip_snapshots = 1;
+    $preserve_backups = 1;
+    $preserve_snapshots = 1;
+  }
+
   # check command line options
   if($show_progress && (not check_exe('pv'))) {
     WARN 'Found option "--progress", but required executable "pv" does not exist on your system. Please install "pv".';
@@ -3760,6 +3778,19 @@ MAIN:
   if(($command eq "run") || ($command eq "dryrun")) {
     $action_run = 1;
     $dryrun = 1 if($command eq "dryrun");
+    $args_allow_group = 1;
+    @filter_args = @ARGV;
+  }
+  elsif($command eq "snapshot") {
+    $action_run = 1;
+    $skip_backups = 1;
+    $preserve_backups = 1;
+    $args_allow_group = 1;
+    @filter_args = @ARGV;
+  }
+  elsif($command eq "resume") {
+    $action_run = 1;
+    $skip_snapshots = 1;
     $args_allow_group = 1;
     @filter_args = @ARGV;
   }
@@ -4110,12 +4141,13 @@ MAIN:
     }
 
 
-    my $del_schedule_results = [];
-    if($preserve_backups || $resume_only) {
+    my $del_schedule_results;
+    if($preserve_backups) {
       INFO "Preserving all archives (option \"-p\" or \"-r\" present)";
     }
     else
     {
+      $del_schedule_results = [];
       foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
         foreach my $droot (vinfo_subsection($sroot, 'target')) {
           my $snapshot_name = config_key($droot, "snapshot_name") // die;
@@ -4152,7 +4184,7 @@ MAIN:
         print "\n";
       }
 
-      if($print_schedule && not ($preserve_backups || $resume_only)) {
+      if($print_schedule && $del_schedule_results) {
         my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$del_schedule_results;
         print_formatted("schedule", \@data, title => "DELETE SCHEDULE");
         print "\n";
@@ -4192,8 +4224,12 @@ MAIN:
           }
         }
 
+        my @cmdline_options;
+        push @cmdline_options, "preserve: Preserved all archives" if($preserve_backups);
+
         print_header(title => "Archive Summary",
                      time => $start_time,
+                     options => \@cmdline_options,
                      legend => [
                        "++.  created directory",
                        "---  deleted subvolume",
@@ -5034,8 +5070,8 @@ MAIN:
     init_transaction_log(config_key($config, "transaction_log"),
                          config_key($config, "transaction_syslog"));
 
-    if($resume_only) {
-      INFO "Skipping snapshot creation (option \"-r\" present)";
+    if($skip_snapshots) {
+      INFO "Skipping snapshot creation (btrbk resume)";
     }
     else
     {
@@ -5133,96 +5169,101 @@ MAIN:
     #
     # create backups
     #
-    foreach my $sroot (vinfo_subsection($config, 'volume')) {
-      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-        my $snapdir = config_key($svol, "snapshot_dir") // "";
-        my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-        my @snapshot_children = sort({ cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
-                                     get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
+    if($skip_backups) {
+      INFO "Skipping backup creation (btrbk snapshot)";
+    }
+    else {
+      foreach my $sroot (vinfo_subsection($config, 'volume')) {
+        foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+          my $snapdir = config_key($svol, "snapshot_dir") // "";
+          my $snapshot_basename = config_key($svol, "snapshot_name") // die;
+          my @snapshot_children = sort({ cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
+                                       get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
 
-        foreach my $droot (vinfo_subsection($svol, 'target')) {
-          INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in \"$droot->{PRINT}/\"";
-          my @schedule;
-          my $resume_total = 0;
-          my $resume_success = 0;
+          foreach my $droot (vinfo_subsection($svol, 'target')) {
+            INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in \"$droot->{PRINT}/\"";
+            my @schedule;
+            my $resume_total = 0;
+            my $resume_success = 0;
 
-          my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list for get_receive_targets()
-          foreach my $child (@snapshot_children)
-          {
-            my $warning_seen = [];
-            my @receive_targets = get_receive_targets($droot, $child, exact_match => 1, warn => 1, seen => $warning_seen, droot_subvol_list => $droot_subvol_list );
-            get_receive_targets_fsroot($droot, $child, exclude => $warning_seen, warn => 1); # warn on unexpected on fs
-            if(scalar(@receive_targets)){
-              DEBUG "Found receive target of: $child->{PRINT}";
-              next;
-            }
-
-            DEBUG "Adding backup candidate: $child->{PRINT}";
-            push(@schedule, { value      => $child,
-                              btrbk_date => $child->{node}{BTRBK_DATE},
-                              # not enforcing resuming of latest snapshot anymore (since v0.23.0)
-                              # preserve   => $child->{node}{FORCE_PRESERVE},
-                            });
-          }
-
-          if(scalar @schedule)
-          {
-            DEBUG "Checking schedule for backup candidates";
-            # add all present backups as informative_only: these are needed for correct results of schedule()
-            foreach my $vol (@$droot_subvol_list) {
-              unless($vol->{btrbk_direct_leaf} && ($vol->{node}{BTRBK_BASENAME} eq $snapshot_basename)) {
-                TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+            my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list for get_receive_targets()
+            foreach my $child (@snapshot_children)
+            {
+              my $warning_seen = [];
+              my @receive_targets = get_receive_targets($droot, $child, exact_match => 1, warn => 1, seen => $warning_seen, droot_subvol_list => $droot_subvol_list );
+              get_receive_targets_fsroot($droot, $child, exclude => $warning_seen, warn => 1); # warn on unexpected on fs
+              if(scalar(@receive_targets)){
+                DEBUG "Found receive target of: $child->{PRINT}";
                 next;
               }
-              push(@schedule, { informative_only => 1,
-                                value      => $vol,
-                                btrbk_date => $vol->{node}{BTRBK_DATE},
+
+              DEBUG "Adding backup candidate: $child->{PRINT}";
+              push(@schedule, { value      => $child,
+                                btrbk_date => $child->{node}{BTRBK_DATE},
+                                # not enforcing resuming of latest snapshot anymore (since v0.23.0)
+                                # preserve   => $child->{node}{FORCE_PRESERVE},
                               });
             }
-            my ($preserve, undef) = schedule(
-              schedule => \@schedule,
-              preserve => config_preserve_hash($droot, "target"),
-             );
-            my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
-            $resume_total = scalar @resume;
 
-            foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @resume)
+            if(scalar @schedule)
             {
-              # Continue gracefully (skip instead of abort) on existing (possibly garbled) target
-              my $err_vol = vinfo_subvol($droot, $child->{NAME});
-              if($err_vol) {
-                my $status_msg = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
-                WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
-                WARN $status_msg;
-                WARN "Skipping backup of: $child->{PRINT}";
-                $droot->{SUBVOL_RECEIVED} //= [];
-                push(@{$droot->{SUBVOL_RECEIVED}}, { ERROR => $status_msg, received_subvolume => $err_vol });
-                $droot->{CONFIG}->{UNRECOVERABLE} = $status_msg;
-                next;
+              DEBUG "Checking schedule for backup candidates";
+              # add all present backups as informative_only: these are needed for correct results of schedule()
+              foreach my $vol (@$droot_subvol_list) {
+                unless($vol->{btrbk_direct_leaf} && ($vol->{node}{BTRBK_BASENAME} eq $snapshot_basename)) {
+                  TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+                  next;
+                }
+                push(@schedule, { informative_only => 1,
+                                  value      => $vol,
+                                  btrbk_date => $vol->{node}{BTRBK_DATE},
+                                });
               }
+              my ($preserve, undef) = schedule(
+                schedule => \@schedule,
+                preserve => config_preserve_hash($droot, "target"),
+               );
+              my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
+              $resume_total = scalar @resume;
 
-             INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
-              my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $child, $droot, $snapdir);
-              if(macro_send_receive(source => $child,
-                                    target => $droot,
-                                    parent => $latest_common_src,  # this is <undef> if no common found
-                                    latest_common_target => $latest_common_target,
-                                   ))
+              foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @resume)
               {
-                $resume_success++;
-              }
-              else {
-                # note: ABORTED flag is already set by macro_send_receive()
-                ERROR("Error while resuming backups, aborting");
-                last;
+                # Continue gracefully (skip instead of abort) on existing (possibly garbled) target
+                my $err_vol = vinfo_subvol($droot, $child->{NAME});
+                if($err_vol) {
+                  my $status_msg = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
+                  WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
+                  WARN $status_msg;
+                  WARN "Skipping backup of: $child->{PRINT}";
+                  $droot->{SUBVOL_RECEIVED} //= [];
+                  push(@{$droot->{SUBVOL_RECEIVED}}, { ERROR => $status_msg, received_subvolume => $err_vol });
+                  $droot->{CONFIG}->{UNRECOVERABLE} = $status_msg;
+                  next;
+                }
+
+                INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
+                my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $child, $droot, $snapdir);
+                if(macro_send_receive(source => $child,
+                                      target => $droot,
+                                      parent => $latest_common_src,  # this is <undef> if no common found
+                                      latest_common_target => $latest_common_target,
+                                     ))
+                {
+                  $resume_success++;
+                }
+                else {
+                  # note: ABORTED flag is already set by macro_send_receive()
+                  ERROR("Error while resuming backups, aborting");
+                  last;
+                }
               }
             }
-          }
 
-          if($resume_total) {
-            INFO "Created $resume_success/$resume_total missing backups";
-          } else {
-            INFO "No missing backups found";
+            if($resume_total) {
+              INFO "Created $resume_success/$resume_total missing backups";
+            } else {
+              INFO "No missing backups found";
+            }
           }
         }
       }
@@ -5232,12 +5273,13 @@ MAIN:
     #
     # remove backups following a preserve daily/weekly/monthly scheme
     #
-    my $schedule_results = [];
-    if($preserve_backups || $resume_only) {
-      INFO "Preserving all snapshots and backups (option \"-p\" or \"-r\" present)";
+    my $schedule_results;
+    if($preserve_snapshots && $preserve_backups) {
+      INFO "Preserving all snapshots and backups";
     }
     else
     {
+      $schedule_results = [];
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snapdir = config_key($svol, "snapshot_dir") // "";
@@ -5272,43 +5314,52 @@ MAIN:
               }
             }
 
-            #
-            # delete backups
-            #
-            INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
-            unless(macro_delete($droot, "", $snapshot_basename, $droot,
-                                { preserve     => config_preserve_hash($droot, "target"),
-                                  results      => $schedule_results,
-                                  result_hints => { topic => "backup", root_path => $droot->{PATH} },
-                                },
-                                commit => config_key($droot, "btrfs_commit_delete"),
-                                type   => "delete_target",
-                               ))
-            {
-              $target_aborted = -1;
+            if($preserve_backups) {
+              INFO "Preserving all backups";
+            }
+            else {
+              #
+              # delete backups
+              #
+              INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
+              unless(macro_delete($droot, "", $snapshot_basename, $droot,
+                                  { preserve     => config_preserve_hash($droot, "target"),
+                                    results      => $schedule_results,
+                                    result_hints => { topic => "backup", root_path => $droot->{PATH} },
+                                  },
+                                  commit => config_key($droot, "btrfs_commit_delete"),
+                                  type   => "delete_target",
+                                 ))
+              {
+                $target_aborted = 1;
+              }
             }
           }
 
           #
           # delete snapshots
           #
-          if($target_aborted) {
+          if($preserve_snapshots) {
+            INFO "Preserving all snapshots";
+          }
+          elsif($target_aborted) {
             if($target_aborted == -1) {
               INFO "Skipping cleanup of snapshots for subvolume \"$svol->{PRINT}\", as at least one target is skipped by command line argument";
             } else {
               WARN "Skipping cleanup of snapshots for subvolume \"$svol->{PRINT}\", as at least one target aborted earlier";
             }
-            next;
           }
-          INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir_ts$snapshot_basename.*";
-          macro_delete($sroot, $snapdir, $snapshot_basename, $svol,
-                       { preserve     => config_preserve_hash($svol, "snapshot"),
-                         results      => $schedule_results,
-                         result_hints => { topic => "snapshot", root_path => $sroot->{PATH} },
-                       },
-                       commit => config_key($svol, "btrfs_commit_delete"),
-                       type   => "delete_snapshot",
-                      );
+          else {
+            INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir_ts$snapshot_basename.*";
+            macro_delete($sroot, $snapdir, $snapshot_basename, $svol,
+                         { preserve     => config_preserve_hash($svol, "snapshot"),
+                           results      => $schedule_results,
+                           result_hints => { topic => "snapshot", root_path => $sroot->{PATH} },
+                         },
+                         commit => config_key($svol, "btrfs_commit_delete"),
+                         type   => "delete_snapshot",
+                        );
+          }
         }
       }
     }
@@ -5329,7 +5380,7 @@ MAIN:
       #
       # print scheduling results
       #
-      if($print_schedule) {
+      if($print_schedule && $schedule_results) {
         my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
         my @data_snapshot = grep { $_->{topic} eq "snapshot" } @data;
         my @data_backup   = grep { $_->{topic} eq "backup"   } @data;
@@ -5406,9 +5457,16 @@ MAIN:
           }
         }
 
+        my @cmdline_options;
+        push @cmdline_options, "btrbk resume: No snapshots created" if($skip_snapshots);
+        push @cmdline_options, "btrbk snapshot: No backups created" if($skip_backups);
+        push @cmdline_options, "preserve-snapshots: Preserved all snapshots" if($preserve_snapshots);
+        push @cmdline_options, "preserve-backups: Preserved all backups" if($preserve_backups);
+
         print_header(title => "Backup Summary",
                      config => $config,
                      time => $start_time,
+                     options => \@cmdline_options,
                      legend => [
                        "===  up-to-date subvolume (source snapshot)",
                        "+++  created subvolume (source snapshot)",
@@ -5420,12 +5478,6 @@ MAIN:
 
         print join("\n", @out);
 
-        if($resume_only) {
-          print "\nNOTE: No snapshots created (option -r present)\n";
-        }
-        if($preserve_backups || $resume_only) {
-          print "\nNOTE: Preserved all snapshots and backups (option -p or -r present)\n";
-        }
         if($exit_status || scalar(@unrecoverable)) {
           print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
           print "Please check warning and error messages above.\n";

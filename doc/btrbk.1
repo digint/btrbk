@@ -1,4 +1,4 @@
-.TH "btrbk" "1" "2017-07-30" "btrbk v0.25.1" ""
+.TH "btrbk" "1" "2017-08-21" "btrbk v0.26.0-dev" ""
 .\" disable hyphenation
 .nh
 .\" disable justification (adjust text to left margin only)
@@ -8,7 +8,8 @@ btrbk \- backup tool for btrfs volumes
 .SH SYNOPSIS
 .nf
 \fBbtrbk\fR [\-h|\-\-help] [\-\-version] [\-c|\-\-config <file>]
-      [\-n|\-\-dry\-run] [\-p|\-\-preserve] [\-r|\-\-resume\-only]
+      [\-n|\-\-dry\-run] [\-p|\-\-preserve]
+      [\-\-preserve\-snapshots] [\-\-preserve\-backups]
       [\-v|\-\-verbose] [\-q|\-\-quiet] [\-l|\-\-loglevel <level>]
       [\-t|\-\-table] [\-\-format <output\-format>]
       [\-\-progress] [\-\-print\-schedule]
@@ -50,8 +51,9 @@ Prints the btrbk version.
 .RS 4
 Don't run anything that would alter the filesystem, just show the
 snapshots and backup subvolumes that would be created/deleted by the
-\fBrun\fR and \fBclean\fR commands. Use in conjunction with \fI\-l
-debug\fR to see the btrfs commands that would be executed.
+\fBrun\fR, \fBsnapshot\fR, \fBresume\fR, \fBarchive\fR and \fBclean\fR
+commands. Use in conjunction with \fI\-l debug\fR to see the btrfs
+commands that would be executed.
 .RE
 .PP
 \-c, \-\-config <file>
@@ -62,13 +64,20 @@ Read the configuration from <file>.
 \-p, \-\-preserve
 .RS 4
 Preserve all snapshots and backups. Skips deletion of any snapshots
-and backups, even if specified in the configuration file.
+and backups, even if specified in the configuration file (shortcut for
+"\-\-preserve\-snapshots \-\-preserve\-backups").
 .RE
 .PP
-\-r, \-\-resume-only
+\-\-preserve-snapshots
 .RS 4
-Resume only. Skips snapshot creation, only resumes missing backups to
-satisfy the target retention policy.
+Preserve all snapshots. Skips deletion of any snapshots, even if
+specified in the configuration file.
+.RE
+.PP
+\-\-preserve-backups
+.RS 4
+Preserve all backups. Skips deletion of any backups, even if specified
+in the configuration file.
 .RE
 .PP
 \-v, \-\-verbose
@@ -79,7 +88,8 @@ Verbose output (shortcut for "\-\-loglevel=info").
 \-q, \-\-quiet
 .RS 4
 Quiet operation. If set, btrbk does not print the summary after
-executing the "run" command.
+executing the \fBrun\fR, \fBsnapshot\fR, \fBresume\fR, or
+\fBarchive\fR commands.
 .RE
 .PP
 \-l, \-\-loglevel <level>
@@ -97,8 +107,8 @@ Print output in table format (shortcut for "\-\-format=table").
 .RS 4
 Print output in specified format. If set to "raw", prints
 space-separated key="value" pairs (machine readable). Affects output
-format for \fBrun\fR, \fBdryrun\fR and \fBlist\fR commands. Useful for
-further exporting/scripting.
+format for \fBrun\fR, \fBsnapshot\fR, \fBresume\fR, \fBarchive\fR and
+\fBlist\fR commands. Useful for further exporting/scripting.
 .RE
 .PP
 \-\-progress
@@ -108,15 +118,15 @@ Show progress bar on send-receive operation.
 .PP
 \-\-print\-schedule
 .RS 4
-Print detailed scheduler information on \fBrun\fR and \fBdryrun\fR
-commands. Use the \fI\-\-format\fR command line option to switch
-between different output formats.
+Print detailed scheduler information on \fBrun\fR, \fBsnapshot\fR,
+\fBresume\fR and \fBarchive\fR commands. Use the \fI\-\-format\fR
+command line option to switch between different output formats.
 .RE
 .PP
 \-\-override <config_option>=<value>
 .RS 4
-Override a configuration option <config_option> with <value>.
-Globally, for ALL contexts. Use with care!
+Override a configuration option <config_option> with
+<value>. Globally, for ALL contexts. Use with care!
 .RE
 .PP
 \-\-lockfile <file>
@@ -136,27 +146,47 @@ configuration file. If the optional [filter...] arguments are present,
 snapshots and backups are only performed for the subvolumes/targets
 matching a \fIFILTER STATEMENT\fR (see below).
 .PP
-First, btrbk reads information from the source and target btrfs
-filesystems in order to perform sanity checks and identify
-parent/child and received-from relationships.
+.B Step 0: Read Data
+.RS 4
+Read information from the source and target btrfs filesystems in order
+to perform sanity checks and identify parent/child and received-from
+relationships.
+.RE
 .PP
+.B Step 1: Create Snapshots
+.RS 4
 If the checks succeed, btrbk creates snapshots for the source
 subvolumes specified in the configuration file, according to the
 \fIsnapshot_create\fR option.
+.RE
 .PP
-Then, for each specified target, btrbk creates the backups as follows:
-After comparing the backups to the source snapshots, btrbk transfers
-all missing snapshots needed to satisfy the configured target
-retention policy, incrementally from the latest common parent
-subvolume found. If no common parent subvolume is found (or if the
+.B Step 2: Create Backups
+.RS 4
+For each specified target, btrbk creates the backups as follows: After
+comparing the backups to the source snapshots, btrbk transfers all
+missing snapshots needed to satisfy the configured target retention
+policy, incrementally from the latest common parent subvolume
+found. If no common parent subvolume is found (or if the
 \fIincremental\fR option is set to \[lq]no\[rq]), a full
 (non-incremental) backup is created.
+.RE
 .PP
-As a last step, unless the \-p (\-\-preserve) option is set, snapshots
-and backup subvolumes that are not preserved by their configured
-retention policy will be deleted. Note that the latest snapshot (the
-one created in the first step) as well as the latest snapshot/backup
-pair are always preserved, regardless of the retention policy.
+.B Step 3: Delete Backups
+.RS 4
+Unless the \-p, \-\-preserve or \-\-preserve\-backups option is set,
+backup subvolumes that are not preserved by their configured retention
+policy will be deleted. Note that the latest snapshot/backup pair are
+always preserved, regardless of the retention policy.
+.RE
+.PP
+.B Step 4: Delete Snapshots
+.RS 4
+Unless the \-p, \-\-preserve or \-\-preserve-snapshots option is set,
+snapshots that are not preserved by their configured retention policy
+will be deleted. Note that the latest snapshot (the one created in
+step 1) as well as the latest snapshot/backup pair are always
+preserved, regardless of the retention policy.
+.RE
 .PP
 See section RETENTION POLICY in
 .BR btrbk.conf (5)
@@ -173,6 +203,24 @@ Don't run any btrfs commands that would alter the filesystem, just
 show the snapshots and backup subvolumes that would be created/deleted
 by the \fBrun\fR command. Use in conjunction with \fI\-l debug\fR to
 see the btrfs commands that would be executed.
+.RE
+.PP
+.B snapshot
+[filter...]
+.RS 4
+Snapshot only: skips backup creation and deletion (steps 2 and 3). Use
+in conjunction with \-p, \-\-preserve (or \-\-preserve\-snapshots) if
+you also want to skip snapshot deletion (step 4).
+.RE
+.PP
+.B resume
+[filter...]
+.RS 4
+Resume backups: skips snapshot creation (step 1), transfers and
+deletes snapshots/backups in order to satisfy their configured
+retention policy. Use in conjunction with \-p, \-\-preserve,
+\-\-preserve\-backups, \-\-preserve\-snapshots if you want to skip
+backup and/or snapshot deletion (steps 3, 4).
 .RE
 .PP
 .B archive

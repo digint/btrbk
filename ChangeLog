@@ -1,3 +1,10 @@
+btrbk-current
+
+  * Add "resume" command, replacement for "-r, --resume-only" command
+    line option (which is now deprecated).
+  * Add "snapshot" command (close #150).
+  * Add "--preserve-snapshots" and "--preserve-backups" options.
+
 btrbk-0.25.1
 
   * Support for btrfs-progs v4.12: fix parsing of "btrfs sub show"
