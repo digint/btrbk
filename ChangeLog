@@ -4,6 +4,7 @@ btrbk-current
     line option (which is now deprecated).
   * Add "snapshot" command (close #150).
   * Add "--preserve-snapshots" and "--preserve-backups" options.
+  * Bugfix: ssh_filter_btrbk: accept mbuffer command (stream_buffer).
 
 btrbk-0.25.1
 
