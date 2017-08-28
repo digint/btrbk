@@ -200,11 +200,11 @@ my %table_formats = (
                    RALIGN => { size=>1, used=>1, device_size=>1, device_allocated=>1, device_unallocated=>1, device_missing=>1, device_used=>1, free=>1, free_min=>1, data_ratio=>1, metadata_ratio=>1, global_reserve=>1, global_reserve_used=>1 },
                  },
 
-  transaction => { table => [ qw(           type status          target_host target_subvol source_host source_subvol parent_subvol         ) ],
-                   long  => [ qw( localtime type status duration target_host target_subvol source_host source_subvol parent_subvol message ) ],
-                   raw   => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
-                   tlog  => [ qw( localtime type status duration target_url source_url parent_url message ) ],
-                   syslog  => [ qw( type status duration target_url source_url parent_url message ) ],
+  transaction => { table  => [ qw(                type status          target_host target_subvol source_host source_subvol parent_subvol         ) ],
+                   long   => [ qw(      localtime type status duration target_host target_subvol source_host source_subvol parent_subvol message ) ],
+                   tlog   => [ qw(      localtime type status          target_url source_url parent_url message ) ],
+                   syslog => [ qw(                type status          target_url source_url parent_url message ) ],
+                   raw    => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
                  },
 
   origin_tree => { table => [ qw( tree uuid parent_uuid received_uuid ) ],

@@ -4,6 +4,7 @@ btrbk-current
     line option (which is now deprecated).
   * Add "snapshot" command (close #150).
   * Add "--preserve-snapshots" and "--preserve-backups" options.
+  * Remove "duration" column from transaction_log/transaction_syslog.
   * Bugfix: ssh_filter_btrbk: accept mbuffer command (stream_buffer).
   * Bugfix: print correct (end-)time in transaction_log.
 
