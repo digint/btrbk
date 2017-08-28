@@ -1,43 +1,29 @@
 #!/usr/bin/perl -T
-
-=head1 NAME
-
-btrbk - create snapshots and remote backups of btrfs subvolumes
-
-=head1 SYNOPSIS
-
-    btrbk --help
-
-=head1 DESCRIPTION
-
-Backup tool for btrfs subvolumes, taking advantage of btrfs specific
-send-receive mechanism, allowing incremental backups at file-system
-level.
-
-The full btrbk documentation is available at L<http://digint.ch/btrbk/>.
-
-=head1 AUTHOR
-
-Axel Burri <axel@tty0.ch>
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright (c) 2014-2017 Axel Burri. All rights reserved.
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-=cut
+#
+# btrbk - Create snapshots and remote backups of btrfs subvolumes
+#
+# Copyright (C) 2014-2017 Axel Burri
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# ---------------------------------------------------------------------
+# The official btrbk website is located at:
+# http://digint.ch/btrbk/
+#
+# Author:
+# Axel Burri <axel@tty0.ch>
+# ---------------------------------------------------------------------
 
 use strict;
 use warnings FATAL => qw( all );
