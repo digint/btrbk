@@ -460,7 +460,7 @@ sub end_transaction($$)
   die("end_transaction() while no transaction is running") unless($current_transaction);
   foreach (@$current_transaction) {
     die("end_transaction() has different type") unless($_->{type} eq $type);
-    action($type, %$_, status => $status, duration => ($dryrun ? undef : ($time - $_->{time})));
+    action($type, %$_, status => $status, time => $time, duration => ($dryrun ? undef : ($time - $_->{time})));
   }
   $current_transaction = undef;
 }

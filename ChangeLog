@@ -5,6 +5,7 @@ btrbk-current
   * Add "snapshot" command (close #150).
   * Add "--preserve-snapshots" and "--preserve-backups" options.
   * Bugfix: ssh_filter_btrbk: accept mbuffer command (stream_buffer).
+  * Bugfix: print correct (end-)time in transaction_log.
 
 btrbk-0.25.1
 
