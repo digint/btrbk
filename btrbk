@@ -691,22 +691,39 @@ sub run_cmd(@)
     return "";
   }
   DEBUG "### $cmd_print";
+  TRACE "Executing command: $cmd";
+
+  # disable warnings in this scope (e.g. "permission denied", "no such file"), these cases are handled below.
+  # NOTE: for some reason this is only needed if we use "use warnings FATAL => qw( all )"
+  no warnings qw(exec);
 
   # execute command and parse output
-  TRACE "Executing command: $cmd";
-  my $ret = "";
-  $ret = `$cmd`;
-  chomp($ret);
-  TRACE "Command output:\n$ret";
-  if($?) {
-    my $exitcode= $? >> 8;
+  my $ret = `$cmd`;
+  if(defined($ret)) {
+    chomp($ret);
+    TRACE "Command output:\n$ret";
+  }
+
+  if($? == -1) {
+    ERROR "Command execution failed ($!): `$cmd_print`";
+    return undef;
+  }
+  elsif ($? & 127) {
     my $signal = $? & 127;
-    DEBUG "Command execution failed (exitcode=$exitcode" . ($signal ? ", signal=$signal" : "") . "): \"$cmd\"";
+    ERROR "Command execution failed (child died with signal $signal): `$cmd_print`";
+    return undef;
+  }
+  elsif($?) {
+    my $exitcode= $? >> 8;
+    DEBUG "Command execution failed (exitcode=$exitcode): `$cmd_print`";
 
     if($catch_stderr) {
       $_ = $ret;
       &{$filter_stderr} ($cmd) if($filter_stderr);
-      ERROR "[$cmd_print] $_" if($_);
+      if($_) {
+        # no filter, or uncaught by filter
+        ERROR "Command execution failed (exitcode=$exitcode): `$cmd_print`: $_";
+      }
     }
     return undef;
   }
