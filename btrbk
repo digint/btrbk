@@ -26,7 +26,7 @@
 # ---------------------------------------------------------------------
 
 use strict;
-use warnings FATAL => qw( all );
+use warnings FATAL => qw( all ), NONFATAL => qw( deprecated );
 
 use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
