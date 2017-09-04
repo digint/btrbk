@@ -1,4 +1,4 @@
-#!/usr/bin/perl -T
+#!/usr/bin/env perl
 #
 # btrbk - Create snapshots and remote backups of btrfs subvolumes
 #
@@ -3691,11 +3691,6 @@ sub exit_status
 
 MAIN:
 {
-  # set PATH instead of using absolute "/sbin/btrfs" (for now), as
-  # different distros (and even different versions of btrfs-progs)
-  # install the "btrfs" executable to different locations.
-  $ENV{PATH} = '/sbin:/bin:/usr/sbin:/usr/bin';
-
   Getopt::Long::Configure qw(gnu_getopt);
   my $start_time = time;
   @tm_now = localtime($start_time);
