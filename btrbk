@@ -1829,6 +1829,7 @@ sub vinfo_rsh($;@)
   my @ssh_options;
   push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
   push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
+  push(@ssh_options, '-q');
   if($ssh_identity) {
     push(@ssh_options, '-i', $ssh_identity);
   } else {
