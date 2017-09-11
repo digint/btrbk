@@ -287,10 +287,17 @@ Check if there are more broken subvolumes:
     # btrfs subvolume list -a -R /mnt/btr_pool | grep <"Received UUID" from above>
     # btrfs subvolume list -a -R /mnt/btr_backup | grep <"Received UUID" from above>
 
-Now clean all subvolume listed (same as above, but using `btrfs
-subvolume snapshot -r` now). Then delete all the broken subvolumes:
+Either delete them (they won't be used for incremental send-receive
+anyways), or clean them as follows:
 
-    # btrfs subvolume delete *.broken
+    # btrfs subvolume snapshot listed_ro_subvol listed_ro_subvol.rw
+    # btrfs subvolume delete listed_ro_subvol
+    # btrfs subvolume snapshot -r listed_ro_subvol.rw listed_ro_subvol
+    # btrfs subvolume delete listed_ro_subvol.rw
 
-Finally, you should have a clean environment, and btrbk will not
-complain any more.
+Finally, don't forget to delete the broken source subvolume:
+
+    # btrfs subvolume delete mysubvolume.broken
+
+You should now have a clean environment, and btrbk will not complain
+any more.
