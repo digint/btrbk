@@ -2952,7 +2952,7 @@ sub macro_send_receive(@)
   # check for existing target subvolume
   if(my $err_vol = vinfo_subvol($target, $source->{NAME})) {
     ABORTED($config_target, "Target subvolume \"$err_vol->{PRINT}\" already exists");
-    $config_target->{UNRECOVERABLE} = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
+    $config_target->{UNRECOVERABLE} = "Please delete stray subvolume (\"btrbk -c your/configuration clean\"): $err_vol->{PRINT}";
     ERROR $config_target->{ABORTED} . ", aborting send/receive of: $source->{PRINT}";
     ERROR $config_target->{UNRECOVERABLE};
     $info{ERROR} = 1;
