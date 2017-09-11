@@ -4283,6 +4283,10 @@ MAIN:
             TRACE "skipping non-matching subvolume: $vol->{PRINT}";
             next;
           }
+          unless(defined(check_file($vol->{SUBVOL_PATH}, { relative => 1 }))) {
+            WARN "Ambiguous subvolume path \"$vol->{SUBVOL_PATH}\" while expanding \"$globs\", ignoring";
+            next;
+          }
           INFO "Found source subvolume: $vol->{PRINT}";
           my %conf = ( %$config_subvol,
                        rel_path_glob => $globs,
