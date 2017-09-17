@@ -105,8 +105,15 @@ btrbk is in `testing`, install with:
 
     apk add btrbk
 
+### Void Linux
+
+btrbk is in Void's `current` repository
+
+    xbps-install -S btrbk
+
 
   [btrbk source tarball]: http://digint.ch/download/btrbk/releases/
+
 
 
 Synopsis
