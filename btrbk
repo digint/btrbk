@@ -4979,7 +4979,6 @@ MAIN:
             if($target_vol->{node}{received_uuid} eq '-') {
               DEBUG "Found incomplete target subvolume: $target_vol->{PRINT}";
               push(@delete, $target_vol);
-              push @out, "--- $target_vol->{PRINT}";
             }
           }
           my $ret;
@@ -5002,6 +5001,7 @@ MAIN:
             INFO "Deleted $ret incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
             $droot->{SUBVOL_DELETED} //= [];
             push @{$droot->{SUBVOL_DELETED}}, @delete;
+            push @out, map("--- $_->{PRINT}", @delete);
           }
           else {
             ABORTED($droot, "Failed to delete incomplete target subvolume");
