@@ -1,4 +1,4 @@
-#!/usr/bin/perl -T
+#!/usr/bin/perl
 #
 # btrbk - Create snapshots and remote backups of btrfs subvolumes
 #
@@ -3707,10 +3707,22 @@ sub exit_status
 
 MAIN:
 {
-  # set PATH instead of using absolute "/sbin/btrfs" (for now), as
-  # different distros (and even different versions of btrfs-progs)
-  # install the "btrfs" executable to different locations.
-  $ENV{PATH} = '/sbin:/bin:/usr/sbin:/usr/bin';
+  # NOTE: Since v0.26.0, btrbk does not enable taint mode (perl -T) by
+  # default, and does not hardcode $PATH anymore.
+  #
+  # btrbk still does all taint checks, and can be run in taint mode.
+  # In order to enable taint mode, run `perl -T btrbk`.
+  #
+  # see: perlrun(1), perlsec(1)
+  #
+  my $taint_mode_enabled = eval '${^TAINT}';
+  if($taint_mode_enabled) {
+    # we are running in tainted mode (perl -T), sanitize %ENV
+    delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
+
+    # in taint mode, perl needs an untainted $PATH.
+    $ENV{PATH} = '/sbin:/bin:/usr/sbin:/usr/bin';
+  }
 
   Getopt::Long::Configure qw(gnu_getopt);
   my $start_time = time;
