@@ -4640,7 +4640,7 @@ MAIN:
               $create_mode = "!!!" if($_->{ERROR});
               push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
             }
-            foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$droot->{SUBVOL_DELETED} // []}) {
+            foreach(@{$droot->{SUBVOL_DELETED} // []}) {
               push @subvol_out, "--- $_->{PRINT}";
             }
             if((ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) ||
@@ -5821,7 +5821,7 @@ MAIN:
             if($svol->{SNAPSHOT_CREATED}) {
               push @subvol_out, "+++ $svol->{SNAPSHOT_CREATED}->{PRINT}";
             }
-            foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$svol->{SUBVOL_DELETED} // []}) {
+            foreach(@{$svol->{SUBVOL_DELETED} // []}) {
               push @subvol_out, "--- $_->{PRINT}";
             }
             foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
@@ -5833,7 +5833,7 @@ MAIN:
                 push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
               }
 
-              foreach(sort { $a->{PATH} cmp $b->{PATH} } @{$droot->{SUBVOL_DELETED} // []}) {
+              foreach(@{$droot->{SUBVOL_DELETED} // []}) {
                 push @subvol_out, "--- $_->{PRINT}";
               }
 
