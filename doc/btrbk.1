@@ -223,6 +223,17 @@ retention policy. Use in conjunction with \-p, \-\-preserve,
 backup and/or snapshot deletion (steps 3, 4).
 .RE
 .PP
+.B prune
+[filter...]
+.RS 4
+Prune snapshots and backups: skips snapshot and backup creation (steps
+1, 2), only deletes snapshots and backups in order to satisfy their
+configured retention policy. Useful for cleaning the disk after
+changing the retention policy. Use in conjunction with
+\-\-preserve\-backups, \-\-preserve\-snapshots if you want to skip
+backup or snapshot deletion (steps 3, 4).
+.RE
+.PP
 .B archive
 <source> <target>
 .I *experimental*

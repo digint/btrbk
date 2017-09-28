@@ -315,6 +315,7 @@ sub HELP_MESSAGE
   print STDERR "   dryrun                don't run btrfs commands; show what would be executed\n";
   print STDERR "   snapshot              run snapshot operations only\n";
   print STDERR "   resume                run backup operations, and delete snapshots\n";
+  print STDERR "   prune                 only delete snapshots and backups\n";
   print STDERR "   stats                 print snapshot/backup statistics\n";
   print STDERR "   list <subcommand>     available subcommands are:\n";
   print STDERR "      backups            all backups and corresponding snapshots\n";
@@ -4223,6 +4224,13 @@ MAIN:
   elsif($command eq "resume") {
     $action_run = 1;
     $skip_snapshots = 1;
+    $args_allow_group = 1;
+    @filter_args = @ARGV;
+  }
+  elsif($command eq "prune") {
+    $action_run = 1;
+    $skip_snapshots = 1;
+    $skip_backups = 1;
     $args_allow_group = 1;
     @filter_args = @ARGV;
   }

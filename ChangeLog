@@ -6,6 +6,7 @@ btrbk-current
   * Add "resume" command, replacement for "-r, --resume-only" command
     line option (which is now deprecated).
   * Add "snapshot" command (close #150).
+  * Add "prune" command.
   * Add "--preserve-snapshots" and "--preserve-backups" options.
   * Change raw backup format (sidecar file instead of uuid in file).
   * Honor target_preserve for raw targets (delete raw targets).
