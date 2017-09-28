@@ -302,6 +302,7 @@ sub HELP_MESSAGE
   print STDERR "   -p, --preserve            preserve all (do not delete anything)\n";
   print STDERR "       --preserve-snapshots  preserve snapshots (do not delete snapshots)\n";
   print STDERR "       --preserve-backups    preserve backups (do not delete backups)\n";
+  print STDERR "       --wipe                delete all but latest snapshots\n";
   print STDERR "   -v, --verbose             be verbose (set loglevel=info)\n";
   print STDERR "   -q, --quiet               be quiet (do not print backup summary)\n";
   print STDERR "   -l, --loglevel=LEVEL      set logging level (warn, info, debug, trace)\n";
@@ -2944,10 +2945,14 @@ sub config_key($$;@)
 }
 
 
-sub config_preserve_hash($$)
+sub config_preserve_hash($$;@)
 {
   my $config = shift || die;
   my $prefix = shift || die;
+  my %opts = @_;
+  if($opts{wipe}) {
+    return { dow => 'sunday',  min => 'latest', min_q => 'latest' };
+  }
   my $ret = config_key($config, $prefix . "_preserve") // {};
   my $preserve_min = config_key($config, $prefix . "_preserve_min");
   if(defined($preserve_min)) {
@@ -4147,7 +4152,7 @@ MAIN:
   @tm_now = localtime($start_time);
 
   my %config_override_cmdline;
-  my ($config_cmdline, $quiet, $verbose, $preserve_snapshots, $preserve_backups, $skip_snapshots, $skip_backups, $print_schedule, $lockfile_cmdline);
+  my ($config_cmdline, $quiet, $verbose, $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups, $print_schedule, $lockfile_cmdline);
   my $resume_only_DEPRECATED;  # as of btrbk-v0.26.0
   unless(GetOptions(
     'help|h'             => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
@@ -4157,6 +4162,7 @@ MAIN:
     'preserve|p'         => sub { $preserve_snapshots = 1, $preserve_backups = 1 },
     'preserve-snapshots' => \$preserve_snapshots,
     'preserve-backups'   => \$preserve_backups,
+    'wipe'               => \$wipe_snapshots,
     'resume-only|r'      => \$resume_only_DEPRECATED,
     'quiet|q'            => \$quiet,
     'verbose|v'          => sub { $loglevel = 2; },
@@ -5766,9 +5772,9 @@ MAIN:
             }
           }
           else {
-            INFO "Cleaning snapshots: $sroot->{PRINT}/$snapdir_ts$snapshot_basename.*";
+            INFO "Cleaning snapshots" . ($wipe_snapshots ? " (wipe)" : "") . ": $sroot->{PRINT}/$snapdir_ts$snapshot_basename.*";
             macro_delete($sroot, $snapdir, $snapshot_basename, $svol,
-                         { preserve     => config_preserve_hash($svol, "snapshot"),
+                         { preserve     => config_preserve_hash($svol, "snapshot", wipe => $wipe_snapshots),
                            results      => $schedule_results,
                            result_hints => { topic => "snapshot", root_path => $sroot->{PATH} },
                          },

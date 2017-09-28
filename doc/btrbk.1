@@ -80,6 +80,14 @@ Preserve all backups. Skips deletion of any backups, even if specified
 in the configuration file.
 .RE
 .PP
+\-\-wipe
+.RS 4
+Ignore configured snapshot retention policy, delete all but latest
+snapshots instead. All snapshots needed for incremental backup (latest
+common) are also preserved. Useful if you are getting low on disk
+space (ENOSPC).
+.RE
+.PP
 \-v, \-\-verbose
 .RS 4
 Verbose output (shortcut for "\-\-loglevel=info").

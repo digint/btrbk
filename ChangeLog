@@ -8,6 +8,7 @@ btrbk-current
   * Add "snapshot" command (close #150).
   * Add "prune" command.
   * Add "--preserve-snapshots" and "--preserve-backups" options.
+  * Add "--wipe" command line option (close #173).
   * Change raw backup format (sidecar file instead of uuid in file).
   * Honor target_preserve for raw targets (delete raw targets).
   * Add symmetric encryption for raw targets (close #157).
