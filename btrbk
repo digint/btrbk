@@ -124,6 +124,10 @@ my %config_options = (
   backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
   backend_remote              => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
 
+  snapshot_qgroup_destroy     => { default => undef,     accept => [ "yes", "no" ], context => [ "root", "volume", "subvolume" ] },
+  target_qgroup_destroy       => { default => undef,     accept => [ "yes", "no" ] },
+  archive_qgroup_destroy      => { default => undef,     accept => [ "yes", "no" ], context => [ "root" ] },
+
   # deprecated options
   btrfs_progs_compat          => { default => undef, accept => [ "yes", "no" ],
                                    deprecated => { DEFAULT => { ABORT => 1, warn => 'This feature has been dropped in btrbk-v0.23.0. Please update to newest btrfs-progs, AT LEAST >= $BTRFS_PROGS_MIN' } } },
@@ -214,6 +218,7 @@ my %backend_cmd_map = (
                            "btrfs subvolume delete"   => [ "btrfs-subvolume-delete"   ],
                            "btrfs send"               => [ "btrfs-send"               ],
                            "btrfs receive"            => [ "btrfs-receive"            ],
+                           "btrfs qgroup destroy"     => [ "btrfs-qgroup-destroy"     ],
                          },
   "btrfs-progs-sudo" =>  { "btrfs subvolume list"     => [ "sudo", "-n", "btrfs", "subvolume", "list"     ],
                            "btrfs subvolume show"     => [ "sudo", "-n", "btrfs", "subvolume", "show"     ],
@@ -221,6 +226,7 @@ my %backend_cmd_map = (
                            "btrfs subvolume delete"   => [ "sudo", "-n", "btrfs", "subvolume", "delete"   ],
                            "btrfs send"               => [ "sudo", "-n", "btrfs", "send"                  ],
                            "btrfs receive"            => [ "sudo", "-n", "btrfs", "receive"               ],
+                           "btrfs qgroup destroy"     => [ "sudo", "-n", "btrfs", "qgroup", "destroy"     ],
                          },
 );
 
@@ -1277,6 +1283,33 @@ sub btrfs_subvolume_delete($@)
 
   end_transaction($opts{type} // "delete", sub { my $h = shift; return (grep { $_->{URL} eq $h->{target_url} } @deleted); });
   return @deleted;
+}
+
+
+sub btrfs_qgroup_destroy($@)
+{
+  my $vol = shift // die;
+  my %opts = @_;
+  my $vol_id = $vol->{node}{id};
+  unless($vol_id) {
+    ERROR "Unknown subvolume_id for: $vol->{PRINT}";
+    return undef;
+  }
+  my $path = $vol->{PATH} // die;
+  my $qgroup_id = "0/$vol_id";
+  INFO "[qgroup-destroy] qgroup_id: $qgroup_id";
+  INFO "[qgroup-destroy] subvolume: $vol->{PRINT}";
+  start_transaction($opts{type} // "qgroup_destroy",
+                    vinfo_prefixed_keys("target", $vol));
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "btrfs qgroup destroy", $qgroup_id, { unsafe => $path }),
+                    rsh => vinfo_rsh($vol),
+                   );
+  end_transaction($opts{type} // "qgroup_destroy", defined($ret));
+  unless(defined($ret)) {
+    ERROR "Failed to destroy qgroup \"$qgroup_id\" for subvolume: $vol->{PRINT}";
+    return undef;
+  }
+  return $vol;
 }
 
 
@@ -3512,6 +3545,11 @@ sub macro_delete($$$$$;@)
     preserve_date_in_future => 1,
    );
 
+  if($delete_options{qgroup}->{destroy}) {
+    # NOTE: we do not abort on qgroup destroy errors
+    btrfs_qgroup_destroy($_, %{$delete_options{qgroup}}) foreach(@$delete);
+  }
+
   my @delete_success = btrfs_subvolume_delete($delete, %delete_options);
   $subvol_dir .= '/' if($subvol_dir ne "");
   INFO "Deleted " . scalar(@delete_success) . " subvolumes in: $root_subvol->{PRINT}/$subvol_dir$subvol_basename.*";
@@ -4605,6 +4643,8 @@ MAIN:
                        },
                        commit => config_key($droot, "btrfs_commit_delete"),
                        type   => "delete_archive",
+                       qgroup => { destroy => config_key($droot, "archive_qgroup_destroy"),
+                                   type => "qgroup_destroy_archive" },
                       );
         }
       }
@@ -5751,6 +5791,8 @@ MAIN:
                                   },
                                   commit => config_key($droot, "btrfs_commit_delete"),
                                   type   => "delete_target",
+                                  qgroup => { destroy => config_key($droot, "target_qgroup_destroy"),
+                                              type => "qgroup_destroy_target" },
                                  ))
               {
                 $target_aborted = 1;
@@ -5780,6 +5822,8 @@ MAIN:
                          },
                          commit => config_key($svol, "btrfs_commit_delete"),
                          type   => "delete_snapshot",
+                         qgroup => { destroy => config_key($svol, "snapshot_qgroup_destroy"),
+                                     type => "qgroup_destroy_snapshot" },
                         );
           }
         }

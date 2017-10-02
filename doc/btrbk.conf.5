@@ -320,6 +320,19 @@ For convenience, it is also possible to set \fIbackend_local\fR or
 local or remote sources/targets (e.g. "backend_remote
 btrfs-progs-btrbk").
 .RE
+.PP
+\fBsnapshot_qgroup_destroy\fR  yes|no  \fI*experimental*\fR
+.PD 0
+.PP
+\fBtarget_qgroup_destroy\fR  yes|no  \fI*experimental*\fR
+.PP
+\fBarchive_qgroup_destroy\fR  yes|no  \fI*experimental*\fR
+.PD
+.RS 4
+Whenever a subvolume is deleted, also destroy corresponding default
+qgroup "0/<subvol-id>". Only useful if you have enabled btrfs quota
+support. See also: <https://bugzilla.kernel.org/show_bug.cgi?id=91751>
+.RE
 .SH RETENTION POLICY
 btrbk uses separate retention policies for snapshots and backups,
 which are defined by the \fIsnapshot_preserve_min\fR,
