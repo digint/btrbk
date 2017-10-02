@@ -51,9 +51,9 @@ Prints the btrbk version.
 .RS 4
 Don't run anything that would alter the filesystem, just show the
 snapshots and backup subvolumes that would be created/deleted by the
-\fBrun\fR, \fBsnapshot\fR, \fBresume\fR, \fBarchive\fR and \fBclean\fR
-commands. Use in conjunction with \fI\-l debug\fR to see the btrfs
-commands that would be executed.
+\fBrun\fR, \fBsnapshot\fR, \fBresume\fR, \fBprune\fR, \fBarchive\fR
+and \fBclean\fR commands. Use in conjunction with \fI\-l debug\fR to
+see the btrfs commands that would be executed.
 .RE
 .PP
 \-c, \-\-config <file>
@@ -96,7 +96,7 @@ Verbose output (shortcut for "\-\-loglevel=info").
 \-q, \-\-quiet
 .RS 4
 Quiet operation. If set, btrbk does not print the summary after
-executing the \fBrun\fR, \fBsnapshot\fR, \fBresume\fR, or
+executing the \fBrun\fR, \fBsnapshot\fR, \fBresume\fR, \fBprune\fR, or
 \fBarchive\fR commands.
 .RE
 .PP
@@ -115,8 +115,9 @@ Print output in table format (shortcut for "\-\-format=table").
 .RS 4
 Print output in specified format. If set to "raw", prints
 space-separated key="value" pairs (machine readable). Affects output
-format for \fBrun\fR, \fBsnapshot\fR, \fBresume\fR, \fBarchive\fR and
-\fBlist\fR commands. Useful for further exporting/scripting.
+format for \fBrun\fR, \fBsnapshot\fR, \fBresume\fR, \fBprune\fR,
+\fBarchive\fR and \fBlist\fR commands. Useful for further
+exporting/scripting.
 .RE
 .PP
 \-\-progress
@@ -127,8 +128,9 @@ Show progress bar on send-receive operation.
 \-\-print\-schedule
 .RS 4
 Print detailed scheduler information on \fBrun\fR, \fBsnapshot\fR,
-\fBresume\fR and \fBarchive\fR commands. Use the \fI\-\-format\fR
-command line option to switch between different output formats.
+\fBresume\fR, \fBprune\fR and \fBarchive\fR commands. Use the
+\fI\-\-format\fR command line option to switch between different
+output formats.
 .RE
 .PP
 \-\-override <config_option>=<value>
