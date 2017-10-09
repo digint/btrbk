@@ -9,19 +9,21 @@ btrbk(1)
 NAME
 ----
 
-btrbk - backup tool for btrfs volumes
+btrbk - backup tool for btrfs subvolumes
 
 
 SYNOPSIS
 --------
 
 [literal]
-btrbk [-h|--help] [--version] [-c|--config <file>]
-      [-n|--dry-run] [-p|--preserve]
-      [--preserve-snapshots] [--preserve-backups]
+btrbk [-h|--help] [--version]
+      [-c|--config <file>] [-n|--dry-run]
+      [-p|--preserve] [--preserve-snapshots] [--preserve-backups]
       [-v|--verbose] [-q|--quiet] [-l|--loglevel <level>]
       [-t|--table] [--format <output-format>]
       [--progress] [--print-schedule]
+      [--override <config_option>=<value>]
+      [--lockfile <file>]
       <command> [<args>]
 
 
@@ -114,15 +116,15 @@ OPTIONS
     *resume*, *prune* and *archive* commands. Use the '--format'
     command line option to switch between different output formats.
 
---override <config_option>=<value>::
-    Override a configuration option <config_option> with
-    <value>. Globally, for ALL contexts. Use with care!
-
 --lockfile <file>::
     Create lockfile <file> on startup; checks lockfile before running
     any btrfs commands (using perl "flock"), and exits if the lock is
     held by another btrbk instance. Overrides configuration option
     "lockfile". Ignored on dryrun ('-n', '--dry-run').
+
+--override <config_option>=<value>::
+    Override a configuration option <config_option> with
+    <value>. Globally, for ALL contexts. Use with care!
 
 
 COMMANDS
@@ -131,8 +133,12 @@ COMMANDS
 === Actions
 
 The following commands are used to create snapshots and/or
-backups. All actions can operate in dry-run mode ('-n',
-'--dry-run').
+backups. All actions can operate in dry-run mode ('-n', '--dry-run').
+Use the '--format' command line option to switch between different
+output formats.
+
+See section RETENTION POLICY in *btrbk.conf*(5) for information on
+configuring the retention policy.
 
 *run* [filter...]::
     Perform snapshot and backup operations as specified in the
@@ -173,12 +179,7 @@ backups. All actions can operate in dry-run mode ('-n',
     policy will be deleted. Note that the latest snapshot (the one
     created in step 1) as well as the latest snapshot/backup pair are
     always preserved, regardless of the retention policy.
-+
-See section RETENTION POLICY in `btrbk.conf`(5)
-for information on configuring the retention policy.
 
-Use the '--format' command line option to switch between
-different output formats.
 
 *dryrun* [filter...]::
     Don't run any btrfs commands that would alter the filesystem, just
@@ -227,6 +228,12 @@ filesystem, you need to create them by hand (e.g. by running "btrfs
 subvolume create <target>/dir"). Check the output of --dry-run if
 unsure.
 
+*clean* [filter...]::
+    Delete incomplete (garbled) backups. Incomplete backups can be
+    left behind on network errors or kill signals while a send/receive
+    operation is ongoing, and are identified by the "received_uuid"
+    flag not being set on a target (backup) subvolume.
+
 
 === Informative Commands
 
@@ -246,26 +253,22 @@ file system.
 Available subcommands:
 +
 --
+ifndef::backend-docbook[]
 [horizontal]
-*snapshots*;; All snapshots (and corresponding backups).
-*backups*;;   All backups (and corresponding snapshots).
-*latest*;;    Most recent common snapshot/backup pair, or most recent
-              snapshot if no common found.
-*config*;;    Configured source/snapshot/target relations.
-*source*;;    Configured source/snapshot relations.
-*volume*;;    Configured volume sections.
-*target*;;    Configured targets.
+endif::backend-docbook[]
+*snapshots*;; List all snapshots (and corresponding backups).
+*backups*;;   List all backups (and corresponding snapshots).
+*latest*;;    List most recent common snapshot/backup pair, or most
+              recent snapshot if no common found.
+*config*;;    List configured source/snapshot/target relations.
+*source*;;    List configured source/snapshot relations.
+*volume*;;    List configured volume sections.
+*target*;;    List configured targets.
 --
 +
 Use the '--format' command line option to switch between
 different output formats.
 
-
-*clean* [filter...]::
-    Delete incomplete (garbled) backups. Incomplete backups can be
-    left behind on network errors or kill signals while a send/receive
-    operation is ongoing, and are identified by the "received_uuid"
-    flag not being set on a target (backup) subvolume.
 
 *usage* [filter...]::
     Print filesystem usage information for all source/target volumes,
@@ -293,6 +296,10 @@ FILTER STATEMENTS
 
 Filter arguments are accepted in form:
 
+<group-name>::
+Matches the 'group' configuration option of a 'volume',
+'subvolume' or 'target' section.
+
 [hostname:]<volume-directory>::
     Matches all subvolumes and targets of a 'volume' configuration
     section.
@@ -307,10 +314,6 @@ Filter arguments are accepted in form:
 [hostname:]<target-directory>/<snapshot-name>::
     Matches a single target of a 'target' section within a 'subvolume'
     section with given <snapshot-name>.
-
-<group-name>::
-Matches the 'group' configuration option of a 'volume',
-'subvolume' or 'target' section.
 
 For convenience, [hostname:] can be specified as either "hostname:" or
 "ssh://hostname/".
@@ -330,7 +333,9 @@ EXIT STATUS
 
 *btrbk* returns the following error codes:
 
+ifndef::backend-docbook[]
 [horizontal]
+endif::backend-docbook[]
 0::   No problems occurred.
 1::   Generic error code.
 2::   Parse error: when parsing command-line options or configuration
