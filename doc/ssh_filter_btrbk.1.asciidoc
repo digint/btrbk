@@ -16,7 +16,8 @@ SYNOPSIS
 --------
 
 [literal]
-ssh_filter_btrbk.sh [-s|--source] [-t|--target] [-d|--delete] [-i|--info]
+ssh_filter_btrbk.sh [-s|--source] [-t|--target] [-d|--delete]
+    [-c|--compress] [-i|--info] [--snapshot] [--send] [--receive]
     [-p|--restrict-path <path>] [-l|--log] [--sudo]
 
 
