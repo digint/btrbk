@@ -21,6 +21,7 @@ btrbk-current
   * Remove "duration" column from transaction_log/transaction_syslog.
   * Resolve ancestors (recursive on parent_uuid chain) when searching
     for latest common subvolume.
+  * Generate man pages from asciidoc (remove raw groff sources).
   * Bugfix: ssh_filter_btrbk: accept mbuffer command (stream_buffer).
   * Bugfix: print correct (end-)time in transaction_log.
   * Bugfix: check path when expanding wildcards (close #181).

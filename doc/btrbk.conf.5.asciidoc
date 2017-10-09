@@ -1,0 +1,436 @@
+btrbk.conf(5)
+=============
+:date:        2017-10-09
+:revision:    0.26.0-dev
+:man manual:  Btrbk Manual
+:man source:  Btrbk
+
+
+NAME
+----
+
+btrbk.conf - btrbk configuration file
+
+
+SYNOPSIS
+--------
+
+[literal]
+/etc/btrbk.conf
+/etc/btrbk/btrbk.conf
+
+
+DESCRIPTION
+-----------
+
+The btrbk configuration file specifies which btrfs subvolumes on the
+filesystem are to be processed, what target subvolumes should be used
+to create the backups, and where the snapshots should be
+generated. The retention policy, as well as most other options can be
+defined either globally or within a section.
+
+The options specified always apply to the last section encountered,
+superseding the values set in upper-level sections. This means that
+global options must be set before any sections are defined.
+
+Blank lines are ignored. A hash character (#) starts a comment
+extending until end of line.
+
+
+SECTIONS
+--------
+
+*volume* <volume-directory>|<url>::
+	Directory of a btrfs volume containing the source subvolume(s)
+	to be backed up. '<volume-directory>' must be an absolute path
+	and point to a btrfs volume (or subvolume). Usually the mount
+	point of a btrfs filesystem mounted with the 'subvolid=0'
+	option.
+
+*subvolume* <subvolume-name>::
+    Subvolume to be backed up, relative to the '<volume-directory>'
+    specified in the 'volume' section. Multiple 'subvolume' sections
+    are allowed within 'volume' sections. Accepts wildcard character
+    "*".
+
+*target* <type> <target-directory>|<url>::
+    Target type and directory where the backup subvolumes are to be
+    created. See the <<_target_types,TARGET TYPES>> section for
+    supported '<type>'. Multiple 'target' sections are allowed within
+    'subvolume' sections. A 'target' section defined in the global
+    context or in a 'volume' section is propagated (multiplied) to all
+    underlying 'subvolume' sections, unless a target with the same
+    declaration already exists (hint: run "btrbk config print" to see
+    the resulting configuration).
+
+For the 'volume' and 'target' sections, you can specify a ssh-url
+instead of a local directory. The syntax for '<url>' is:
+
+    ssh://host.xz/path/to/volume
+
+If a '<url>' is specified, all access to the filesystem is performed
+via ssh, using the "ssh_" options described below. For convenience,
+"+ssh://<hostname>/<directory>+" can also be specified as
+"+<hostname>:<directory>+".
+
+Note that btrfs is very picky on file names (mainly for security
+reasons), only the characters [0-9] [a-z] [A-Z] and "._+-@" are
+allowed.
+
+
+OPTIONS
+-------
+
+*transaction_log* <file>|no::
+    If set, all transactions (snapshot create, subvolume send-receive,
+    subvolume delete) as well as abort messages are logged to <file>,
+    in a space-separated table format: "localtime type status
+    target_url source_url parent_url message".
+
+*transaction_syslog*  <facility>|no::
+    If set, all transactions (as described in 'transaction_log' above)
+    are logged to syslog. The program name used in the messages is
+    "btrbk".  Accepted parameters for '<facility>': user, mail,
+    daemon, auth, lpr, news, cron, authpriv, local0..local7.
+
+*timestamp_format* short|long|long-iso::
+    Timestamp format used as postfix for new snapshot subvolume
+    names. Defaults to ``short''.
++
+--
+*short*;;    `YYYYMMDD[_N]`  (e.g. "20150825", "20150825_1")
+*long*;;     `YYYYMMDD<T>hhmm[_N]`  (e.g. "20150825T1531")
+*long-iso*;; `YYYYMMDD<T>hhmmss&plusmn;hhmm[_N]`  (e.g. "20150825T153123+0200")
+--
++
+Note that a postfix "_N" is appended to the timestamp if a snapshot or
+backup already exists with the timestamp of current date/time.
++
+Use ``long-iso'' if you want to make sure that btrbk never
+creates ambiguous time stamps (which can happen if multiple
+snapshots are created during a daylight saving time clock
+change).
++
+Note that using ``long-iso'' has implications on the scheduling, see
+<<_retention_policy,RETENTION POLICY>> (caveats) below.
+
+*snapshot_dir* <directory>::
+    Directory in which the btrfs snapshots are created, relative to
+    '<volume-directory>' of the 'volume' section. Note that btrbk does
+    not autmatically create this directory, and the snapshot creation
+    will fail if it is not present.
+
+*snapshot_name* <basename>::
+    Base name of the created snapshot (and backup). This option is
+    only valid in the 'subvolume' section. Defaults to
+    '<subvolume-name>'.
+
+*snapshot_create* always|onchange|ondemand|no::
+    If set to ``always'', snapshots are always created. If set to
+    ``onchange'', snapshots are only created if the source subvolume
+    has changed since the last snapshot (more precisely: if the btrfs
+    generation has been increased since the last snapshot). If set to
+    ``ondemand'', snapshots are only created if the target subvolume
+    is reachable (useful if you are tight on disk space and you only
+    need btrbk for backups to an external disk which is not always
+    connected). If set to ``no'', the snapshots are never created
+    (useful if another instance of btrbk is taking care of snapshot
+    creation). Defaults to ``always''.
+
+*incremental* yes|no|strict::
+    If set, incremental backups are created. If set to ``strict'',
+    non-incremental (initial) backups are never created. Defaults to
+    ``yes''.
+
+*snapshot_preserve* no|<retention_policy>::
+    Set retention policy for snapshots (see
+    <<_retention_policy,RETENTION POLICY>> below). If set to ``no'',
+    preserve snapshots according to 'snapshot_preserve_min'
+    only. Defaults to ``no''.
+
+*snapshot_preserve_min* all|latest|<number>{h,d,w,m,y}::
+    Preserve all snapshots for a minimum amount of hours (h), days
+    (d), weeks (w), months (m) or years (y), regardless of how many
+    there are. If set to ``all'', preserve all snapshots forever. If
+    set to ``latest'', preserve latest snapshot. Defaults to ``all''.
+
+*target_preserve* no|<retention_policy>::
+    Set retention policy for backups (see
+    <<_retention_policy,RETENTION POLICY>> below). If set to ``no'',
+    preserve backups according to 'target_preserve_min' only. Defaults
+    to ``no''.
+
+*target_preserve_min*  all|latest|no|<number>{h,d,w,m,y}::
+    Preserve all backups for a minimum amount of hours (h), days (d),
+    weeks (w), months (m) or years (y), regardless of how many there
+    are. If set to ``all'', preserve all backups forever. If set to
+    ``latest'', always preserve the latest backup (useful in
+    conjunction with "target_preserve no", if you want to keep the
+    latest backup only). If set to ``no'', only the backups following
+    the 'target_preserve' policy are created. Defaults to ``all''.
+
+*archive_preserve* no|<retention_policy>:: {blank}
+*archive_preserve_min* all|latest|no|<number>{h,d,w,m,y}::
+    Set retention policy for archives ("btrbk archive" command), with
+    same semantics as 'target_preserve', 'target_preserve_min'.
+
+*preserve_day_of_week* monday|tuesday|...|sunday"::
+    Defines on what day a backup/snapshot is considered as a weekly
+    backup. Defaults to ``sunday''.
+
+*group* <group-name>[,<group-name>]...::
+    Add the current section (volume, subvolume or target) to a
+    user-defined group, which can be used as filter for several btrbk
+    commands.
+
+*ssh_identity* <file>::
+    Absolute path to a ssh identity file (private key). Note that if
+    the private key is password protected, btrbk will prompt for user
+    input, which is usually not desired.
+
+*ssh_user* <username>::
+    Remote username for ssh. Defaults to ``root''. Note that you will
+    have to make sure that the remote user is able to run
+    "/sbin/btrfs" (which needs root privileges).
+
+*ssh_port* <port>::
+    Port to connect to on the remote host. Defaults to ``default''
+    (the port specified in 'ssh_config', which defaults to 22).
+
+*ssh_compression* yes|no:: 
+    Enables or disables the compression of ssh connections. Defaults
+    to ``no''.
+
+*ssh_cipher_spec* <cipher_spec>::
+    Selects the cipher specification for encrypting the session
+    (comma-separated list of ciphers in order of preference). See the
+    "-c cipher_spec" option in ssh(1) for more information. Defaults
+    to ``default'' (the ciphers specified in 'ssh_config').
+
+*stream_compress* <compress_command>|no::
+    Compress the btrfs send stream before transferring it from/to
+    remote locations. Defaults to ``no''. If enabled, make sure that
+    <compress_command> is available on the source and target
+    hosts. Supported '<compress_command>': gzip, pigz, bzip2, pbzip2,
+    xz, lzo, lz4.
+
+*stream_compress_level* default|<number>::
+    Compression level for the specified <compress_command>. Refer to
+    the related man-page for details (usually [1..9], where 1 means
+    fastest compression). Defaults to ``default'' (the default
+    compression level of <compress_command>).
+
+*stream_compress_threads* default|<number>::
+    Number of threads to use for <compress_command>. Only supported
+    for "pigz", "pbzip2" and recent versions of "xz".
+
+*stream_buffer* <size>|no  _*experimental*_::
+    Add a buffer to the btrfs send stream (in front of "btrfs
+    receive"), with a maximum size of '<size>'. This can give a speed
+    improvement (measured up to 20%) on both local or remote
+    operations, but also increases system load. A suffix of "k", "m",
+    "g", or "%" can be added to '<size>' to denote kilobytes (*1024),
+    megabytes, gigabytes, or a percentage of total physical
+    memory. Defaults to ``no''. If enabled, make sure that the
+    "mbuffer" command is available on the target host.
+
+*rate_limit* <rate>|no::
+    Limit the transfer to a maximum of '<rate>' bytes per second. A
+    suffix of "k", "m", "g", or "t" can be added to denote kilobytes
+    (*1024), megabytes, and so on. Defaults to ``no''. If enabled for
+    remote sources, make sure that the "pv" command is available on
+    the source host.
+
+*lockfile* <file>|no::
+    Create lockfile <file> on startup; checks lockfile before running
+    any btrfs commands (using perl "flock"), and exits if the lock is
+    held by another btrbk instance. Ignored on dryrun ('-n',
+    '--dry-run'). See also '--lockfile' command-line option.
+
+*btrfs_commit_delete* after|each|no::
+    If set, make sure the deletion of snapshot and backup subvolumes
+    are committed to disk when btrbk terminates. Defaults to ``no''.
+
+*backend* btrfs-progs|btrfs-progs-btrbk|btrfs-progs-sudo::
+    Backend filesystem utilities to be used for btrfs specific
+    operations. The default ``btrfs-progs'' simply executes btrfs(8)
+    commands groups (e.g. "btrfs subvolume show").
++
+--
+* If set to ``btrfs-progs-btrbk'', specific btrfs(8) commands groups
+  needs to be separated by a dash instead of a whitespace
+  (e.g. "btrfs-subvolume-show" instead of "btrfs subvolume
+  show"). Useful for setting suid or file capabilities (setcap) on
+  specific btrfs commands, as implemented in
+  <https://github.com/digint/btrfs-progs-btrbk>.
+* If set to ``btrfs-progs-sudo'', btrfs commands are prefixed with
+  "sudo -n" (e.g. "sudo -n btrfs subvolume show" instead of "btrfs
+  subvolume show"). Make sure to have apropriate (root) permissions
+  for "btrfs" command groups in /etc/sudoers.
+--
++
+For convenience, it is also possible to set 'backend_local' or
+'backend_remote' options, which will override the backend only for
+local or remote sources/targets (e.g. "backend_remote
+btrfs-progs-btrbk").
+
+*snapshot_qgroup_destroy* yes|no  _*experimental*_:: {blank}
+*target_qgroup_destroy* yes|no  _*experimental*_:: {blank}
+*archive_qgroup_destroy* yes|no  _*experimental*_::
+    Whenever a subvolume is deleted, also destroy corresponding
+    default qgroup "0/<subvol-id>". Only useful if you have enabled
+    btrfs quota support. See also:
+    <https://bugzilla.kernel.org/show_bug.cgi?id=91751>
+
+
+RETENTION POLICY
+----------------
+
+btrbk uses separate retention policies for snapshots and backups,
+which are defined by the 'snapshot_preserve_min', 'snapshot_preserve',
+'target_preserve_min', 'target_preserve', and the
+'preserve_day_of_week' configuration options.
+
+Within this section, any statement about "backups" is always valid for
+backups as well as snapshots, referring to 'target_preserve' or
+'snapshot_preserve' respectively.
+
+The format for '<retention_policy>' is:
+
+  [<hourly>h] [<daily>d] [<weekly>w] [<monthly>m] [<yearly>y]
+
+With the following semantics:
+
+*hourly*::
+    Defines how many hours back hourly backups should be
+    preserved. The first backup of an hour is considered an hourly
+    backup. Note that if you use <hourly> scheduling, make sure to
+    also set 'timestamp_format' to ``long'' or ``long-iso'', or the
+    scheduler will interpret the time as "00:00" (midnight).
+
+*daily*::
+    Defines how many days back daily backups should be preserved. The
+    first backup of a day is considered a daily backup.
+
+*weekly*::
+    Defines how many weeks back weekly backups should be
+    preserved. The first daily backup created at
+    'preserve_day_of_week' (or the first backup in this week if none
+    was made on the exact day) is considered as a weekly backup.
+
+*monthly*::
+    Defines how many months back monthly backups should be
+    preserved. Every first weekly backup in a month is considered a
+    monthly backup.
+
+*yearly*::
+    Defines for how many years back yearly backups should be
+    preserved. Every first monthly backup in a year is considered a
+    yearly backup.
+
+Use an asterisk for ``all'' (e.g. "target_preserve 60d *m"
+states: "preserve daily backups for 60 days back, and all monthly
+backups").
+
+The reference time (which defines the beginning of a day, week, month
+or year) for all date/time calculations is the local time of the host
+running btrbk.
+
+Caveats:
+
+* If you run a setup with several btrbk instances (e.g. one
+  snapshot-only instance per remote client, and a separate fetch-only
+  instance on the backup server), it makes perfectly sense to run
+  btrbk with different local time on the clients, in order to make
+  sure the backups from all the remote hosts are preserved for
+  "midnight", and not at "00:00 UTC" (which would be "14:00" in
+  Honolulu). If you want this behaviour, do NOT use "timestamp_format
+  long-iso".
+
+* If "timestamp_format long-iso" is set, running btrbk from different
+  time zones leads to different interpretation of "first in day, week,
+  month, or year". Make sure to run btrbk with the same time zone on
+  every host, e.g. by setting the TZ environment variable (see
+  tzset(3)).
+
+
+TARGET TYPES
+------------
+
+*send-receive*::
+    Backup to a btrfs filesystem, using "btrfs send/receive". This is
+    the recommended (standard) target type. The '<target-directory>'
+    must be an absolute path and point to a btrfs volume (or
+    subvolume), or to a directory within a subvolume. See
+    btrfs-send(8), btrfs-receive(8).
+
+*raw*  _*experimental*_::
+    Backup to a raw (filesystem independent) file from the output of
+    btrfs-send(8), with optional compression and encryption.
++
+--
+Note that the target preserve mechanism is currently disabled for
+incremental raw backups (btrbk does not delete any incremental raw
+files)!
+
+Additional options for raw targets:
+
+*raw_target_compress* gzip|pigz|bzip2|pbzip2|xz|lzo|lz4|no:: {blank}
+*raw_target_compress_level* default|<number>:: {blank}
+*raw_target_compress_threads* default|<number>:: {blank}
+*raw_target_split* <size>|no:: {blank}
+*raw_target_block_size* <number>  (defaults to 128K):: {blank}
+*raw_target_encrypt* gpg|openssl_enc|no:: {blank}
+
+Additional options for "raw_target_encrypt gpg":
+
+*gpg_keyring* <file>:: {blank}
+*gpg_recipient* <name>:: {blank}
+
+Additional options for "raw_target_encrypt openssl_enc" ('very
+experimental'):
+
+*openssl_ciphername* <name>  (defaults to ``aes-256-cbc''):: {blank}
+*openssl_iv_size* <size-in-bytes>|no  (depends on selected cipher):: {blank}
+*openssl_keyfile* <file>|no:: {blank}
+*kdf_backend* <file>|no:: {blank}
+*kdf_keysize* <size>  (defaults to ``32''):: {blank}
+*kdf_keygen* once|each  (defaults to ``once''):: {blank}
+
+Raw backups consist of two files: the main data file containing the
+btrfs send stream, and a sidecar file ".info" containing metadata:
+
+  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|.xz][.gpg]
+  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|.xz][.gpg].info
+
+For 'incremental' backups ("incremental yes"), please note that:
+
+* As soon as a single 'incremental' backup file is lost or corrupted,
+  all later incremental backups become invalid, as there is no common
+  parent for the subsequent incremental images anymore. This might be
+  a good compromise for a vacation backup plan, but for the long term
+  make sure that a non-incremental backup is triggered from time to
+  time.
+
+* There is currently no support for rotation of incremental backups:
+  if 'incremental' is set, a full backup must be triggered manually
+  from time to time in order to be able to delete old backups.
+--
+
+
+AVAILABILITY
+------------
+
+Please refer to the btrbk project page *<http://digint.ch/btrbk/>*
+for further details.
+
+
+SEE ALSO
+--------
+
+*btrbk*(1)
+
+
+AUTHOR
+------
+Axel Burri <axel@tty0.ch>
