@@ -81,26 +81,24 @@ allowed.
 OPTIONS
 -------
 
-*transaction_log* <file>|no::
-    If set, all transactions (snapshot create, subvolume send-receive,
-    subvolume delete) as well as abort messages are logged to <file>,
-    in a space-separated table format: "localtime type status
-    target_url source_url parent_url message".
+The options described here can be specified in 'global context' as
+well as 'volume', 'subvolume' and 'target' sections, unless stated
+otherwise.
 
-*transaction_syslog*  <facility>|no::
-    If set, all transactions (as described in 'transaction_log' above)
-    are logged to syslog. The program name used in the messages is
-    "btrbk".  Accepted parameters for '<facility>': user, mail,
-    daemon, auth, lpr, news, cron, authpriv, local0..local7.
+
+=== Basic Options
 
 *timestamp_format* short|long|long-iso::
     Timestamp format used as postfix for new snapshot subvolume
     names. Defaults to ``short''.
 +
 --
-*short*;;    `YYYYMMDD[_N]`  (e.g. "20150825", "20150825_1")
-*long*;;     `YYYYMMDD<T>hhmm[_N]`  (e.g. "20150825T1531")
-*long-iso*;; `YYYYMMDD<T>hhmmss&plusmn;hhmm[_N]`  (e.g. "20150825T153123+0200")
+ifndef::backend-docbook[]
+[horizontal]
+endif::backend-docbook[]
+*short*;;    +YYYYMMDD[_N]+  (e.g. "20150825", "20150825_1")
+*long*;;     +YYYYMMDD<T>hhmm[_N]+  (e.g. "20150825T1531")
+*long-iso*;; +YYYYMMDD<T>hhmmss&plusmn;hhmm[_N]+  (e.g. "20150825T153123+0200")
 --
 +
 Note that a postfix "_N" is appended to the timestamp if a snapshot or
@@ -142,6 +140,21 @@ Note that using ``long-iso'' has implications on the scheduling, see
     non-incremental (initial) backups are never created. Defaults to
     ``yes''.
 
+
+=== Grouping Options
+
+*group* <group-name>[,<group-name>]...::
+    Add the current section (volume, subvolume or target) to a
+    user-defined group, which can be used as filter for most btrbk
+    commands.
+
+
+=== Retention Policy Options
+
+*preserve_day_of_week* monday|tuesday|...|sunday::
+    Defines on what day a backup/snapshot is considered as a weekly
+    backup. Defaults to ``sunday''.
+
 *snapshot_preserve* no|<retention_policy>::
     Set retention policy for snapshots (see
     <<_retention_policy,RETENTION POLICY>> below). If set to ``no'',
@@ -169,19 +182,16 @@ Note that using ``long-iso'' has implications on the scheduling, see
     latest backup only). If set to ``no'', only the backups following
     the 'target_preserve' policy are created. Defaults to ``all''.
 
-*archive_preserve* no|<retention_policy>:: {blank}
+*archive_preserve* no|<retention_policy>::
+    Set retention policy for archives ("btrbk archive" command), with
+    same semantics as 'target_preserve'.
+
 *archive_preserve_min* all|latest|no|<number>{h,d,w,m,y}::
     Set retention policy for archives ("btrbk archive" command), with
-    same semantics as 'target_preserve', 'target_preserve_min'.
+    same semantics as 'target_preserve_min'.
 
-*preserve_day_of_week* monday|tuesday|...|sunday"::
-    Defines on what day a backup/snapshot is considered as a weekly
-    backup. Defaults to ``sunday''.
 
-*group* <group-name>[,<group-name>]...::
-    Add the current section (volume, subvolume or target) to a
-    user-defined group, which can be used as filter for several btrbk
-    commands.
+=== SSH Options
 
 *ssh_identity* <file>::
     Absolute path to a ssh identity file (private key). Note that if
@@ -193,7 +203,7 @@ Note that using ``long-iso'' has implications on the scheduling, see
     have to make sure that the remote user is able to run
     "/sbin/btrfs" (which needs root privileges).
 
-*ssh_port* <port>::
+*ssh_port* <port>|default::
     Port to connect to on the remote host. Defaults to ``default''
     (the port specified in 'ssh_config', which defaults to 22).
 
@@ -207,18 +217,21 @@ Note that using ``long-iso'' has implications on the scheduling, see
     "-c cipher_spec" option in ssh(1) for more information. Defaults
     to ``default'' (the ciphers specified in 'ssh_config').
 
+
+=== Data Stream Options
+
 *stream_compress* <compress_command>|no::
     Compress the btrfs send stream before transferring it from/to
     remote locations. Defaults to ``no''. If enabled, make sure that
-    <compress_command> is available on the source and target
+    '<compress_command>' is available on the source and target
     hosts. Supported '<compress_command>': gzip, pigz, bzip2, pbzip2,
     xz, lzo, lz4.
 
 *stream_compress_level* default|<number>::
-    Compression level for the specified <compress_command>. Refer to
+    Compression level for the specified '<compress_command>'. Refer to
     the related man-page for details (usually [1..9], where 1 means
     fastest compression). Defaults to ``default'' (the default
-    compression level of <compress_command>).
+    compression level of '<compress_command>').
 
 *stream_compress_threads* default|<number>::
     Number of threads to use for <compress_command>. Only supported
@@ -241,15 +254,26 @@ Note that using ``long-iso'' has implications on the scheduling, see
     remote sources, make sure that the "pv" command is available on
     the source host.
 
+
+=== System Options
+
+*transaction_log* <file>|no::
+    If set, all transactions (snapshot create, subvolume send-receive,
+    subvolume delete) as well as abort messages are logged to <file>,
+    in a space-separated table format: "localtime type status
+    target_url source_url parent_url message".
+
+*transaction_syslog*  <facility>|no::
+    If set, all transactions (as described in 'transaction_log' above)
+    are logged to syslog. The program name used in the messages is
+    "btrbk".  Accepted parameters for '<facility>': user, mail,
+    daemon, auth, lpr, news, cron, authpriv, local0..local7.
+
 *lockfile* <file>|no::
     Create lockfile <file> on startup; checks lockfile before running
     any btrfs commands (using perl "flock"), and exits if the lock is
     held by another btrbk instance. Ignored on dryrun ('-n',
     '--dry-run'). See also '--lockfile' command-line option.
-
-*btrfs_commit_delete* after|each|no::
-    If set, make sure the deletion of snapshot and backup subvolumes
-    are committed to disk when btrbk terminates. Defaults to ``no''.
 
 *backend* btrfs-progs|btrfs-progs-btrbk|btrfs-progs-sudo::
     Backend filesystem utilities to be used for btrfs specific
@@ -257,28 +281,41 @@ Note that using ``long-iso'' has implications on the scheduling, see
     commands groups (e.g. "btrfs subvolume show").
 +
 --
-* If set to ``btrfs-progs-btrbk'', specific btrfs(8) commands groups
-  needs to be separated by a dash instead of a whitespace
-  (e.g. "btrfs-subvolume-show" instead of "btrfs subvolume
-  show"). Useful for setting suid or file capabilities (setcap) on
-  specific btrfs commands, as implemented in
-  <https://github.com/digint/btrfs-progs-btrbk>.
-* If set to ``btrfs-progs-sudo'', btrfs commands are prefixed with
-  "sudo -n" (e.g. "sudo -n btrfs subvolume show" instead of "btrfs
-  subvolume show"). Make sure to have apropriate (root) permissions
-  for "btrfs" command groups in /etc/sudoers.
+btrfs-progs::
+    Default backend, btrfs commands are called as specified in
+    btrfs(8) (e.g. "btrfs subvolume show").
+
+btrfs-progs-btrbk::
+    btrfs commands are separated by a dash instead of a whitespace
+    (e.g. "btrfs-subvolume-show" instead of "btrfs subvolume
+    show"). Useful for setting suid or file capabilities (setcap) on
+    specific btrfs commands, as implemented in
+    <https://github.com/digint/btrfs-progs-btrbk>.
+
+btrfs-progs-sudo::
+    btrfs commands are prefixed with "sudo -n" (e.g. "sudo -n
+    btrfs subvolume show" instead of "btrfs subvolume show"). Make
+    sure to have apropriate (root) permissions for "btrfs" command
+    groups in /etc/sudoers.
 --
 +
-For convenience, it is also possible to set 'backend_local' or
-'backend_remote' options, which will override the backend only for
+For convenience, it is also possible to set *backend_local* or
+*backend_remote* options, which will override the backend only for
 local or remote sources/targets (e.g. "backend_remote
 btrfs-progs-btrbk").
+
+
+=== Btrfs Specific Options
+
+*btrfs_commit_delete* after|each|no::
+    If set, make sure the deletion of snapshot and backup subvolumes
+    are committed to disk when btrbk terminates. Defaults to ``no''.
 
 *snapshot_qgroup_destroy* yes|no  _*experimental*_:: {blank}
 *target_qgroup_destroy* yes|no  _*experimental*_:: {blank}
 *archive_qgroup_destroy* yes|no  _*experimental*_::
     Whenever a subvolume is deleted, also destroy corresponding
-    default qgroup "0/<subvol-id>". Only useful if you have enabled
+    default qgroup "+0/<subvol-id>+". Only useful if you have enabled
     btrfs quota support. See also:
     <https://bugzilla.kernel.org/show_bug.cgi?id=91751>
 
@@ -288,7 +325,7 @@ RETENTION POLICY
 
 btrbk uses separate retention policies for snapshots and backups,
 which are defined by the 'snapshot_preserve_min', 'snapshot_preserve',
-'target_preserve_min', 'target_preserve', and the
+'target_preserve_min', 'target_preserve', and
 'preserve_day_of_week' configuration options.
 
 Within this section, any statement about "backups" is always valid for
@@ -297,7 +334,7 @@ backups as well as snapshots, referring to 'target_preserve' or
 
 The format for '<retention_policy>' is:
 
-  [<hourly>h] [<daily>d] [<weekly>w] [<monthly>m] [<yearly>y]
+{nwsp}:: [<hourly>h] [<daily>d] [<weekly>w] [<monthly>m] [<yearly>y]
 
 With the following semantics:
 
