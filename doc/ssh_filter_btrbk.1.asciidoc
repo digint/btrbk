@@ -9,7 +9,7 @@ ssh_filter_btrbk(1)
 NAME
 ----
 
-ssh_filter_btrbk.sh - ssh command filter script for btrbk
+ssh_filter_btrbk - ssh command filter script for btrbk
 
 
 SYNOPSIS
