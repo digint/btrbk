@@ -2845,7 +2845,7 @@ sub get_latest_common($$$;$)
   # add read-only ancestors from parent chain (recursive!)
   my $rnode = $svol->{node};
   my $search_depth = 0;
-  while($rnode && ($search_depth < 16)) {
+  while($rnode && ($search_depth < 256)) {
     last if($rnode->{parent_uuid} eq '-');
     TRACE "get_latest_common: searching parent chain (depth=$search_depth): $rnode->{uuid}";
     my @parents = grep { $_->{node}{uuid} eq $rnode->{parent_uuid} } @$sroot_subvol_list;
