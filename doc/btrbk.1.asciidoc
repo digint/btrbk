@@ -234,6 +234,49 @@ unsure.
     operation is ongoing, and are identified by the "received_uuid"
     flag not being set on a target (backup) subvolume.
 
+The following table gives a quick overview of the action commands and
+resulting snapshot creation (S+), backup creation (B+), snapshot
+deletion (S-), and backup deletion (B-):
+
+ifdef::backend-docbook[]
+....
+Command   Option                 S+ B+ S- B-
+--------------------------------------------
+run                              x  x  x  x
+run       --preserve             x  x
+run       --preserve-snapshots   x  x     x
+run       --preserve-backups     x  x  x
+snapshot                         x     x
+snapshot  --preserve             x
+resume                              x  x  x
+resume    --preserve                x
+resume    --preserve-snapshots      x     x
+resume    --preserve-backups        x  x
+prune                                  x  x
+prune     --preserve-snapshots            x
+prune     --preserve-backups           x
+....
+endif::backend-docbook[]
+ifndef::backend-docbook[]
+[cols="2*<m,4*^", options="header,autowidth,compact", style="monospaced"]
+|=======
+|Command  |Option                |S+ |B+ |S- |B-
+|run      |                      | x | x | x | x
+|run      |--preserve            | x | x |   |
+|run      |--preserve-snapshots  | x | x |   | x
+|run      |--preserve-backups    | x | x | x |
+|snapshot |                      | x |   | x |
+|snapshot |--preserve            | x |   |   |
+|resume   |                      |   | x | x | x
+|resume   |--preserve            |   | x |   |
+|resume   |--preserve-snapshots  |   | x |   | x
+|resume   |--preserve-backups    |   | x | x |
+|prune    |                      |   |   | x | x
+|prune    |--preserve-snapshots  |   |   |   | x
+|prune    |--preserve-backups    |   |   | x |
+|=======
+endif::backend-docbook[]
+
 
 === Informative Commands
 
