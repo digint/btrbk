@@ -2842,6 +2842,33 @@ sub get_latest_common($$$;$)
     }
   }
 
+  # add read-only ancestors from parent chain (recursive!)
+  my $rnode = $svol->{node};
+  my $search_depth = 0;
+  while($rnode && ($search_depth < 16)) {
+    last if($rnode->{parent_uuid} eq '-');
+    TRACE "get_latest_common: searching parent chain (depth=$search_depth): $rnode->{uuid}";
+    my @parents = grep { $_->{node}{uuid} eq $rnode->{parent_uuid} } @$sroot_subvol_list;
+    if(scalar(@parents) == 1) {
+      my $parent = $parents[0];
+      if($parent->{node}{readonly}) {
+        TRACE "get_latest_common: found read-only parent (depth=$search_depth), add as candidate: $parent->{PRINT}";
+        push @candidate, $parent;
+      } else {
+        TRACE "get_latest_common: found read-write parent (depth=$search_depth), ignoring: $parent->{PRINT}";
+      }
+      $rnode = $parent->{node};
+    }
+    elsif(scalar(@parents) > 1) {
+      die "multiple parents for $rnode->{parent_uuid}";
+    }
+    else {
+      $rnode = undef;
+    }
+    $search_depth++;
+  }
+
+  # match receive targets of candidates
   my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list
   foreach my $child (@candidate) {
     if($child->{node}{id} == $svol->{node}{id}) {

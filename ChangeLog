@@ -19,6 +19,8 @@ btrbk-current
   * Do not run in "perl taint mode" by default: remove "perl -T" in
     hashbang; hardcode $PATH only if taint mode is enabled.
   * Remove "duration" column from transaction_log/transaction_syslog.
+  * Resolve ancestors (recursive on parent_uuid chain) when searching
+    for latest common subvolume.
   * Bugfix: ssh_filter_btrbk: accept mbuffer command (stream_buffer).
   * Bugfix: print correct (end-)time in transaction_log.
   * Bugfix: check path when expanding wildcards (close #181).
