@@ -38,11 +38,15 @@ clean:
 	gzip -9f $<
 
 # convert using a2x from asciidoc package: http://asciidoc.org
+
+# NOTE: we are using -L (--no-xmllint), as this xmllint is a separate
+# package on many distros.
+
 %.1 : %.1.asciidoc
-	a2x -d manpage -f manpage $<
+	a2x -L -d manpage -f manpage $<
 
 %.5 : %.5.asciidoc
-	a2x -d manpage -f manpage $<
+	a2x -L -d manpage -f manpage $<
 
 %.html : %.asciidoc
 	asciidoc -b html -d article -o $@ $<
