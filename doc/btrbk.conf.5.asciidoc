@@ -237,7 +237,7 @@ Note that using ``long-iso'' has implications on the scheduling, see
     Number of threads to use for <compress_command>. Only supported
     for "pigz", "pbzip2" and recent versions of "xz".
 
-*stream_buffer* <size>|no  _*experimental*_::
+*stream_buffer* <size>|no::
     Add a buffer to the btrfs send stream (in front of "btrfs
     receive"), with a maximum size of '<size>'. This can give a speed
     improvement (measured up to 20%) on both local or remote
