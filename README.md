@@ -121,7 +121,7 @@ Synopsis
 Please consult the [btrbk(1)] man-page provided with this package for
 a full description of the command line options.
 
-  [btrbk(1)]: http://digint.ch/btrbk/doc/btrbk.1.html
+  [btrbk(1)]: https://digint.ch/btrbk/doc/btrbk.1.html
 
 
 Configuration File
@@ -142,7 +142,7 @@ This will read all btrfs information on the source/target filesystems
 and show what actions would be performed (without writing anything to
 the disks).
 
-  [btrbk.conf(5)]: http://digint.ch/btrbk/doc/btrbk.conf.5.html
+  [btrbk.conf(5)]: https://digint.ch/btrbk/doc/btrbk.conf.5.html
 
 
 Example: laptop with usb-disk for backups
@@ -436,7 +436,7 @@ For even more security, set up a chroot environment in
 /etc/ssh/sshd_config (see [sshd_config(5)]).
 
 
-  [ssh_filter_btrbk(1)]: http://digint.ch/btrbk/doc/ssh_filter_btrbk.1.html
+  [ssh_filter_btrbk(1)]: https://digint.ch/btrbk/doc/ssh_filter_btrbk.1.html
   [sshd(8)]: http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man8/sshd.8
   [sshd_config(5)]: http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man5/sshd_config.5
   [btrfs-progs-btrbk]: https://github.com/digint/btrfs-progs-btrbk

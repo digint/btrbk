@@ -19,7 +19,7 @@
 #
 # ---------------------------------------------------------------------
 # The official btrbk website is located at:
-# http://digint.ch/btrbk/
+# https://digint.ch/btrbk/
 #
 # Author:
 # Axel Burri <axel@tty0.ch>
@@ -34,7 +34,7 @@ use Time::Local qw( timelocal timegm timegm_nocheck );
 
 our $VERSION         = '0.26.0-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
-our $PROJECT_HOME    = '<http://digint.ch/btrbk/>';
+our $PROJECT_HOME    = '<https://digint.ch/btrbk/>';
 
 our $BTRFS_PROGS_MIN = '3.18.2';  # required since btrbk-v0.23.0
 

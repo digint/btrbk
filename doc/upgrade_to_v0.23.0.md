@@ -88,5 +88,5 @@ setting:
 This states: "always transfer the latest snapshot to the target".
 
 
-  [btrbk(1)]: http://digint.ch/btrbk/doc/btrbk.1.html
-  [btrbk.conf(5)]: http://digint.ch/btrbk/doc/btrbk.conf.5.html
+  [btrbk(1)]: https://digint.ch/btrbk/doc/btrbk.1.html
+  [btrbk.conf(5)]: https://digint.ch/btrbk/doc/btrbk.conf.5.html

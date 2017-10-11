@@ -391,8 +391,8 @@ endif::backend-docbook[]
 AVAILABILITY
 ------------
 
-Please refer to the btrbk project page *<http://digint.ch/btrbk/>* for
-further details.
+Please refer to the btrbk project page *<https://digint.ch/btrbk/>*
+for further details.
 
 
 SEE ALSO

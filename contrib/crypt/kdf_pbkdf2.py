@@ -19,7 +19,7 @@
 #
 # ---------------------------------------------------------------------
 # The official btrbk website is located at:
-# http://digint.ch/btrbk/
+# https://digint.ch/btrbk/
 #
 # Author:
 # Axel Burri <axel@tty0.ch>

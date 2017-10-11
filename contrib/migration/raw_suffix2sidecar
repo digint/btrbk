@@ -19,7 +19,7 @@
 #
 # ---------------------------------------------------------------------
 # The official btrbk website is located at:
-# http://digint.ch/btrbk/
+# https://digint.ch/btrbk/
 #
 # Author:
 # Axel Burri <axel@tty0.ch>
@@ -34,7 +34,7 @@ use Getopt::Long qw(GetOptions);
 
 our $VERSION      = '0.26.0-dev'; # match btrbk version
 our $AUTHOR       = 'Axel Burri <axel@tty0.ch>';
-our $PROJECT_HOME = '<http://digint.ch/btrbk/>';
+our $PROJECT_HOME = '<https://digint.ch/btrbk/>';
 
 my  $VERSION_INFO = "raw_suffix2sidecar (btrbk migration script), version $VERSION";
 
