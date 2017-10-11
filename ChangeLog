@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.26.0
 
   * MIGRATION
     - If you are using raw targets, make sure to run the

@@ -32,7 +32,7 @@ use strict;
 use warnings FATAL => qw( all );
 use Getopt::Long qw(GetOptions);
 
-our $VERSION      = '0.26.0-dev'; # match btrbk version
+our $VERSION      = '0.26.0'; # match btrbk version
 our $AUTHOR       = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME = '<https://digint.ch/btrbk/>';
 
