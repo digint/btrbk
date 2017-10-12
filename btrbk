@@ -323,6 +323,8 @@ sub HELP_MESSAGE
   print STDERR "   snapshot              run snapshot operations only\n";
   print STDERR "   resume                run backup operations, and delete snapshots\n";
   print STDERR "   prune                 only delete snapshots and backups\n";
+  print STDERR "   archive <src> <dst>   recursively copy all subvolumes (experimental)\n";
+  print STDERR "   clean                 delete incomplete (garbled) backups\n";
   print STDERR "   stats                 print snapshot/backup statistics\n";
   print STDERR "   list <subcommand>     available subcommands are:\n";
   print STDERR "      backups            all backups and corresponding snapshots\n";
@@ -332,8 +334,6 @@ sub HELP_MESSAGE
   print STDERR "      source             configured source/snapshot relations\n";
   print STDERR "      volume             configured volume sections\n";
   print STDERR "      target             configured targets\n";
-  print STDERR "   clean                 delete incomplete (garbled) backups\n";
-  print STDERR "   archive <src> <dst>   recursively copy all subvolumes (experimental)\n";
   print STDERR "   usage                 print filesystem usage\n";
   print STDERR "   origin <subvol>       print origin information for subvolume\n";
   print STDERR "   diff <from> <to>      shows new files between related subvolumes\n";
