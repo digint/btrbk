@@ -535,10 +535,15 @@ Development
 Source Code Repository
 ----------------------
 
-The source code for btrbk is managed using Git. Check out the source
-like this:
+The source code for btrbk is managed using Git.
+
+Official repository:
 
     git clone https://dev.tty0.ch/btrbk.git
+
+Mirror on GitHub:
+
+    git clone https://github.com/digint/btrbk.git
 
 
 How to Contribute
