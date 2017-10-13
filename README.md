@@ -538,7 +538,7 @@ Source Code Repository
 The source code for btrbk is managed using Git. Check out the source
 like this:
 
-    git clone git://dev.tty0.ch/btrbk.git
+    git clone https://dev.tty0.ch/btrbk.git
 
 
 How to Contribute
