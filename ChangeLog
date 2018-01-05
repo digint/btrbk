@@ -1,5 +1,6 @@
 btrbk-0.27.0-dev
 
+  * Add "preserve_hour_of_day" configuration option (close #202).
 
 btrbk-0.26.1
 

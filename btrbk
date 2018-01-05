@@ -80,6 +80,7 @@ my %config_options = (
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "root", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
+  preserve_hour_of_day        => { default => 0,         accept => [ (0..23) ]  },
   snapshot_preserve           => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
   snapshot_preserve_min       => { default => "all",     accept => [ "all", "latest" ], accept_regexp => qr/^[1-9][0-9]*[hdwmy]$/, context => [ "root", "volume", "subvolume" ], },
   target_preserve             => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1 },
@@ -191,7 +192,7 @@ my %table_formats = (
 
   schedule    => { table => [ qw( action host subvol scheme reason ) ],
                    long  => [ qw( action host root_path subvol_path scheme reason ) ],
-                   raw   => [ qw( topic action url host path dow min h d w m y) ],
+                   raw   => [ qw( topic action url host path hod dow min h d w m y) ],
                  },
 
   usage       => { table => [ qw( host path size used free ) ],
@@ -3032,7 +3033,7 @@ sub config_preserve_hash($$;@)
   my $prefix = shift || die;
   my %opts = @_;
   if($opts{wipe}) {
-    return { dow => 'sunday',  min => 'latest', min_q => 'latest' };
+    return { hod => 0, dow => 'sunday',  min => 'latest', min_q => 'latest' };
   }
   my $ret = config_key($config, $prefix . "_preserve") // {};
   my $preserve_min = config_key($config, $prefix . "_preserve_min");
@@ -3047,6 +3048,7 @@ sub config_preserve_hash($$;@)
     }
     else { die; }
   }
+  $ret->{hod} = config_key($config, "preserve_hour_of_day");
   $ret->{dow} = config_key($config, "preserve_day_of_week");
   return $ret;
 }
@@ -3718,6 +3720,7 @@ sub schedule(@)
   my $result_delete_action_text   = $args{result_delete_action_text} // 'delete';
 
   my $preserve_day_of_week = $preserve->{dow} || die;
+  my $preserve_hour_of_day = $preserve->{hod} // die;
   my $preserve_min_n       = $preserve->{min_n};
   my $preserve_min_q       = $preserve->{min_q};
   my $preserve_hourly      = $preserve->{h};
@@ -3741,20 +3744,27 @@ sub schedule(@)
 
   # first, do our calendar calculations
   # - weeks start on $preserve_day_of_week
+  # - days start on $preserve_hour_of_day
   # - leap hours are NOT taken into account for $delta_hours
   my $now_h = timegm_nocheck( 0, 0, $tm_now[2], $tm_now[3], $tm_now[4], $tm_now[5] ); # use timelocal() here (and below) if you want to honor leap hours
-  my $now_d = timegm_nocheck( 0, 0, 0,          $tm_now[3], $tm_now[4], $tm_now[5] );
 
   foreach my $href (@sorted_schedule)
   {
     my $time = $href->{btrbk_date}->[0];
     my @tm =  localtime($time);
+    my $delta_hours_from_hod = $tm[2] - $preserve_hour_of_day;
     my $delta_days_from_eow = $tm[6] - $day_of_week_map{$preserve_day_of_week};
-    $delta_days_from_eow += 7 if($delta_days_from_eow < 0);
+    if($delta_hours_from_hod < 0) {
+      $delta_hours_from_hod += 24;
+      $delta_days_from_eow -= 1;
+    }
+    if($delta_days_from_eow < 0) {
+      $delta_days_from_eow += 7;
+    }
 
     # check timegm: ignores leap hours
-    my $delta_days   = int(($now_d - timegm_nocheck( 0, 0, 0,      $tm[3], $tm[4], $tm[5] )  ) / (60 * 60 * 24));
     my $delta_hours  = int(($now_h - timegm_nocheck( 0, 0, $tm[2], $tm[3], $tm[4], $tm[5] )  ) / (60 * 60));
+    my $delta_days   = int(($delta_hours + $delta_hours_from_hod) / 24);  # days from beginning of day
     my $delta_weeks  = int(($delta_days + $delta_days_from_eow) / 7);  # weeks from beginning of week
     my $delta_years  = ($tm_now[5] - $tm[5]);
     my $delta_months = $delta_years * 12 + ($tm_now[4] - $tm[4]);
@@ -3770,6 +3780,7 @@ sub schedule(@)
     my $year_month = "${year}-" . ($tm[4] < 9 ? '0' : "") . ($tm[4] + 1);
     $href->{year_month} = $year_month;
     $href->{year}       = $year;
+    $href->{err_hours}  = $delta_hours_from_hod . "h after $preserve_hour_of_day o'clock";
     $href->{err_days}   = ($delta_days_from_eow ? "+$delta_days_from_eow days after " : "on ") . "$preserve_day_of_week";
 
     if($preserve_date_in_future && ($href->{delta_hours} < 0)) {
@@ -3818,7 +3829,7 @@ sub schedule(@)
   foreach (sort {$b <=> $a} keys %first_in_delta_days) {
     my $href = $first_in_delta_days{$_} || die;
     if($preserve_daily && (($preserve_daily eq 'all') || ($href->{delta_days} <= $preserve_daily))) {
-      $href->{preserve} = "preserve daily: first of day, $href->{delta_days} days ago";
+      $href->{preserve} = "preserve daily: first of day, $href->{delta_days} days ago, $href->{err_hours}";
     }
     $first_in_delta_weeks{$href->{delta_weeks}} //= $href;
   }
@@ -3826,21 +3837,21 @@ sub schedule(@)
   foreach (sort {$b <=> $a} keys %first_in_delta_weeks) {
     my $href = $first_in_delta_weeks{$_} || die;
     if($preserve_weekly && (($preserve_weekly eq 'all') || ($href->{delta_weeks} <= $preserve_weekly))) {
-      $href->{preserve} = "preserve weekly: $href->{delta_weeks} weeks ago, $href->{err_days}";
+      $href->{preserve} = "preserve weekly: $href->{delta_weeks} weeks ago, $href->{err_days}, $href->{err_hours}";
     }
     $first_weekly_in_delta_months{$href->{delta_months}} //= $href;
   }
   foreach (sort {$b <=> $a} keys %first_weekly_in_delta_months) {
     my $href = $first_weekly_in_delta_months{$_} || die;
     if($preserve_monthly && (($preserve_monthly eq 'all') || ($href->{delta_months} <= $preserve_monthly))) {
-      $href->{preserve} = "preserve monthly: first weekly of month $href->{year_month} ($href->{delta_months} months ago, $href->{err_days})";
+      $href->{preserve} = "preserve monthly: first weekly of month $href->{year_month} ($href->{delta_months} months ago, $href->{err_days}, $href->{err_hours})";
     }
     $first_monthly_in_delta_years{$href->{delta_years}} //= $href;
   }
   foreach (sort {$b <=> $a} keys %first_monthly_in_delta_years) {
     my $href = $first_monthly_in_delta_years{$_} || die;
     if($preserve_yearly && (($preserve_yearly eq 'all') || ($href->{delta_years} <= $preserve_yearly))) {
-      $href->{preserve} = "preserve yearly: first weekly of year $href->{year} ($href->{delta_years} years ago, $href->{err_days})";
+      $href->{preserve} = "preserve yearly: first weekly of year $href->{year} ($href->{delta_years} years ago, $href->{err_days}, $href->{err_hours})";
     }
   }
 
@@ -3893,7 +3904,7 @@ sub format_preserve_matrix($@)
     else {
       push @out, "latest" if($preserve->{min_q} && ($preserve->{min_q} eq 'latest'));
       push @out, "all within $preserve->{min_n} $trans{$preserve->{min_q}}" if($preserve->{min_n} && $preserve->{min_q});
-      push @out, "first of day for $preserve->{d} days" if($preserve->{d});
+      push @out, "first of day (starting at " . sprintf("%02u:00", $preserve->{hod}) . ") for $preserve->{d} days" if($preserve->{d});
       unless($preserve->{d} && ($preserve->{d} eq 'all')) {
         push @out, "first daily in week (starting on $preserve->{dow}) for $preserve->{w} weeks" if($preserve->{w});
         unless($preserve->{w} && ($preserve->{w} eq 'all')) {
@@ -3920,7 +3931,9 @@ sub format_preserve_matrix($@)
       $val = '*' if($val eq 'all');
       $s .= ($s ? ' ' : '') . $val . $_;
     }
-    $s .= " ($preserve->{dow})" if($preserve->{dow} && ($preserve->{w} || $preserve->{m} || $preserve->{y}));
+    if($preserve->{d} || $preserve->{w} || $preserve->{m} || $preserve->{y}) {
+      $s .= " ($preserve->{dow}, " . sprintf("%02u:00", $preserve->{hod}) . ")";
+    }
   }
   return $s;
 }

@@ -156,6 +156,12 @@ Note that using ``long-iso'' has implications on the scheduling, see
     Defines on what day a backup/snapshot is considered as a weekly
     backup. Defaults to ``sunday''.
 
+*preserve_hour_of_day* [0..23]::
+    Defines after what time (in full hours since midnight) a
+    backup/snapshot is considered as a daily backup. If you set this
+    option, make sure to also set 'timestamp_format' to ``long'' or
+    ``long-iso''. Defaults to ``0''.
+
 *snapshot_preserve* no|<retention_policy>::
     Set retention policy for snapshots (see
     <<_retention_policy,RETENTION POLICY>> below). If set to ``no'',
