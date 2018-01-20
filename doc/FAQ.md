@@ -262,6 +262,28 @@ if a single stream gets corrupted, making all subsequent streams
 unusable.
 
 
+### Warning: Avoid using "dd" on btrfs filesystems!
+
+If you use `dd` (e.g. in order to clone a partition), make sure you
+don't mount the cloned filesystem at the same time as the original
+one. You will end up having multiple filesystems **sharing identical
+UUID**, which will break things. If you _really_ want to do this, make
+sure to run:
+
+    btrfstune -u /dev/sdaX
+
+which changes the UUID of the given device. Note that the btrfs
+subvolumes still share identical UUID's, but at least the kernel can
+cope with it (see
+[this post on stackexchange](https://unix.stackexchange.com/questions/246976/btrfs-subvolume-uuid-clash)
+).
+
+Btrbk on the other hand relies on subvolume UUID's being *universally
+unique*, and uses them as hash keys for identifying and caching
+filesystem and subvolume trees, which leads to undefined behavior if
+multiple identical UUID's are processed.
+
+
 I'm getting an error: Aborted: "Received UUID" is set
 -----------------------------------------------------
 
