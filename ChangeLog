@@ -1,3 +1,7 @@
+btrbk-current
+
+  * Bugfix: fix parsing of "openssl_iv_size" configuration option.
+
 btrbk-0.26.0
 
   * MIGRATION

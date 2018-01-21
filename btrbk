@@ -32,7 +32,7 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = '0.26.0';
+our $VERSION         = '0.26.1-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<https://digint.ch/btrbk/>';
 
@@ -111,7 +111,7 @@ my %config_options = (
   gpg_keyring                 => { default => undef,     accept_file => { absolute => 1 } },
   gpg_recipient               => { default => undef,     accept_regexp => qr/^[0-9a-zA-Z_@\+\-\.]+$/ },
   openssl_ciphername          => { default => "aes-256-cbc", accept_regexp => qr/^[0-9a-zA-Z\-]+$/ },
-  openssl_iv_size             => { default => undef,     accept => [ "no", accept_numeric => 1 ] },
+  openssl_iv_size             => { default => undef,     accept => [ "no" ], accept_numeric => 1 },
   openssl_keyfile             => { default => undef,     accept_file => { absolute => 1 } },
 
   kdf_backend                 => { default => undef,     accept_file => { absolute => 1 } },
