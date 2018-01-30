@@ -2058,8 +2058,14 @@ sub btr_tree($$)
 
   TRACE "btr_tree: processing subvolume list of: $vol->{PRINT}";
 
-  # check if we already know this tree
+  # return a reference to the cached root if we already know the tree
+  # (making sure every tree is only stored once).
+  # die if duplicate UUID exist on different file systems (no matter
+  # if local or remote).
+  # note: this relies on subvolume UUID's to be "universally unique"
+  # (which is why cloning btrfs filesystems using "dd" is a bad idea)
   if((scalar @$node_list) && $uuid_cache{$node_list->[0]->{uuid}}) {
+    # first uuid of $node_list is already known
     TRACE "uuid_cache HIT: $node_list->[0]->{uuid}";
     $vol_root = $uuid_cache{$node_list->[0]->{uuid}}->{TREE_ROOT}->{ID_HASH}->{$vol_root_id};
     die "Duplicate UUID on different file systems"  unless($vol_root);
