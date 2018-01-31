@@ -114,7 +114,8 @@ Note that using ``long-iso'' has implications on the scheduling, see
 
 *snapshot_dir* <directory>::
     Directory in which the btrfs snapshots are created, relative to
-    '<volume-directory>' of the 'volume' section. Note that btrbk does
+    '<volume-directory>' of the 'volume' section. This option is *not* valid in
+    the 'target' section. Note that btrbk does
     not autmatically create this directory, and the snapshot creation
     will fail if it is not present.
 
@@ -207,7 +208,7 @@ Note that using ``long-iso'' has implications on the scheduling, see
     Port to connect to on the remote host. Defaults to ``default''
     (the port specified in 'ssh_config', which defaults to 22).
 
-*ssh_compression* yes|no:: 
+*ssh_compression* yes|no::
     Enables or disables the compression of ssh connections. Defaults
     to ``no''.
 
