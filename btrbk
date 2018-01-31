@@ -75,9 +75,9 @@ my %config_options = (
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   # NOTE: files "." and "no" map to <undef>
   timestamp_format            => { default => "short",   accept => [ "short", "long", "long-iso" ], context => [ "root", "volume", "subvolume" ] },
-  snapshot_dir                => { default => undef,     accept_file => { relative => 1 } },
+  snapshot_dir                => { default => undef,     accept_file => { relative => 1 }, context => [ "root", "volume", "subvolume" ] },
   snapshot_name               => { default => undef,     accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
-  snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ] },
+  snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "root", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   snapshot_preserve           => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
