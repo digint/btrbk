@@ -299,7 +299,10 @@ Available subcommands:
 ifndef::backend-docbook[]
 [horizontal]
 endif::backend-docbook[]
-*snapshots*;; List all snapshots (and corresponding backups).
+
+*snapshots*;; List all snapshots (and corresponding backups). Note
+              that all snapshots related to configured subvolumes are
+              listed, not only the ones created by btrbk.
 *backups*;;   List all backups (and corresponding snapshots).
 *latest*;;    List most recent common snapshot/backup pair, or most
               recent snapshot if no common found.
