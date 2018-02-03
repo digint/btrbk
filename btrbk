@@ -2269,6 +2269,8 @@ sub vinfo_child($$;$)
   my $subvol_dir = "";
   $subvol_dir = $1 if($name =~ s/^(.*)\///);
 
+  # Note that PATH and URL intentionally contain "//" if $parent->{PATH} = "/".
+  # For consistency reasons (not required), we dont sanitize PRINT either.
   my $vinfo = {
     HOST         => $parent->{HOST},
     NAME         => $name,
@@ -4874,12 +4876,13 @@ MAIN:
   {
     my %match;
     foreach my $sroot (vinfo_subsection($config, 'volume', 1)) {
-      my $vol_url = $sroot->{URL};
+      my $vol_match = join("", check_url($sroot->{URL})); # sanitize URL (can contain "//", see vinfo_child)
       my $found_vol = 0;
       foreach my $filter (@filter_args) {
-        if(($vol_url eq $filter) || (map { ($filter eq $_) || () } @{$sroot->{CONFIG}->{group}})) {
-          TRACE "filter argument \"$filter\" matches volume: $vol_url";
-          $match{$filter} = ($vol_url eq $filter) ? "volume=$sroot->{PRINT}" : "group=$filter";
+        if(($vol_match eq $filter) ||
+           (map { ($filter eq $_) || () } @{$sroot->{CONFIG}->{group}})) {
+          TRACE "filter argument \"$filter\" matches volume: $sroot->{PRINT}";
+          $match{$filter} = ($vol_match eq $filter) ? "volume=$sroot->{PRINT}" : "group=$filter";
           $found_vol = 1;
           # last; # need to cycle through all filter_args for correct %match
         }
@@ -4888,12 +4891,13 @@ MAIN:
 
       my @filter_subvol;
       foreach my $svol (vinfo_subsection($sroot, 'subvolume', 1)) {
-        my $subvol_url = $svol->{URL};
+        my $subvol_match = join("", check_url($svol->{URL})); # sanitize URL (can contain "//", see vinfo_child)
         my $found_subvol = 0;
         foreach my $filter (@filter_args) {
-          if(($subvol_url eq $filter) || (map { ($filter eq $_) || () } @{$svol->{CONFIG}->{group}})) {
-            TRACE "filter argument \"$filter\" matches subvolume: $subvol_url";
-            $match{$filter} = ($subvol_url eq $filter) ? "subvolume=$svol->{PRINT}" : "group=$filter";
+          if(($subvol_match eq $filter) ||
+             (map { ($filter eq $_) || () } @{$svol->{CONFIG}->{group}})) {
+            TRACE "filter argument \"$filter\" matches subvolume: $svol->{PRINT}";
+            $match{$filter} = ($subvol_match eq $filter) ? "subvolume=$svol->{PRINT}" : "group=$filter";
             $found_subvol = 1;
             $found_vol = 1;
             # last; # need to cycle through all filter_args for correct %match
@@ -4918,17 +4922,17 @@ MAIN:
             }
           }
           unless($found_target) {
-            DEBUG "No match on filter command line argument, skipping target: $target_url";
+            DEBUG "No match on filter command line argument, skipping target: $droot->{PRINT}";
             ABORTED($droot, "USER_SKIP");
           }
         }
         unless($found_subvol) {
-          DEBUG "No match on filter command line argument, skipping subvolume: $subvol_url";
+          DEBUG "No match on filter command line argument, skipping subvolume: $svol->{PRINT}";
           ABORTED($svol, "USER_SKIP");
         }
       }
       unless($found_vol) {
-        DEBUG "No match on filter command line argument, skipping volume: $vol_url";
+        DEBUG "No match on filter command line argument, skipping volume: $sroot->{PRINT}";
         ABORTED($sroot, "USER_SKIP");
       }
     }

@@ -1,6 +1,7 @@
 btrbk-current
 
   * Bugfix: fix parsing of "openssl_iv_size" configuration option.
+  * Bugfix: fix filter statement matching for volume=/ (close #209).
 
 btrbk-0.26.0
 
