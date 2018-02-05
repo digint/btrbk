@@ -126,9 +126,6 @@ while [[ "$#" -ge 1 ]]; do
 
       -t|--target)
           allow_cmd "${sudo_prefix}btrfs receive"
-          # the following are needed if targets point to a directory
-          allow_cmd "readlink"
-          allow_exact_cmd "cat /proc/self/mounts"
           ;;
 
       -c|--compress)
@@ -166,6 +163,8 @@ done
 
 allow_cmd "${sudo_prefix}btrfs subvolume show"; # subvolume queries are always allowed
 allow_cmd "${sudo_prefix}btrfs subvolume list"; # subvolume queries are always allowed
+allow_cmd "readlink"                            # used to identify mountpoints
+allow_exact_cmd "cat /proc/self/mounts"         # used to identify mountpoints
 
 # remove leading "|" on alternation lists
 allow_list=${allow_list#\|}

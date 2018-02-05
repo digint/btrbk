@@ -256,7 +256,7 @@ my %raw_info_sort = (
 
 my %url_cache;       # map URL to btr_tree node
 my %raw_url_cache;   # map URL to (fake) btr_tree node
-my %fstab_cache;     # map HOST to btrfs mount points
+my %mountpoint_cache;# map HOST to btrfs mount points
 my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target)
 
@@ -1804,16 +1804,16 @@ sub btrfs_mountpoint($)
 
   DEBUG "Resolving btrfs mount point for: $vol->{PRINT}";
   my $host = $vol->{HOST} || "localhost";
-  my $mounts = $fstab_cache{$host};
-  TRACE "fstab_cache " . ($mounts ? "HIT" : "MISS") . ": $host";
+  my $mounts = $mountpoint_cache{$host};
+  TRACE "mountpoint_cache " . ($mounts ? "HIT" : "MISS") . ": $host";
 
   # get real path
-  my $path = $realpath_cache{$vol->{URL}};
-  unless($path) {
-    $path = system_realpath($vol);
-    $realpath_cache{$vol->{URL}} = $path;
+  my $realpath = $realpath_cache{$vol->{URL}};
+  unless($realpath) {
+    $realpath = system_realpath($vol);
+    $realpath_cache{$vol->{URL}} = $realpath;
   }
-  return (undef, undef, undef) unless($path);
+  return undef unless($realpath);
 
   unless($mounts) {
     $mounts = [];
@@ -1832,24 +1832,42 @@ sub btrfs_mountpoint($)
       TRACE "btrfs mount point (spec=$mnt->{spec}, subvolid=" . ($mnt->{MNTOPS}->{subvolid} // '<undef>') . "): $file";
       push @$mounts, $mnt;
     }
-    $fstab_cache{$host} = $mounts;
+    $mountpoint_cache{$host} = $mounts;
   }
 
   # find longest match
-  $path .= '/' unless($path =~ /\/$/);  # correctly handle root path="/"
+  $realpath .= '/' unless($realpath =~ /\/$/);  # correctly handle root path="/"
   my $len = 0;
   my $longest_match;
   foreach(@$mounts) {
     my $mnt_path = $_->{file};
     $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # correctly handle root path="/"
-    $longest_match = $_ if((length($mnt_path) > $len) && ($path =~ /^\Q$mnt_path\E/));
+    $longest_match = $_ if((length($mnt_path) > $len) && ($realpath =~ /^\Q$mnt_path\E/));
   }
   unless($longest_match) {
     DEBUG "No btrfs mount point found for: $vol->{PRINT}";
-    return (undef, undef, undef);
+    return undef;
   }
-  DEBUG "Found btrfs mount point for \"$vol->{PRINT}\": $longest_match->{file} (subvolid=" . ($longest_match->{MNTOPS}->{subvolid} // '<undef>') . ")";
-  return ($longest_match->{file}, $path, $longest_match->{MNTOPS}->{subvolid});
+
+  # list all mountpoints of same device
+  my @spec_mounts;
+  my $spec_match = $longest_match->{spec};
+  foreach my $mnt (@$mounts) {
+    if($mnt->{spec} eq $spec_match) {
+      unless($mnt->{MNTOPS}->{subvolid}) {
+        # kernel <= 4.2 does not have subvolid=NN in /proc/self/mounts, read it with btrfs-progs
+        DEBUG "No subvolid provided in mounts for: $mnt->{file}";
+        my $detail = btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mnt->{file}, $vol->{CONFIG}));
+        return undef unless($detail);
+        $mnt->{MNTOPS}->{subvolid} = $detail->{id} || die;  # also affects %mountpoint_cache
+      }
+      TRACE "using btrfs mount point (spec=$mnt->{spec}, subvolid=$mnt->{MNTOPS}->{subvolid}): $mnt->{file}";
+      push(@spec_mounts, { file => $mnt->{file}, subvolid => $mnt->{MNTOPS}->{subvolid} } );
+    }
+  }
+
+  DEBUG "Btrfs mount point for \"$vol->{PRINT}\": $longest_match->{file} (subvolid=$longest_match->{MNTOPS}->{subvolid})";
+  return ($longest_match->{file}, $realpath, $longest_match->{MNTOPS}->{subvolid}, $spec_match, \@spec_mounts);
 }
 
 
@@ -2036,10 +2054,12 @@ sub system_urandom($;$) {
 }
 
 
-sub btr_tree($$)
+sub btr_tree($$$$)
 {
   my $vol = shift;
   my $vol_root_id = shift || die;
+  my $spec = shift || die;  # aka device
+  my $mountpoints = shift || die; # all known mountpoints for this filesystem: arrayref of { file, subvolid }
   die unless($vol_root_id >= 5);
   # NOTE: we need an ID (provided by btrfs_subvolume_show()) in order
   # to determine the anchor to our root path (since the subvolume path
@@ -2051,6 +2071,8 @@ sub btr_tree($$)
   #   top-level subvolume, whose subvolume id is 5(FS_TREE).
   my %tree = ( id => 5,
                is_root => 1,
+               spec => $spec,
+               MOUNTPOINTS => $mountpoints, # { file, spec, node }
                SUBTREE => []
               );
   my %id = ( 5 => \%tree );
@@ -2447,54 +2469,14 @@ sub vinfo_init_root($;@)
   }
 
   unless($tree_root) {
-    # url_cache miss, read the subvolume detail
-    my $detail = btrfs_subvolume_show($vol);
-    if($detail) {
-      # check uuid_cache
-      if($detail->{uuid}) {
-        $tree_root = $uuid_cache{$detail->{uuid}};
-        TRACE "uuid_cache " . ($tree_root ? "HIT" : "MISS") . ": UUID=$detail->{uuid}";
-      }
-      unless($tree_root) {
-        # cache miss, read the fresh tree
-        $tree_root = btr_tree($vol, $detail->{id});
-      }
-
-      # fill cache
-      if($tree_root) {
-        _fill_url_cache($tree_root, $vol->{URL});
-        my $real_path = $realpath_cache{$vol->{URL}};
-        if($real_path) {
-          my $real_url = $vol->{URL_PREFIX} . $real_path;
-          _fill_url_cache($tree_root, $real_url) unless($url_cache{$real_url});
-        }
-      }
-    }
-    elsif($opts{resolve_subdir}) {
-      # $vol is not a subvolume, read btrfs tree from mount point
-
-      # NOTE: for now, this is only used for send-receive targets (in
-      # order to allow subdirs within btrfs filesystems).
-
-      # TODO: use this (replace the subvolume_show part) for source
-      # volumes if we decide to allow subdirs.
-
-      my ($mnt_path, $real_path, $id) = btrfs_mountpoint($vol);
-      return undef unless($mnt_path && $real_path);
+      # btrfs tree is not yet cached, read it from mount point
+      my ($mnt_path, $real_path, $id, $spec, $spec_mounts) = btrfs_mountpoint($vol);
+      return undef unless($mnt_path && $real_path && $id);
       my $mnt_tree_root = $url_cache{$vol->{URL_PREFIX} . $mnt_path};
       unless($mnt_tree_root) {
         # read btrfs tree for the mount point
         my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
-        unless($id) {
-          DEBUG "No subvolid provided in btrfs mounts for: $mnt_path";
-          unless($id) {
-            # old kernels don't have subvolid=NN in /proc/self/mounts, read it with btrfs-progs
-            my $detail = btrfs_subvolume_show($mnt_vol);
-            return undef unless($detail);
-            $id = $detail->{id} || die;
-          }
-        }
-        $mnt_tree_root = btr_tree($mnt_vol, $id);
+        $mnt_tree_root = btr_tree($mnt_vol, $id, $spec, $spec_mounts);
         _fill_url_cache($mnt_tree_root, $mnt_vol->{URL});
       }
 
@@ -2509,11 +2491,10 @@ sub vinfo_init_root($;@)
       $vol->{NODE_SUBDIR} = $node_subdir if($node_subdir ne '');
       $tree_root = $ret->{node};
 
+      $vol->{MOUNTPOINT} = $mnt_path;
+      $vol->{MOUNTPOINT_NODE} = $mnt_tree_root;
+
       _fill_url_cache($tree_root, $vol->{URL}, $vol->{NODE_SUBDIR});
-    }
-    else {
-      return undef;
-    }
   }
   return undef unless($tree_root);
 
@@ -2624,17 +2605,20 @@ sub _vinfo_subtree_list
 {
   my $tree = shift;
   my $vinfo_parent = shift;
-  my $node_subdir_filter = shift;
   my $list = shift // [];
   my $path_prefix = shift // "";
   my $depth = shift // 0;
 
+  # if $vinfo_parent->{NODE_SUBDIR} is set, vinfo_parent->{PATH} does
+  # not point to a subvolume directly, but to "<path_to_subvolume>/NODE_SUBDIR".
+  # skip nodes wich are not in NODE_SUBDIR, or strip NODE_SUBDIR from from rel_path.
+  my $node_subdir_filter = ($depth == 0) ? $vinfo_parent->{NODE_SUBDIR} : undef;
   foreach my $node (@{$tree->{SUBTREE}}) {
     my $rel_path = $node->{REL_PATH};
     if(defined($node_subdir_filter)) {
       next unless($rel_path =~ s/^\Q$node_subdir_filter\E\///);
     }
-    my $path = $path_prefix . $rel_path;
+    my $path = $path_prefix . $rel_path; # always points to a subvolume
     my $vinfo = vinfo_child($vinfo_parent, $path);
     $vinfo->{node} = $node;
 
@@ -2647,7 +2631,7 @@ sub _vinfo_subtree_list
     }
 
     push(@$list, $vinfo);
-    _vinfo_subtree_list($node, $vinfo_parent, undef, $list, $path . '/', $depth + 1);
+    _vinfo_subtree_list($node, $vinfo_parent, $list, $path . '/', $depth + 1);
   }
   return $list;
 }
@@ -2658,17 +2642,63 @@ sub vinfo_subvol_list($;@)
   my $vol = shift || die;
   my %opts = @_;
 
+  TRACE "Creating subvolume list for: $vol->{PRINT}";
+
   # recurse into tree from $vol->{node}, returns arrayref of vinfo
-  my $subvol_list = _vinfo_subtree_list($vol->{node}, $vol, $vol->{NODE_SUBDIR});
+  my $subvol_list = _vinfo_subtree_list($vol->{node}, $vol);
 
   if($opts{sort}) {
     if($opts{sort} eq 'path') {
       my @sorted = sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } @$subvol_list;
-      $subvol_list = \@sorted;
+      return \@sorted;
     }
     else { die; }
   }
   return $subvol_list;
+}
+
+
+sub vinfo_subvol_list_all_accessible($;@)
+{
+  my $vol = shift || die;
+  die "no mountpoint specified" unless($vol->{MOUNTPOINT});
+
+  TRACE "Creating subvolume list (mountpoint=$vol->{MOUNTPOINT}) for: $vol->{PRINT}";
+  my $mnt_node = $vol->{MOUNTPOINT_NODE} // die;
+  my $mnt_vol = vinfo($vol->{URL_PREFIX} . $vol->{MOUNTPOINT}, $vol->{CONFIG});
+  TRACE "Adding subvolumes from mountpoint=$vol->{URL_PREFIX}$vol->{MOUNTPOINT}";
+  return _vinfo_subtree_list($mnt_node, $mnt_vol);
+
+  # TODO: re-enable as soon as btrfs-progs are fixed
+  #       (if so, remove "elsif(scalar(@parents) > 1)" check in get_related_subvolumes().
+  #
+  # # really all, considering all mountpoints
+  # #
+  # # NOTE: btrfs-progs has a bug when parent is not on same mountpoint as source:
+  # # https://github.com/kdave/btrfs-progs/issues/96
+  # #
+  # TRACE "Creating subvolume list (all mountpoints) for: $vol->{PRINT}";
+  # my $tree_root = $vol->{node}{TREE_ROOT};
+  # if($tree_root->{MOUNTPOINT_PATH}) {
+  #   # btrfs root is mounted, use it
+  #   my $mnt_vol = vinfo($vol->{URL_PREFIX} . $tree_root->{MOUNTPOINT_PATH}, $vol->{CONFIG});
+  #   TRACE "Adding subvolumes from btrfs root mountpoint: $mnt_vol->{PRINT}";
+  #   return _vinfo_subtree_list($tree_root, $mnt_vol);
+  # }
+  # else {
+  #   # list subvolumes from all mountpoints
+  #   # NOTE: this can result in multiple identical subvolumes if mounted several times!
+  #   my $subvol_list = [];
+  #   foreach (@{$tree_root->{MOUNTPOINTS}}) {
+  #     my $mnt_path = $_->{file};
+  #     my $mnt_node = $tree_root->{ID_HASH}{$_->{subvolid}};
+  #     next unless($mnt_node);
+  #     my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
+  #     TRACE "Adding subvolumes from subvolid=$_->{subvolid}, mountpoint=$vol->{URL_PREFIX}$mnt_path";
+  #     _vinfo_subtree_list($mnt_node, $mnt_vol, $subvol_list);
+  #   }
+  #   return $subvol_list;
+  # }
 }
 
 
@@ -2895,7 +2925,7 @@ sub get_related_subvolumes($$$;$)
   my $svol = shift // die;
   my $droot = shift || die;
   my $snapshot_dir = shift;  # if not set, skip search for btrbk basename (set to empty string to enable at current dir)
-  my $sroot_subvol_list = vinfo_subvol_list($sroot);
+  my $sroot_subvol_list = vinfo_subvol_list_all_accessible($sroot);
 
   TRACE "get_related: resolving latest common for subvolume: $svol->{PATH}  (sroot=$sroot->{PRINT}, droot=$droot->{PRINT}, snapdir=\"" . ($snapshot_dir // '<undef>') . "\")";
   my @candidate;
