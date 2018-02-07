@@ -255,6 +255,7 @@ my %raw_info_sort = (
  );
 
 my %url_cache;       # map URL to btr_tree node
+my %raw_url_cache;   # map URL to (fake) btr_tree node
 my %fstab_cache;     # map HOST to btrfs mount points
 my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target)
@@ -1868,7 +1869,7 @@ sub system_read_raw_info_dir($)
     non_destructive => 1,
    );
   unless(defined($ret)) {
-    ABORTED($droot, "Failed to read *.btrfs.*.info files in: $droot->{PATH}");
+    ERROR("Failed to read *.btrfs.*.info files in: $droot->{PATH}");
     return undef;
   }
 
@@ -1894,28 +1895,28 @@ sub system_read_raw_info_dir($)
   # input validation (we need to abort here, or the backups will be resumed)
   foreach my $raw_info (@raw_targets) {
     unless($raw_info->{INFO_FILE}) {
-      ABORTED($droot, "Error while parsing command output for: $droot->{PATH}");
+      ERROR("Error while parsing command output for: $droot->{PATH}");
       return undef;
     }
     unless($raw_info->{FILE}) {
-      ABORTED($droot, "Missing \"FILE\" in raw info file: " . $raw_info->{INFO_FILE});
+      ERROR("Missing \"FILE=\" in raw info file: " . $raw_info->{INFO_FILE});
       return undef;
     }
     unless(check_file($raw_info->{FILE}, { name_only => 1 })) {
-      ABORTED($droot, "Ambiguous \"file\" in raw info file: " . $raw_info->{INFO_FILE});
+      ERROR("Ambiguous \"FILE=\" in raw info file: " . $raw_info->{INFO_FILE});
       return undef;
     }
     unless($raw_info->{TYPE} && ($raw_info->{TYPE} eq 'raw')) {
-      ABORTED($droot, "Unsupported \"type\" in raw info file: " . $raw_info->{INFO_FILE});
+      ERROR("Unsupported \"type\" in raw info file: " . $raw_info->{INFO_FILE});
       return undef;
     }
     unless($raw_info->{RECEIVED_UUID} && ($raw_info->{RECEIVED_UUID} =~ /^$uuid_match$/)) {
-      ABORTED($droot, "Missing/Illegal \"received_uuid\" in raw info file: " . $raw_info->{INFO_FILE});
+      ERROR("Missing/Illegal \"received_uuid\" in raw info file: " . $raw_info->{INFO_FILE});
       return undef;
     }
     if(defined $raw_info->{RECEIVED_PARENT_UUID}) {
       unless(($raw_info->{RECEIVED_PARENT_UUID} eq '-') || ($raw_info->{RECEIVED_PARENT_UUID} =~ /^$uuid_match$/)) {
-        ABORTED($droot, "Illegal \"RECEIVED_PARENT_UUID\" in raw info file: " . $raw_info->{INFO_FILE});
+        ERROR("Illegal \"RECEIVED_PARENT_UUID\" in raw info file: " . $raw_info->{INFO_FILE});
         return undef;
       }
     }
@@ -1936,7 +1937,7 @@ sub system_read_raw_info_dir($)
     non_destructive => 1,
    );
   unless(defined($ret)) {
-    ABORTED($droot, "Failed to list files from: $droot->{PATH}");
+    ERROR("Failed to list files from: $droot->{PATH}");
     return undef;
   }
   my $deprecated_found = 0;
@@ -1948,8 +1949,8 @@ sub system_read_raw_info_dir($)
     }
     my $file = $1; # untaint argument
     unless($file =~ s/^\Q$droot->{PATH}\E\///) {
-      ABORTED($droot, "Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
-      last;
+      ERROR("Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
+      return undef;
     }
     if($file =~ /^(?<name>$file_match)(?<timestamp>$timestamp_postfix_match)$raw_postfix_match_DEPRECATED$/) {
       push @raw_targets, {
@@ -2517,6 +2518,103 @@ sub vinfo_init_root($;@)
   return undef unless($tree_root);
 
   $vol->{node} = $tree_root;
+
+  return $tree_root;
+}
+
+
+sub vinfo_init_raw_root($;@)
+{
+  my $droot = shift || die;
+  my $tree_root = $raw_url_cache{$droot->{URL}};
+  TRACE "raw_url_cache " . ($tree_root ? "HIT" : "MISS") . ": URL=$droot->{URL}";
+  unless($tree_root) {
+    if(my $real_path = $realpath_cache{$droot->{URL}}) {
+      my $real_url = $droot->{URL_PREFIX} . $real_path;
+      $tree_root = $raw_url_cache{$real_url};
+      TRACE "raw_url_cache " . ($tree_root ? "HIT" : "MISS") . ": REAL_URL=$real_url";
+    }
+  }
+
+  unless($tree_root) {
+    DEBUG "Creating raw subvolume list: $droot->{PRINT}";
+
+    # create fake btr_tree
+    $tree_root = { id => 5,
+                   is_root => 1,
+                   GEN_MAX => 1,
+                   SUBTREE => [],
+                   UUID_HASH => {},
+                   RECEIVED_UUID_HASH => {},
+                 };
+    $tree_root->{TREE_ROOT} = $tree_root;
+
+    # list and parse *.info
+    my $raw_info_ary = system_read_raw_info_dir($droot);
+    return undef unless($raw_info_ary);
+
+    # inject nodes to fake btr_tree
+    $droot->{node} = $tree_root;
+    my %child_uuid_list;
+    foreach my $raw_info (@$raw_info_ary)
+    {
+      # Set btrfs subvolume information (received_uuid, parent_uuid) from filename info.
+      #
+      # NOTE: received_parent_uuid in BTRBK_RAW is the "parent of the source subvolume", NOT the
+      #       "parent of the received subvolume".
+      my $subvol = vinfo_child($droot, $raw_info->{FILE});
+      unless(vinfo_inject_child($droot, $subvol, {
+        TARGET_TYPE   => $raw_info->{TYPE},
+        parent_uuid   => '-', # NOTE: correct value gets inserted below
+        # Incomplete raw fakes get same semantics as real subvolumes (readonly=0, received_uuid='-')
+        received_uuid => ($raw_info->{INCOMPLETE} ? '-' : $raw_info->{RECEIVED_UUID}),
+        readonly      => ($raw_info->{INCOMPLETE} ? 0 : 1),
+      }, $raw_info))
+      {
+        if($raw_info->{INFO_FILE}) {
+          ERROR("Ambiguous \"FILE=\" in raw info file: \"$raw_info->{INFO_FILE}\"");
+        } else {
+          # DEPRECATED raw format
+          ERROR("Ambiguous file: \"$raw_info->{FILE}\"");
+        }
+        return undef;
+      }
+
+      if($raw_info->{RECEIVED_PARENT_UUID} ne '-') {
+        $child_uuid_list{$raw_info->{RECEIVED_PARENT_UUID}} //= [];
+        push @{$child_uuid_list{$raw_info->{RECEIVED_PARENT_UUID}}}, $subvol;
+      }
+    }
+
+    my @subvol_list = @{vinfo_subvol_list($droot, sort => 'path')};
+    DEBUG "Found " . scalar(@subvol_list) . " raw subvolume backups in: $droot->{PRINT}";
+
+    foreach my $subvol (@subvol_list)
+    {
+      # If restoring a backup from raw btrfs images (using "incremental yes|strict"):
+      # "btrfs send -p parent source > svol.btrfs", the backups
+      # on the target will get corrupted (unusable!) as soon as
+      # an any files in the chain gets deleted.
+      #
+      # We need to make sure btrbk will NEVER delete those:
+      # - svol.<timestamp>--<received_uuid_0>.btrfs                        : root (full) image
+      # - svol.<timestamp>--<received_uuid-n>[@<received_uuid_n-1>].btrfs  : incremental image
+
+      foreach my $child (@{$child_uuid_list{$subvol->{node}{received_uuid}}}) {
+        # Insert correct (i.e. fake) parent UUID
+        $child->{node}{parent_uuid} = $subvol->{node}{uuid};
+
+        # Make sure that incremental backup chains are never broken:
+        DEBUG "Found parent/child partners, forcing preserve of: \"$subvol->{PRINT}\", \"$child->{PRINT}\"";
+        $subvol->{node}{FORCE_PRESERVE}  = "preserve forced: parent of another raw target";
+        $child->{node}{FORCE_PRESERVE} ||= "preserve forced: child of another raw target";
+      }
+    }
+    # TRACE(Data::Dumper->Dump([\@subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
+  }
+
+  $droot->{node} = $tree_root;
+  $raw_url_cache{$droot->{URL}} = $tree_root;
 
   return $tree_root;
 }
@@ -5199,86 +5297,11 @@ MAIN:
         }
         elsif($target_type eq "raw")
         {
-          DEBUG "Creating raw subvolume list: $droot->{PRINT}";
-
-          # create fake btr_tree
-          my %tree = ( id => 5,
-                       is_root => 1,
-                       GEN_MAX => 1,
-                       SUBTREE => [],
-                       UUID_HASH => {},
-                       RECEIVED_UUID_HASH => {},
-                      );
-          $tree{TREE_ROOT} = \%tree;
-          $droot->{node} = \%tree;
-
-          # list and parse *.info
-          my $raw_info_ary = system_read_raw_info_dir($droot); # sets ABORTED on error
-          if(ABORTED($droot)) {
-            WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED($droot);
+          unless(vinfo_init_raw_root($droot)) {
+            ABORTED($droot, "Failed to fetch raw target metadata" . ($err ? ": $err" : ""));
+            WARN "Skipping target \"$droot->{PRINT}\": $abrt";
             next;
           }
-          die unless $raw_info_ary;
-
-          my %child_uuid_list;
-          foreach my $raw_info (@$raw_info_ary)
-          {
-            # Set btrfs subvolume information (received_uuid, parent_uuid) from filename info.
-            #
-            # NOTE: received_parent_uuid in BTRBK_RAW is the "parent of the source subvolume", NOT the
-            #       "parent of the received subvolume".
-            my $subvol = vinfo_child($droot, $raw_info->{FILE});
-            unless(vinfo_inject_child($droot, $subvol, {
-              TARGET_TYPE   => $raw_info->{TYPE},
-              parent_uuid   => '-', # NOTE: correct value gets inserted below
-              # Incomplete raw fakes get same semantics as real subvolumes (readonly=0, received_uuid='-')
-              received_uuid => ($raw_info->{INCOMPLETE} ? '-' : $raw_info->{RECEIVED_UUID}),
-              readonly      => ($raw_info->{INCOMPLETE} ? 0 : 1),
-            }, $raw_info))
-            {
-              if($raw_info->{INFO_FILE}) {
-                ABORTED($droot, "Ambiguous file in .info: \"$raw_info->{INFO_FILE}\"");
-              } else {
-                # DEPRECATED raw format
-                ABORTED($droot, "Ambiguous file: \"$raw_info->{FILE}\"");
-              }
-              last;
-            }
-
-            if($raw_info->{RECEIVED_PARENT_UUID} ne '-') {
-              $child_uuid_list{$raw_info->{RECEIVED_PARENT_UUID}} //= [];
-              push @{$child_uuid_list{$raw_info->{RECEIVED_PARENT_UUID}}}, $subvol;
-            }
-          }
-          if(ABORTED($droot)) {
-            WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED($droot);
-            next;
-          }
-          my @subvol_list = @{vinfo_subvol_list($droot, sort => 'path')};
-          DEBUG "Found " . scalar(@subvol_list) . " raw subvolume backups of: $svol->{PRINT}";
-
-          foreach my $subvol (@subvol_list)
-          {
-            # If restoring a backup from raw btrfs images (using "incremental yes|strict"):
-            # "btrfs send -p parent source > svol.btrfs", the backups
-            # on the target will get corrupted (unusable!) as soon as
-            # an any files in the chain gets deleted.
-            #
-            # We need to make sure btrbk will NEVER delete those:
-            # - svol.<timestamp>--<received_uuid_0>.btrfs                        : root (full) image
-            # - svol.<timestamp>--<received_uuid-n>[@<received_uuid_n-1>].btrfs  : incremental image
-
-            foreach my $child (@{$child_uuid_list{$subvol->{node}{received_uuid}}}) {
-              # Insert correct (i.e. fake) parent UUID
-              $child->{node}{parent_uuid} = $subvol->{node}{uuid};
-
-              # Make sure that incremental backup chains are never broken:
-              DEBUG "Found parent/child partners, forcing preserve of: \"$subvol->{PRINT}\", \"$child->{PRINT}\"";
-              $subvol->{node}{FORCE_PRESERVE}  = "preserve forced: parent of another raw target";
-              $child->{node}{FORCE_PRESERVE} ||= "preserve forced: child of another raw target";
-            }
-          }
-          # TRACE(Data::Dumper->Dump([\@subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
         }
 
         if($config_override{FAILSAFE_PRESERVE}) {
