@@ -2165,6 +2165,18 @@ sub _fs_path
 }
 
 
+sub _is_correlated($$)
+{
+  my $a = shift; # node a
+  my $b = shift; # node b
+  return 0 if($a->{is_root} || $b->{is_root});
+  return 0 unless($a->{readonly} && $b->{readonly});
+  return (($a->{uuid} eq $b->{received_uuid}) ||
+          ($b->{uuid} eq $a->{received_uuid}) ||
+          (($a->{received_uuid} ne '-') && ($a->{received_uuid} eq $b->{received_uuid})));
+}
+
+
 sub _is_child_of
 {
   my $node = shift;
@@ -5366,7 +5378,7 @@ MAIN:
                   $incomplete_backup = 1;
                   last;
                 }
-                if($_->{node}{uuid} eq $target_vol->{node}{received_uuid}) {
+                if(_is_correlated($_->{node}, $target_vol->{node})) {
                   $parent_snapshot = $_;
                   last;
                 }
@@ -5456,7 +5468,7 @@ MAIN:
                    time   => $start_time,
                    legend => [
                      "up-to-date: latest snapshot/backup is up to date with source subvolume",
-                     "correlated: corresponding (reveived-from) source snapshot is present",
+                     "correlated: corresponding (received-from) source snapshot is present",
                     ],
                   );
 
