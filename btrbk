@@ -2560,13 +2560,8 @@ sub vinfo_subvol_list($;@)
   my $vol = shift || die;
   my %opts = @_;
 
-  # use fake subvolume list if present
-  my $subvol_list = $vol->{SUBVOL_LIST};
-
-  unless($subvol_list) {
-    # recurse into tree from $vol->{node}, returns arrayref of vinfo
-    $subvol_list = _vinfo_subtree_list($vol->{node}, $vol, $vol->{NODE_SUBDIR});
-  }
+  # recurse into tree from $vol->{node}, returns arrayref of vinfo
+  my $subvol_list = _vinfo_subtree_list($vol->{node}, $vol, $vol->{NODE_SUBDIR});
 
   if($opts{sort}) {
     if($opts{sort} eq 'path') {
@@ -2618,37 +2613,13 @@ sub vinfo_inject_child($$$;$)
   my $detail = shift;
   my $raw_info = shift;
   my $node;
-  my $subvol_list = $vinfo->{SUBVOL_LIST};
 
   my $node_subdir = defined($vinfo->{NODE_SUBDIR}) ? $vinfo->{NODE_SUBDIR} . '/' : "";
   my $rel_path = $node_subdir . $vinfo_child->{SUBVOL_PATH};
 
-  if($subvol_list)
-  {
-    # insert to a SUBVOL_LIST (raw targets)
-    $tree_inject_id -= 1;
-    my $uuid = sprintf("${fake_uuid_prefix}%012u", -($tree_inject_id));
-    $node = {
-      %$detail,
-      REL_PATH  => $rel_path,
-      INJECTED  => 1,
-      id        => $tree_inject_id,
-      uuid      => $uuid,
-    };
-    return undef unless(add_btrbk_filename_info($node, $raw_info));
+  $node = btr_tree_inject_node($vinfo->{node}, $detail, $rel_path);
+  return undef unless(add_btrbk_filename_info($node, $raw_info));
 
-    # NOTE: make sure to have all the flags set by _vinfo_subtree_list()
-    $vinfo_child->{subtree_depth}     = 0;
-    $vinfo_child->{direct_leaf}       = 1;
-    $vinfo_child->{btrbk_direct_leaf} = 1;
-    $uuid_cache{$uuid} = $node;
-    push @$subvol_list, $vinfo_child;
-  }
-  else {
-    my $node_subdir = defined($vinfo->{NODE_SUBDIR}) ? $vinfo->{NODE_SUBDIR} . '/' : "";
-    $node = btr_tree_inject_node($vinfo->{node}, $detail, $rel_path);
-    return undef unless(add_btrbk_filename_info($node));
-  }
   $vinfo_child->{node} = $node;
   $url_cache{$vinfo_child->{URL}} = $node;
   TRACE "vinfo_inject_child: injected child id=$node->{id} to $vinfo->{PRINT}";
@@ -5229,7 +5200,17 @@ MAIN:
         elsif($target_type eq "raw")
         {
           DEBUG "Creating raw subvolume list: $droot->{PRINT}";
-          $droot->{SUBVOL_LIST} = [];
+
+          # create fake btr_tree
+          my %tree = ( id => 5,
+                       is_root => 1,
+                       GEN_MAX => 1,
+                       SUBTREE => [],
+                       UUID_HASH => {},
+                       RECEIVED_UUID_HASH => {},
+                      );
+          $tree{TREE_ROOT} = \%tree;
+          $droot->{node} = \%tree;
 
           # list and parse *.info
           my $raw_info_ary = system_read_raw_info_dir($droot); # sets ABORTED on error
@@ -5239,7 +5220,6 @@ MAIN:
           }
           die unless $raw_info_ary;
 
-          my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my %child_uuid_list;
           foreach my $raw_info (@$raw_info_ary)
           {
@@ -5263,17 +5243,6 @@ MAIN:
                 ABORTED($droot, "Ambiguous file: \"$raw_info->{FILE}\"");
               }
               last;
-            }
-            unless(defined($subvol->{node}{BTRBK_RAW}) &&
-                   ($snapshot_basename eq $subvol->{node}{BTRBK_BASENAME}))
-            {
-              # vinfo_inject_child() pushes all "valid" subvols to $droot->{SUBVOL_LIST},
-              # remove the non-matching ones again.
-              # If we don't remove them from the list, they will also
-              # be taken into account for incremental backups!
-              pop @{$droot->{SUBVOL_LIST}};
-              DEBUG "Skipping file (base name != \"$snapshot_basename\"): \"$raw_info->{FILE}\"";
-              next;
             }
 
             if($raw_info->{RECEIVED_PARENT_UUID} ne '-') {
