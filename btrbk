@@ -1838,20 +1838,20 @@ sub btrfs_mountpoint($)
   # find longest match
   $realpath .= '/' unless($realpath =~ /\/$/);  # correctly handle root path="/"
   my $len = 0;
-  my $longest_match;
+  my $mounts_match;
   foreach(@$mounts) {
     my $mnt_path = $_->{file};
     $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # correctly handle root path="/"
-    $longest_match = $_ if((length($mnt_path) > $len) && ($realpath =~ /^\Q$mnt_path\E/));
+    $mounts_match = $_ if((length($mnt_path) > $len) && ($realpath =~ /^\Q$mnt_path\E/));
   }
-  unless($longest_match) {
+  unless($mounts_match) {
     DEBUG "No btrfs mount point found for: $vol->{PRINT}";
     return undef;
   }
 
   # list all mountpoints of same device
   my @spec_mounts;
-  my $spec_match = $longest_match->{spec};
+  my $spec_match = $mounts_match->{spec};
   foreach my $mnt (@$mounts) {
     if($mnt->{spec} eq $spec_match) {
       unless($mnt->{MNTOPS}->{subvolid}) {
@@ -1866,8 +1866,8 @@ sub btrfs_mountpoint($)
     }
   }
 
-  DEBUG "Btrfs mount point for \"$vol->{PRINT}\": $longest_match->{file} (subvolid=$longest_match->{MNTOPS}->{subvolid})";
-  return ($longest_match->{file}, $realpath, $longest_match->{MNTOPS}->{subvolid}, $spec_match, \@spec_mounts);
+  DEBUG "Btrfs mount point for \"$vol->{PRINT}\": $mounts_match->{file} (subvolid=$mounts_match->{MNTOPS}->{subvolid})";
+  return ($mounts_match->{file}, $realpath, $mounts_match->{MNTOPS}->{subvolid}, $spec_match, \@spec_mounts);
 }
 
 
@@ -2470,26 +2470,26 @@ sub vinfo_init_root($;@)
 
   unless($tree_root) {
       # btrfs tree is not yet cached, read it from mount point
-      my ($mnt_path, $real_path, $id, $spec, $spec_mounts) = btrfs_mountpoint($vol);
-      return undef unless($mnt_path && $real_path && $id);
+      my ($mnt_path, $real_path, $subvolid, $spec, $spec_mounts) = btrfs_mountpoint($vol);
+      return undef unless($mnt_path && $real_path && $subvolid);
       my $mnt_tree_root = $url_cache{$vol->{URL_PREFIX} . $mnt_path};
       unless($mnt_tree_root) {
         # read btrfs tree for the mount point
         my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
-        $mnt_tree_root = btr_tree($mnt_vol, $id, $spec, $spec_mounts);
+        $mnt_tree_root = btr_tree($mnt_vol, $subvolid, $spec, $spec_mounts);
         _fill_url_cache($mnt_tree_root, $mnt_vol->{URL});
       }
 
       # find longest match in tree
       my $ret = _get_longest_match($mnt_tree_root, $mnt_path, $real_path) // die;
+      $tree_root = $ret->{node};
+
+      # set NODE_SUBDIR if $vol->{PATH} points to a regular (non-subvolume) directory.
+      # in other words, "PATH=<path_to_subvolume>/NODE_SUBDIR"
       my $node_subdir = $real_path;
       die unless($node_subdir =~ s/^\Q$ret->{path}\E//);  # NOTE: $ret->{path} has trailing slash!
       $node_subdir =~ s/\/+$//;
-
-      # NODE_SUBDIR: if set, then PATH points to a regular (non-subvolume) directory.
-      #              in other words, "PATH=<path_to_subvolume>/NODE_SUBDIR"
       $vol->{NODE_SUBDIR} = $node_subdir if($node_subdir ne '');
-      $tree_root = $ret->{node};
 
       $vol->{MOUNTPOINT} = $mnt_path;
       $vol->{MOUNTPOINT_NODE} = $mnt_tree_root;
