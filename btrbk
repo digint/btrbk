@@ -2932,9 +2932,8 @@ sub check_file($$;@)
   my $file = shift // die;
   my $accept = shift || die;
   my %opts = @_;
-  my $key = $opts{config_key};  # only for error text
-  my $config_file = $opts{config_file};  # only for error text
   my $sanitize = $opts{sanitize};
+  my $error_statement = $opts{error_statement};  # if not defined, no error messages are printed
 
   my $match = $file_match;
   $match = $glob_match if($accept->{wildcards});
@@ -2943,19 +2942,19 @@ sub check_file($$;@)
     $file = $1;
     if($accept->{absolute}) {
       unless($file =~ /^\//) {
-        ERROR "Only absolute files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+        ERROR "Only absolute files allowed $error_statement" if(defined($error_statement));
         return undef;
       }
     }
     elsif($accept->{relative}) {
       if($file =~ /^\//) {
-        ERROR "Only relative files allowed for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+        ERROR "Only relative files allowed $error_statement" if(defined($error_statement));
         return undef;
       }
     }
     elsif($accept->{name_only}) {
       if($file =~ /\//) {
-        ERROR "Option \"$key\" is not a valid file name in \"$config_file\" line $.: $file" if($key && $config_file);
+        ERROR "Invalid file name ${error_statement}: $file" if(defined($error_statement));
         return undef;
       }
     }
@@ -2964,12 +2963,12 @@ sub check_file($$;@)
     }
   }
   else {
-    ERROR "Ambiguous file for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+    ERROR "Ambiguous file ${error_statement}: $file" if(defined($error_statement));
     return undef;
   }
   # check directory traversal
   if(($file =~ /^\.\.$/) || ($file =~ /^\.\.\//) || ($file =~ /\/\.\.\//) || ($file =~ /\/\.\.$/)) {
-    ERROR "Illegal directory traversal for option \"$key\" in \"$config_file\" line $.: $file" if($key && $config_file);
+    ERROR "Illegal directory traversal ${error_statement}: $file" if(defined($error_statement));
     return undef;
   }
   if($sanitize) {
@@ -2981,11 +2980,10 @@ sub check_file($$;@)
 }
 
 
-sub check_url($;$$)
+sub check_url($;@)
 {
   my $url = shift // die;
-  my $key = shift;  # only for error text
-  my $config_file = shift;  # only for error text
+  my %opts = @_;
   my $url_prefix = "";
 
   if($url =~ s/^(ssh:\/\/($ip_addr_match|$host_name_match))\//\//) {
@@ -2996,7 +2994,7 @@ sub check_url($;$$)
     $url_prefix = "ssh://" . $1;
   }
 
-  return ( $url_prefix, check_file($url, { absolute => 1 }, sanitize => 1, config_key => $key, config_file => $config_file) );
+  return ( $url_prefix, check_file($url, { absolute => 1 }, sanitize => 1, %opts) );
 }
 
 
@@ -3131,30 +3129,30 @@ sub config_dump_keys($;@)
 }
 
 
-sub append_config_option($$$$;$)
+sub append_config_option($$$$;@)
 {
   my $config = shift;
   my $key = shift;
   my $value = shift;
   my $context = shift;
-  my $config_file = shift;  # only for error text
-  my $config_file_statement = $config_file ? " in \"$config_file\" line $." : "";
+  my %opts = @_;
+  my $error_statement = $opts{error_statement} // "";
 
   my $opt = $config_options{$key};
 
   # accept only keys listed in %config_options
   unless($opt) {
-    ERROR "Unknown option \"$key\"" . $config_file_statement;
+    ERROR "Unknown option \"$key\" $error_statement";
     return undef;
   }
 
   if($opt->{context} && !grep(/^$context$/, @{$opt->{context}})) {
-    ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$opt->{context}})) . " context" . $config_file_statement;
+    ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$opt->{context}})) . " context $error_statement";
     return undef;
   }
 
   if($opt->{deny_glob_context} && $config->{GLOB_CONTEXT}) {
-    ERROR "Option \"$key\" is not allowed on section with wildcards" . $config_file_statement;
+    ERROR "Option \"$key\" is not allowed on section with wildcards $error_statement";
     return undef;
   }
 
@@ -3167,7 +3165,7 @@ sub append_config_option($$$$;$)
   elsif($opt->{accept_file})
   {
     # be very strict about file options, for security sake
-    $value = check_file($value, $opt->{accept_file}, sanitize => 1, config_key => $key, config_file => $config_file);
+    $value = check_file($value, $opt->{accept_file}, sanitize => 1, error_statement => ($error_statement ? "for option \"$key\" $error_statement" : undef));
     return undef unless(defined($value));
 
     TRACE "option \"$key=$value\" is a valid file, accepted";
@@ -3179,7 +3177,7 @@ sub append_config_option($$$$;$)
       TRACE "option \"$key=$value\" matched regexp, accepted";
     }
     else {
-      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
+      ERROR "Value \"$value\" failed input validation for option \"$key\" $error_statement";
       return undef;
     }
   }
@@ -3191,13 +3189,13 @@ sub append_config_option($$$$;$)
       my $q = lc($2); # qw( h d w m y )
       $n = 'all' if($n eq '*');
       if(exists($preserve{$q})) {
-        ERROR "Value \"$value\" failed input validation for option \"$key\": multiple definitions of '$q'" . $config_file_statement;
+        ERROR "Value \"$value\" failed input validation for option \"$key\": multiple definitions of '$q' $error_statement";
         return undef;
       }
       $preserve{$q} = $n;
     }
     unless($s eq "") {
-      ERROR "Value \"$value\" failed input validation for option \"$key\"" . $config_file_statement;
+      ERROR "Value \"$value\" failed input validation for option \"$key\" $error_statement";
       return undef;
     }
     TRACE "adding preserve matrix $context context:" . Data::Dumper->new([\%preserve], [ $key ])->Indent(0)->Pad(' ')->Quotekeys(0)->Pair('=>')->Dump() if($do_dumper);
@@ -3206,7 +3204,7 @@ sub append_config_option($$$$;$)
   }
   else
   {
-    ERROR "Unsupported value \"$value\" for option \"$key\"" . $config_file_statement;
+    ERROR "Unsupported value \"$value\" for option \"$key\" $error_statement";
     return undef;
   }
 
@@ -3217,16 +3215,16 @@ sub append_config_option($$$$;$)
 
   if($opt->{require_bin} && (not check_exe($opt->{require_bin}))) {
     WARN "Found option \"$key\", but required executable \"$opt->{require_bin}\" does not exist on your system. Please install \"$opt->{require_bin}\".";
-    WARN "Ignoring option \"$key\"" . $config_file_statement;
+    WARN "Ignoring option \"$key\" $error_statement";
     $value = "no";
   }
 
   if($opt->{deprecated}) {
     if(my $warn_msg = ($opt->{deprecated}->{$value}->{warn} || $opt->{deprecated}->{DEFAULT}->{warn})) {
-      WARN "Found deprecated option \"$key $value\"" . $config_file_statement . ": " . $warn_msg;
+      WARN "Found deprecated option \"$key $value\" $error_statement: $warn_msg";
     }
     if($opt->{deprecated}->{$value}->{ABORT} || $opt->{deprecated}->{DEFAULT}->{ABORT}) {
-      ERROR 'Deprecated (incompatible) option found, refusing to continue';
+      ERROR "Deprecated (incompatible) option \"$key\" found $error_statement, refusing to continue";
       return undef;
     }
     if($opt->{deprecated}->{$value}->{FAILSAFE_PRESERVE} || $opt->{deprecated}->{DEFAULT}->{FAILSAFE_PRESERVE}) {
@@ -3266,7 +3264,7 @@ sub parse_config_line($$$$$)
     TRACE "config: context forced to: $cur->{CONTEXT}";
 
     # be very strict about file options, for security sake
-    my ($url_prefix, $path) = check_url($value, $key, $file);
+    my ($url_prefix, $path) = check_url($value, error_statement => "for option \"$key\" in \"$file\" line $.");
     return undef unless(defined($path));
     TRACE "config: adding volume \"$url_prefix$path\" to root context";
     die unless($cur->{CONTEXT} eq "root");
@@ -3289,7 +3287,7 @@ sub parse_config_line($$$$$)
       TRACE "config: context changed to: $cur->{CONTEXT}";
     }
     # be very strict about file options, for security sake
-    my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, sanitize => 1, config_key => $key, config_file => $file);
+    my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, sanitize => 1, error_statement => "for option \"$key\" in \"$file\" line $.");
     return undef unless(defined($rel_path));
 
     TRACE "config: adding subvolume \"$rel_path\" to volume context: $cur->{url}";
@@ -3321,7 +3319,7 @@ sub parse_config_line($$$$$)
         return undef;
       }
       # be very strict about file options, for security sake
-      my ($url_prefix, $path) = check_url($url, $key, $file);
+      my ($url_prefix, $path) = check_url($url, error_statement => "for option \"$key\" in \"$file\" line $.");
       return undef unless(defined($path));
 
       TRACE "config: adding target \"$url_prefix$path\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "");
@@ -3343,7 +3341,7 @@ sub parse_config_line($$$$$)
   }
   else
   {
-    return append_config_option($cur, $key, $value, $cur->{CONTEXT}, $file);
+    return append_config_option($cur, $key, $value, $cur->{CONTEXT}, error_statement => "in \"$file\" line $.");
   }
 
   return $cur;
@@ -4422,7 +4420,7 @@ MAIN:
   }
   foreach my $key (keys %config_override_cmdline) {
     DEBUG "config_override: \"$key=$config_override_cmdline{$key}\"";
-    unless(append_config_option(\%config_override, $key, $config_override_cmdline{$key}, "root")) {
+    unless(append_config_option(\%config_override, $key, $config_override_cmdline{$key}, "root", error_statement => "in option \"--override\"")) {
       HELP_MESSAGE(0);
       exit 2;
     }
