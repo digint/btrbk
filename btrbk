@@ -118,7 +118,7 @@ my %config_options = (
   kdf_keysize                 => { default => "32",      accept_numeric => 1 },
   kdf_keygen                  => { default => "once",    accept => [ "once", "each" ] },
 
-  group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, split => qr/\s*,\s*/ },
+  group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, allow_multiple => 1, split => qr/\s*,\s*/ },
 
   backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
   backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
@@ -3102,19 +3102,18 @@ sub config_dump_keys($;@)
       next unless exists($config->{$key});
       $val = $config->{$key};
     }
-    if(defined($val)) {
-      if($config_options{$key}->{accept_preserve_matrix}) {
-        $val = format_preserve_matrix($val);
+    my @valary = (ref($val) eq "ARRAY") ? @$val : $val;
+    foreach(@valary) {
+      if(defined($_)) {
+        if($config_options{$key}->{accept_preserve_matrix}) {
+          $_ = format_preserve_matrix($_);
+        }
       }
-      if(ref($val) eq "ARRAY") {
-        my $val2 = join(',', @$val);
-        $val = $val2;
-      }
+      $_ //= exists($config->{$key}) ? "no" : "<unset>";
+      my $len = length($key);
+      $maxlen = $len if($len > $maxlen);
+      push @ret, { key => $key, val => $_, len => $len };
     }
-    $val //= exists($config->{$key}) ? "no" : "<unset>";
-    my $len = length($key);
-    $maxlen = $len if($len > $maxlen);
-    push @ret, { key => $key, val => $val, len => $len };
   }
   # print as table
   return map { ($opts{prefix} // "") . $_->{key} . (' ' x (1 + $maxlen - $_->{len})) . ' ' . $_->{val} } @ret;
@@ -3200,11 +3199,6 @@ sub append_config_option($$$$;@)
     return undef;
   }
 
-  if($opt->{split}) {
-    $value = [ split($opt->{split}, $value) ];
-    TRACE "splitted option \"$key\": " . join(',', @$value);
-  }
-
   if($opt->{require_bin} && (not check_exe($opt->{require_bin}))) {
     WARN "Found option \"$key\", but required executable \"$opt->{require_bin}\" does not exist on your system. Please install \"$opt->{require_bin}\".";
     WARN "Ignoring option \"$key\" $error_statement";
@@ -3237,6 +3231,21 @@ sub append_config_option($$$$;@)
       $value = $replace_value;
       WARN "Using \"$key $value\"";
     }
+  }
+
+  if($opt->{allow_multiple}) {
+    my $aref = $config->{$key} // [];
+    if($opt->{split}) {
+      push(@$aref, split($opt->{split}, $value));
+    }
+    else {
+      push(@$aref, $value);
+    }
+    TRACE "pushing option \"$key=$value\" to $aref=[" . join(',', @$aref) . "]";
+    $value = $aref;
+  }
+  elsif(exists($config->{$key})) {
+    WARN "Option \"$key\" redefined $error_statement";
   }
 
   TRACE "adding option \"$key=$value\" to $context context";
@@ -4226,7 +4235,7 @@ MAIN:
   my $start_time = time;
   @tm_now = localtime($start_time);
 
-  my %config_override_cmdline;
+  my @config_override_cmdline;
   my ($config_cmdline, $quiet, $verbose, $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups, $print_schedule, $lockfile_cmdline);
   my $resume_only_DEPRECATED;  # as of btrbk-v0.26.0
   unless(GetOptions(
@@ -4247,7 +4256,7 @@ MAIN:
     'format=s'           => \$output_format,
     'print-schedule'     => \$print_schedule,
     'lockfile=s'         => \$lockfile_cmdline,
-    'override=s'         => \%config_override_cmdline,  # e.g. --override=incremental=no
+    'override=s'         => \@config_override_cmdline,  # e.g. --override=incremental=no
    ))
   {
     VERSION_MESSAGE();
@@ -4409,9 +4418,18 @@ MAIN:
     HELP_MESSAGE(0);
     exit 2;
   }
-  foreach my $key (keys %config_override_cmdline) {
-    DEBUG "config_override: \"$key=$config_override_cmdline{$key}\"";
-    unless(append_config_option(\%config_override, $key, $config_override_cmdline{$key}, "root", error_statement => "in option \"--override\"")) {
+  foreach(@config_override_cmdline) {
+    if(/(.*?)=(.*)/) {
+      my $key = $1;
+      my $value = $2;
+      DEBUG "config_override: \"$key=$value\"";
+      unless(append_config_option(\%config_override, $key, $value, "root", error_statement => "in option \"--override\"")) {
+        HELP_MESSAGE(0);
+        exit 2;
+      }
+    }
+    else {
+      ERROR "Option \"override\" requires \"<config_option>=<value>\" format";
       HELP_MESSAGE(0);
       exit 2;
     }

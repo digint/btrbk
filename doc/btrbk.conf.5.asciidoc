@@ -146,7 +146,8 @@ Note that using ``long-iso'' has implications on the scheduling, see
 *group* <group-name>[,<group-name>]...::
     Add the current section (volume, subvolume or target) to a
     user-defined group, which can be used as filter for most btrbk
-    commands.
+    commands. This option can be set multiple times within the same
+    context.
 
 
 === Retention Policy Options
