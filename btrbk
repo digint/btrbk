@@ -4787,9 +4787,10 @@ MAIN:
             if($droot->{CONFIG}->{UNRECOVERABLE}) {
               push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});
             }
-            if(@subvol_out) {
-              push @out, "$sroot->{PRINT}/$sroot->{CONFIG}->{snapshot_name}.*", @subvol_out, "";
+            unless(@subvol_out) {
+              push @subvol_out, "[-] $droot->{PRINT}/$sroot->{CONFIG}->{snapshot_name}.*";
             }
+            push @out, "$sroot->{PRINT}/$sroot->{CONFIG}->{snapshot_name}.*", @subvol_out, "";
           }
         }
 
@@ -4804,6 +4805,7 @@ MAIN:
                        "---  deleted subvolume",
                        "***  received subvolume (non-incremental)",
                        ">>>  received subvolume (incremental)",
+                       "[-]  no action",
                       ],
                     );
 
