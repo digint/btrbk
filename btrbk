@@ -128,6 +128,8 @@ my %config_options = (
   target_qgroup_destroy       => { default => undef,     accept => [ "yes", "no" ] },
   archive_qgroup_destroy      => { default => undef,     accept => [ "yes", "no" ], context => [ "root" ] },
 
+  archive_exclude             => { default => undef,     accept_file => { wildcards => 1 }, allow_multiple => 1, context => [ "root" ] },
+
   # deprecated options
   btrfs_progs_compat          => { default => undef, accept => [ "yes", "no" ],
                                    deprecated => { DEFAULT => { ABORT => 1, warn => 'This feature has been dropped in btrbk-v0.23.0. Please update to newest btrfs-progs, AT LEAST >= $BTRFS_PROGS_MIN' } } },
@@ -2958,7 +2960,7 @@ sub check_file($$;@)
         return undef;
       }
     }
-    else {
+    elsif(not $accept->{wildcards}) {
       die("accept_type must contain either 'relative' or 'absolute'");
     }
   }
@@ -4657,6 +4659,17 @@ MAIN:
       }
     }
 
+    # translate archive_exclude globs to regex
+    my $exclude_list = config_key($config, 'archive_exclude') // [];
+    my @exclude_match;
+    foreach my $exclude (@$exclude_list) {
+      $exclude = '/' . $exclude unless($exclude =~ /^\//); # add leading slash
+      # support "*some*file*", "*/*"
+      push(@exclude_match, join('[^\/]*', map(quotemeta($_), split(/\*+/, $exclude, -1))));
+      TRACE "translated exclude globs \"$exclude\" to regex \"$exclude_match[-1]\"";
+    }
+
+    # create archives
     my $schedule_results = [];
     my $aborted;
     foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
@@ -4665,8 +4678,18 @@ MAIN:
         ABORTED($sroot, $aborted);
         next;
       }
+      my $snapshot_name = config_key($sroot, "snapshot_name") // die;
+
+      # skip on archive_exclude
+      foreach(@exclude_match) {
+        if(($sroot->{PATH} =~ /$_$/) || ("$sroot->{PATH}/$snapshot_name" =~ /$_$/)) {
+          INFO "Skip archiving subvolumes (archive_exclude): $sroot->{PRINT}/${snapshot_name}.*";
+          ABORTED($sroot, "ARCHIVE_EXCLUDE_SKIP");
+        }
+      }
+      next if(ABORTED($sroot));
+
       foreach my $droot (vinfo_subsection($sroot, 'target')) {
-        my $snapshot_name = config_key($droot, "snapshot_name") // die;
         INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
         macro_archive_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
         if(ABORTED($droot)) {
@@ -4679,7 +4702,7 @@ MAIN:
       }
     }
 
-
+    # delete archives
     my $del_schedule_results;
     if($preserve_backups) {
       INFO "Preserving all archives (option \"-p\" or \"-r\" present)";
@@ -4688,8 +4711,8 @@ MAIN:
     {
       $del_schedule_results = [];
       foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
+        my $snapshot_name = config_key($sroot, "snapshot_name") // die;
         foreach my $droot (vinfo_subsection($sroot, 'target')) {
-          my $snapshot_name = config_key($droot, "snapshot_name") // die;
           INFO "Cleaning archive: $droot->{PRINT}/${snapshot_name}.*";
           macro_delete($droot, "", $snapshot_name, $droot,
                        { preserve     => config_preserve_hash($droot, "archive"),
@@ -4754,7 +4777,12 @@ MAIN:
             }
             if((ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) ||
                (ABORTED($sroot) && (ABORTED($sroot) ne "USER_SKIP"))) {
-              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . (ABORTED($droot) || ABORTED($sroot));
+              if(ABORTED($sroot) && (ABORTED($sroot) eq "ARCHIVE_EXCLUDE_SKIP")) {
+                push @subvol_out, "<archive_exclude>";
+              }
+              else {
+                push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . (ABORTED($droot) || ABORTED($sroot));
+              }
             }
             if($droot->{CONFIG}->{UNRECOVERABLE}) {
               push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});

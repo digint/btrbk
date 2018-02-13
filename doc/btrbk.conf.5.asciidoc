@@ -191,6 +191,11 @@ Note that using ``long-iso'' has implications on the scheduling, see
     Set retention policy for archives ("btrbk archive" command), with
     same semantics as 'target_preserve_min'.
 
+*archive_exclude* <pattern>  _*experimental*_::
+    Exclude subvolumes matching <pattern> from archiving. The pattern
+    accepts wildcard character "*", and is matched against the end of
+    the pathname.
+
 
 === SSH Options
 
