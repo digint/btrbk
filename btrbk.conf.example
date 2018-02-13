@@ -2,15 +2,22 @@
 # Example btrbk configuration file
 #
 #
-# Please refer to the btrbk.conf(5) man-page for more details.
+# Please refer to the btrbk.conf(5) man-page for a complete
+# description of all configuration options.
 #
-# Note that the options can be overridden in the
-# volume/subvolume/target sections.
+# Note that the options can be overridden per volume/subvolume/target
+# in the corresponding sections.
 #
 
 
 # Enable transaction log
 transaction_log            /var/log/btrbk.log
+
+# Enable stream buffer. Adding a buffer between the sending and
+# receiving side is generally a good idea.
+# NOTE: If enabled, make sure the "mbuffer" package is installed on
+# the target host!
+stream_buffer              512m
 
 # Directory in which the btrfs snapshots are created. Relative to
 # <volume-directory> of the volume section.
