@@ -3012,7 +3012,7 @@ sub config_key($$;@)
   }
 
   while(not exists($config->{$key})) {
-    # note: while all config keys exist in root context (at least with default values),
+    # note: while all config keys exist in "meta" context (at least with default values),
     #       we also allow fake configs (CONTEXT="cmdline") which have no PARENT.
     return undef unless($config->{PARENT});
     $config = $config->{PARENT};
@@ -3101,14 +3101,6 @@ sub config_dump_keys($;@)
     } else {
       next unless exists($config->{$key});
       $val = $config->{$key};
-    }
-    if($opts{skip_defaults}) {
-      if(defined($config_options{$key}->{default}) && defined($val)) {
-        next if($val eq $config_options{$key}->{default});
-      }
-      if((not defined($config_options{$key}->{default})) && (not (defined($val)))) {
-        next; # both undef, skip
-      }
     }
     if(defined($val)) {
       if($config_options{$key}->{accept_preserve_matrix}) {
@@ -3387,14 +3379,13 @@ sub _config_propagate_target
 
 sub init_config(@)
 {
-  my %config_root = ( CONTEXT => "root", SUBSECTION => [], @_ );
-
+  my %defaults = ( CONTEXT => "meta", @_ );
   # set defaults
   foreach (keys %config_options) {
     next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
-    $config_root{$_} = $config_options{$_}->{default};
+    $defaults{$_} = $config_options{$_}->{default};
   }
-  return \%config_root;
+  return { CONTEXT => "root", SUBSECTION => [], PARENT => \%defaults };
 }
 
 
@@ -3971,7 +3962,7 @@ sub print_header(@)
     print "    Date:   " . localtime($args{time}) . "\n";
   }
   if($config) {
-    print "    Config: $config->{SRC_FILE}\n";
+    print "    Config: " . config_key($config, "SRC_FILE") . "\n";
   }
   if($dryrun) {
     print "    Dryrun: YES\n";
@@ -5002,7 +4993,7 @@ MAIN:
     # print configuration lines, machine readable
     #
     my @out;
-    push @out, config_dump_keys($config, skip_defaults => 1);
+    push @out, config_dump_keys($config, resolve => $resolve);
     foreach my $sroot (vinfo_subsection($config, 'volume')) {
       push @out, "\nvolume $sroot->{URL}";
       push @out, config_dump_keys($sroot, prefix => "\t", resolve => $resolve);
