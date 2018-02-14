@@ -2155,6 +2155,16 @@ sub btr_tree($$$$)
     }
   }
 
+  # add known mountpoints to nodes
+  foreach(@$mountpoints) {
+    my $node = $id{$_->{subvolid}};
+    unless($node) {
+      WARN "Unknown subvolid=$_->{subvolid} (in btrfs tree of $vol_host_spec) for mountpoint: $vol->{URL_PREFIX}$_->{file}";
+      next;
+    }
+    $node->{MOUNTPOINT_URL} = $vol->{URL_PREFIX} . $_->{file};
+  }
+
   TRACE "btr_tree: returning tree at id=$vol_root->{id}";
   VINFO($vol_root, "node") if($loglevel >=4);
 
@@ -2201,7 +2211,8 @@ sub btr_tree_inject_node
 sub _fs_path
 {
   my $node = shift // die;
-  return '<BTRFS_ROOT>' if($node->{is_root});
+  return $node->{MOUNTPOINT_URL} if($node->{MOUNTPOINT_URL});
+  return "<$node->{host_spec}>" if($node->{is_root});
   return _fs_path($node->{TOP_LEVEL}) . '/' . $node->{REL_PATH};
 }
 
@@ -2478,6 +2489,7 @@ sub vinfo_init_raw_root($;@)
                    SUBTREE => [],
                    UUID_HASH => {},
                    RECEIVED_UUID_HASH => {},
+                   MOUNTPOINT_URL => $droot->{URL},
                  };
     $tree_root->{TREE_ROOT} = $tree_root;
 
