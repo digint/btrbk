@@ -2229,6 +2229,12 @@ sub _is_correlated($$)
 }
 
 
+sub _is_same_fs_tree($$)
+{
+  return ($_[0]->{TREE_ROOT}{host_spec} eq $_[1]->{TREE_ROOT}{host_spec});
+}
+
+
 sub _is_child_of
 {
   my $node = shift;
@@ -2738,12 +2744,21 @@ sub vinfo_prefixed_keys($$)
 }
 
 
-sub vinfo_assign_config($)
+sub vinfo_assign_config($;$)
 {
   my $vinfo = shift || die;
+  my $vinfo_snapshot_root = shift;
   my $config = $vinfo->{CONFIG} || die;
   die if($config->{VINFO});
   $config->{VINFO} = $vinfo;
+  $config->{VINFO_SNAPROOT} = $vinfo_snapshot_root;
+}
+
+
+sub vinfo_snapshot_root($)
+{
+  my $vinfo = shift;
+  return $vinfo->{CONFIG}{VINFO_SNAPROOT};
 }
 
 
@@ -5012,7 +5027,10 @@ MAIN:
     foreach my $config_subvol (@{$config_vol->{SUBSECTION}}) {
       die unless($config_subvol->{CONTEXT} eq "subvolume");
       my $svol = vinfo_child($sroot, $config_subvol->{rel_path}, $config_subvol);
-      vinfo_assign_config($svol);
+      # TODO: add config option "snapshot_path", reuse snaproot with same URL
+      my $snapshot_dir = config_key($svol, "snapshot_dir", prefix => '/') // "";
+      my $snaproot = vinfo($config_vol->{url} . $snapshot_dir, $config_subvol);
+      vinfo_assign_config($svol, $snaproot);
       foreach my $config_target (@{$config_subvol->{SUBSECTION}}) {
         die unless($config_target->{CONTEXT} eq "target");
         my $droot = vinfo($config_target->{url}, $config_target);
@@ -5187,9 +5205,10 @@ MAIN:
       push @vol_data, $volh;
 
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+        my $snaproot = vinfo_snapshot_root($svol);
         my $subvolh = { %$volh,
                         vinfo_prefixed_keys("source", $svol),
-                        snapshot_path     => $sroot->{PATH} . (config_key($svol, "snapshot_dir", prefix => '/') // ""),
+                        snapshot_path     => $snaproot->{PATH},
                         snapshot_name     => config_key($svol, "snapshot_name"),
                         snapshot_preserve => format_preserve_matrix(config_preserve_hash($svol, "snapshot")),
                       };
@@ -5266,6 +5285,18 @@ MAIN:
         WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
         next;
       }
+
+      my $snaproot = vinfo_snapshot_root($svol);
+      unless(vinfo_init_root($snaproot)) {
+        ABORTED($svol, "Failed to fetch subvolume detail for snapshot_dir" . ($err ? ": $err" : ""));
+        WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        next;
+      }
+      unless(_is_same_fs_tree($snaproot->{node}, $svol->{node})) {
+        ABORTED($svol, "Snapshot path is not on same filesystem");
+        WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        next;
+      }
     }
   }
 
@@ -5306,9 +5337,9 @@ MAIN:
   foreach my $sroot (vinfo_subsection($config, 'volume')) {
     foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
       # check for duplicate snapshot locations
-      my $snapdir_ts = config_key($svol, "snapshot_dir", postfix => '/') // "";
+      my $snaproot = vinfo_snapshot_root($svol);
       my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-      my $snapshot_target = $sroot->{URL_PREFIX} . ($realpath_cache{$sroot->{URL}} // $sroot->{PATH}) . '/' . $snapdir_ts . $snapshot_basename;
+      my $snapshot_target = $sroot->{URL_PREFIX} . ($realpath_cache{$snaproot->{URL}} // $snaproot->{PATH}) . '/' . $snapshot_basename;
       if(my $prev = $snapshot_check{$snapshot_target}) {
         ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snapshot_target";
         ERROR "Please fix \"snapshot_name\" configuration options!";
@@ -5384,8 +5415,10 @@ MAIN:
       #
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+          my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_name = config_key($svol, "snapshot_name") // die;
-          foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_snapshot_children($sroot, $svol)) {
+          # note: we list all snapshot children within $snaproot here, not only the ones matching btrbk naming
+          foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_snapshot_children($snaproot, $svol)) {
             my $snapshot_data = { type => "snapshot",
                                   status => ($snapshot->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
                                   vinfo_prefixed_keys("source", $svol),
@@ -5414,8 +5447,10 @@ MAIN:
       #
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+          my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_name = config_key($svol, "snapshot_name") // die;
-          my @snapshot_children = get_snapshot_children($sroot, $svol);
+          # note: we list all snapshot children within $snaproot here, not only the ones matching btrbk naming
+          my @snapshot_children = get_snapshot_children($snaproot, $svol);
           my $stats_snapshot_uptodate = "";
           foreach my $snapshot (@snapshot_children) {
             if($snapshot->{node}{cgen} == $svol->{node}{gen}) {
@@ -5424,7 +5459,7 @@ MAIN:
             }
           }
           push @stats_data, [ $svol->{PRINT}, sprintf("%4u snapshots$stats_snapshot_uptodate", scalar(@snapshot_children)) ];
-          $stats_snapshots_total += scalar(@snapshot_children);  # NOTE: this adds ALL snaphot children under $sroot (not only the ones created by btrbk!)
+          $stats_snapshots_total += scalar(@snapshot_children);  # NOTE: this adds ALL snaphot children under $snaproot (not only the ones created by btrbk!)
 
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             my $stats_correlated = 0;
@@ -5499,10 +5534,10 @@ MAIN:
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $found = 0;
-          my $snapdir = config_key($svol, "snapshot_dir") // "";
+          my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my @snapshot_children = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
-                                       get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
+                                       get_snapshot_children($snaproot, $svol, undef, $snapshot_basename));
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             foreach my $child (@snapshot_children) {
               my @receive_targets = get_receive_targets($droot, $child);
@@ -5665,7 +5700,7 @@ MAIN:
       #
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $snapdir_ts = config_key($svol, "snapshot_dir", postfix => '/') // "";
+          my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
 
           # check if we need to create a snapshot
@@ -5678,8 +5713,8 @@ MAIN:
             DEBUG "Snapshot creation enabled (snapshot_create=always)";
           }
           elsif($snapshot_create eq "onchange") {
-            # check if latest snapshot is up-to-date with source subvolume (by generation)
-            my $latest = get_latest_snapshot_child($sroot, $svol);
+            # check if latest (btrbk only!) snapshot is up-to-date with source subvolume (by generation)
+            my $latest = get_latest_snapshot_child($snaproot, $svol);
             if($latest) {
               if($latest->{node}{cgen} == $svol->{node}{gen}) {
                 INFO "Snapshot creation skipped: snapshot_create=onchange, snapshot is up-to-date: $latest->{PRINT}";
@@ -5709,8 +5744,7 @@ MAIN:
           # find unique snapshot name
           my $timestamp = timestamp(\@tm_now, config_key($svol, "timestamp_format"));
           my @unconfirmed_target_name;
-          my @lookup = map { $_->{SUBVOL_PATH} } @{vinfo_subvol_list($sroot)};
-          @lookup = grep s/^\Q$snapdir_ts\E// , @lookup;
+          my @lookup = map { $_->{SUBVOL_PATH} } @{vinfo_subvol_list($snaproot)};
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
             if(ABORTED($droot)) {
               push(@unconfirmed_target_name, $droot);
@@ -5732,10 +5766,10 @@ MAIN:
 
           # finally create the snapshot
           INFO "Creating subvolume snapshot for: $svol->{PRINT}";
-          my $snapshot = vinfo_child($sroot, "$snapdir_ts$snapshot_name");
+          my $snapshot = vinfo_child($snaproot, "$snapshot_name");
           if(btrfs_subvolume_snapshot($svol, $snapshot))
           {
-            vinfo_inject_child($sroot, $snapshot, {
+            vinfo_inject_child($snaproot, $snapshot, {
               parent_uuid    => $svol->{node}{uuid},
               received_uuid  => '-',
               readonly       => 1,
@@ -5744,7 +5778,7 @@ MAIN:
             $svol->{SNAPSHOT_CREATED} = $snapshot;
           }
           else {
-            ABORTED($svol, "Failed to create snapshot: $svol->{PRINT} -> $sroot->{PRINT}/$snapdir_ts$snapshot_name");
+            ABORTED($svol, "Failed to create snapshot: $svol->{PRINT} -> $snapshot->{PRINT}");
             WARN "Skipping subvolume section: $abrt";
           }
         }
@@ -5760,11 +5794,10 @@ MAIN:
     else {
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $snapdir = config_key($svol, "snapshot_dir") // "";
+          my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my @snapshot_children = sort({ cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
-                                       get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
-
+                                       get_snapshot_children($snaproot, $svol, undef, $snapshot_basename));
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in \"$droot->{PRINT}/\"";
             my @schedule;
@@ -5823,7 +5856,7 @@ MAIN:
                 }
 
                 INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
-                my ($parent, $target_parent_node) = get_best_parent($sroot, $child, $droot, $snapdir);
+                my ($parent, $target_parent_node) = get_best_parent($snaproot, $child, $droot, "");
                 if(macro_send_receive(source => $child,
                                       target => $droot,
                                       parent => $parent,  # this is <undef> if no suitable parent found
@@ -5863,12 +5896,11 @@ MAIN:
       $schedule_results = [];
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $snapdir = config_key($svol, "snapshot_dir") // "";
-          my $snapdir_ts = config_key($svol, "snapshot_dir", postfix => '/') // "";
+          my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my $target_aborted = 0;
           my @snapshot_children = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
-                                       get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
+                                       get_snapshot_children($snaproot, $svol, undef, $snapshot_basename));
 
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
             if(ABORTED($droot)) {
@@ -5932,11 +5964,11 @@ MAIN:
             }
           }
           else {
-            INFO "Cleaning snapshots" . ($wipe_snapshots ? " (wipe)" : "") . ": $sroot->{PRINT}/$snapdir_ts$snapshot_basename.*";
-            macro_delete($sroot, $snapdir, $snapshot_basename, $svol,
+            INFO "Cleaning snapshots" . ($wipe_snapshots ? " (wipe)" : "") . ": $snaproot->{PRINT}/$snapshot_basename.*";
+            macro_delete($snaproot, "", $snapshot_basename, $svol,
                          { preserve     => config_preserve_hash($svol, "snapshot", wipe => $wipe_snapshots),
                            results      => $schedule_results,
-                           result_hints => { topic => "snapshot", root_path => $sroot->{PATH} },
+                           result_hints => { topic => "snapshot", root_path => $snaproot->{PATH} },
                          },
                          commit => config_key($svol, "btrfs_commit_delete"),
                          type   => "delete_snapshot",
