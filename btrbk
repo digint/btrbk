@@ -2997,13 +2997,14 @@ sub get_best_parent($$$)
 }
 
 
-sub get_latest_snapshot_child($$)
+sub get_latest_snapshot_child($$;$)
 {
   my $sroot = shift || die;
   my $svol = shift // die;
+  my $btrbk_basename = shift;
   my $latest = undef;
   my $gen = -1;
-  foreach (get_snapshot_children($sroot, $svol)) {
+  foreach (get_snapshot_children($sroot, $svol, $btrbk_basename)) {
     if($_->{node}{cgen} > $gen) {
       $latest = $_;
       $gen = $_->{node}{cgen};
@@ -5712,7 +5713,7 @@ MAIN:
           }
           elsif($snapshot_create eq "onchange") {
             # check if latest (btrbk only!) snapshot is up-to-date with source subvolume (by generation)
-            my $latest = get_latest_snapshot_child($snaproot, $svol);
+            my $latest = get_latest_snapshot_child($snaproot, $svol, $snapshot_basename);
             if($latest) {
               if($latest->{node}{cgen} == $svol->{node}{gen}) {
                 INFO "Snapshot creation skipped: snapshot_create=onchange, snapshot is up-to-date: $latest->{PRINT}";
