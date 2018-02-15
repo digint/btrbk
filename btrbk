@@ -4585,7 +4585,7 @@ MAIN:
     unless(vinfo_init_root($target_vol)) { ERROR "Failed to fetch subvolume detail for '$target_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
     if($target_vol->{node}{is_root})     { ERROR "Subvolume is btrfs root: $target_vol->{PRINT}"; exit 1; }
 
-    unless(_is_child_of($src_vol->{node}->{TREE_ROOT}, $target_vol->{node}{uuid})) {
+    unless(_is_same_fs_tree($src_vol->{node}, $target_vol->{node})) {
       ERROR "Subvolumes are not on the same btrfs filesystem!";
       exit 1;
     }
@@ -4771,7 +4771,7 @@ MAIN:
           }
         }
       }
-      if(_is_child_of($droot->{node}->{TREE_ROOT}, $vol->{node}{uuid})) {
+      if(_is_same_fs_tree($droot->{node}, $vol->{node})) {
         ERROR "Source and target subvolumes are on the same btrfs filesystem!";
         exit 1;
       }
