@@ -2798,21 +2798,20 @@ sub vinfo_subsection($$;$)
 }
 
 
-sub get_snapshot_children($$;$$)
+sub get_snapshot_children($$;$)
 {
-  my $sroot = shift || die;
+  my $snaproot = shift || die;
   my $svol = shift // die;
-  my $subvol_dir = shift // "";
   my $btrbk_basename = shift;
   my @ret;
 
-  my $sroot_subvols = vinfo_subvol_list($sroot);
-  foreach (@$sroot_subvols) {
+  my $snaproot_subvols = vinfo_subvol_list($snaproot);
+  foreach (@$snaproot_subvols) {
     next unless($_->{node}{readonly});
     next unless($_->{node}{parent_uuid} eq $svol->{node}{uuid});
     if(defined($btrbk_basename) &&
        ( (not exists($_->{node}{BTRBK_BASENAME})) ||
-        ($_->{SUBVOL_DIR} ne $subvol_dir)   ||
+        ($_->{SUBVOL_DIR} ne "")   ||
         ($_->{node}{BTRBK_BASENAME} ne $btrbk_basename)) ) {
       TRACE "get_snapshot_children: child does not match btrbk filename scheme, skipping: $_->{PRINT}";
       next;
@@ -2820,8 +2819,7 @@ sub get_snapshot_children($$;$$)
     TRACE "get_snapshot_children: found: $_->{PRINT}";
     push(@ret, $_);
   }
-  $subvol_dir .= '/' if($subvol_dir);
-  DEBUG "Found " . scalar(@ret) . " snapshot children of \"$svol->{PRINT}\" in: $sroot->{PRINT}" . (defined($btrbk_basename) ? "/$subvol_dir$btrbk_basename.*" : "");
+  DEBUG "Found " . scalar(@ret) . " snapshot children of \"$svol->{PRINT}\" in: $snaproot->{PRINT}" . (defined($btrbk_basename) ? "/$btrbk_basename.*" : "");
   return @ret;
 }
 
@@ -2896,25 +2894,26 @@ sub get_receive_targets($$;@)
 }
 
 
-sub get_related_subvolumes($$$;$)
+sub get_related_subvolumes($$$;@)
 {
-  my $sroot = shift || die;
+  my $snaproot = shift || die;
   my $svol = shift // die;
   my $droot = shift || die;
+  my %opts = @_;
   my $snapshot_dir = shift;  # if not set, skip search for btrbk basename (set to empty string to enable at current dir)
-  my $sroot_subvol_list = vinfo_subvol_list_all_accessible($sroot);
+  my $snaproot_subvol_list = vinfo_subvol_list_all_accessible($snaproot);
 
-  TRACE "get_related: resolving latest common for subvolume: $svol->{PATH}  (sroot=$sroot->{PRINT}, droot=$droot->{PRINT}, snapdir=\"" . ($snapshot_dir // '<undef>') . "\")";
+  TRACE "get_related: resolving latest common for subvolume: $svol->{PATH}  (snaproot=$snaproot->{PRINT}, droot=$droot->{PRINT})";
   my @candidate;
   if($svol->{node}{readonly}) {
     if($svol->{node}{parent_uuid} ne '-') {
       # add readonly parent
-      @candidate = grep { $_->{node}{readonly} && ($_->{node}{uuid} eq $svol->{node}{parent_uuid}) } @$sroot_subvol_list;
+      @candidate = grep { $_->{node}{readonly} && ($_->{node}{uuid} eq $svol->{node}{parent_uuid}) } @$snaproot_subvol_list;
       die "multiple parents for $svol->{node}{parent_uuid}" if(scalar(@candidate) > 1);
       TRACE "get_related: subvolume has a read-only parent, add parent candidate" if(scalar(@candidate) > 0);
 
       # add snapshots with same parent_uuid (siblings)
-      my @siblings = grep { $_->{node}{readonly} && ($_->{node}{parent_uuid} eq $svol->{node}{parent_uuid}) } @$sroot_subvol_list;
+      my @siblings = grep { $_->{node}{readonly} && ($_->{node}{parent_uuid} eq $svol->{node}{parent_uuid}) } @$snaproot_subvol_list;
       my @siblings_older = grep { $_->{node}{cgen} <= $svol->{node}{cgen} } @siblings;
       my @siblings_newer = grep { $_->{node}{cgen} >  $svol->{node}{cgen} } @siblings;
       push @candidate, sort { $b->{node}{cgen} <=> $a->{node}{cgen} } @siblings_older; # older first, descending by cgen
@@ -2922,26 +2921,27 @@ sub get_related_subvolumes($$$;$)
       TRACE "get_related: subvolume has siblings (same parent_uuid), add " . scalar(@siblings_older) . " older and " . scalar(@siblings_newer) . " newer (by cgen) candidates";
     }
 
-    if(defined($snapshot_dir) && exists($svol->{node}{BTRBK_BASENAME})) {
+    if($opts{fallback_btrbk_basename} && exists($svol->{node}{BTRBK_BASENAME})) {
       # add subvolumes in same directory matching btrbk file name scheme
-      my @naming_match = grep { $_->{node}{readonly} && exists($_->{node}{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq $snapshot_dir) && ($_->{node}{BTRBK_BASENAME} eq $svol->{node}{BTRBK_BASENAME}) } @$sroot_subvol_list;
+      my @naming_match = grep { $_->{node}{readonly} && exists($_->{node}{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq "") && ($_->{node}{BTRBK_BASENAME} eq $svol->{node}{BTRBK_BASENAME}) } @$snaproot_subvol_list;
       my @naming_match_older = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @naming_match;
       my @naming_match_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @naming_match;
       push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match_older;
       push @candidate, sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) } @naming_match_newer;
-      TRACE "get_related: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{node}{BTRBK_BASENAME}.*";
+      TRACE "get_related: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $snaproot->{PRINT}/$svol->{node}{BTRBK_BASENAME}.*";
     }
   }
   else
   {
-    @candidate = sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($sroot, $svol);
+    # TODO: this is dead code, consider removing (or move to separate function)
+    @candidate = sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($snaproot, $svol);
     TRACE "get_related: subvolume is read-write, add " . scalar(@candidate) . " snapshot children, sorted by cgen: $svol->{PATH}";
 
-    if(defined($snapshot_dir)) {
+    if($opts{fallback_btrbk_basename}) {
       # add subvolumes in same directory matching btrbk file name scheme (using $svol->{NAME} as basename)
-      my @naming_match = grep { $_->{node}{readonly} && exists($_->{node}{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq $snapshot_dir) && ($_->{node}{BTRBK_BASENAME} eq $svol->{NAME}) } @$sroot_subvol_list;
+      my @naming_match = grep { $_->{node}{readonly} && exists($_->{node}{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq "") && ($_->{node}{BTRBK_BASENAME} eq $svol->{NAME}) } @$snaproot_subvol_list;
       push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match;
-      TRACE "get_related: snapshot_dir is set, add " . scalar(@naming_match) . " candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{NAME}.*";
+      TRACE "get_related: subvolume has btrbk naming scheme, add " . scalar(@naming_match) . " candidates with scheme: $snaproot->{PRINT}/$svol->{NAME}.*";
     }
   }
 
@@ -2951,7 +2951,7 @@ sub get_related_subvolumes($$$;$)
   while($rnode && ($search_depth < 256)) {
     last if($rnode->{parent_uuid} eq '-');
     TRACE "get_related: searching parent chain (depth=$search_depth): $rnode->{uuid}";
-    my @parents = grep { $_->{node}{uuid} eq $rnode->{parent_uuid} } @$sroot_subvol_list;
+    my @parents = grep { $_->{node}{uuid} eq $rnode->{parent_uuid} } @$snaproot_subvol_list;
     if(scalar(@parents) == 1) {
       my $parent = $parents[0];
       if($parent->{node}{readonly}) {
@@ -2976,14 +2976,12 @@ sub get_related_subvolumes($$$;$)
 
 
 # returns ( parent, first_matching_target_node )
-sub get_best_parent($$$;$)
+sub get_best_parent($$$)
 {
-  my $sroot = shift || die;
+  my $snaproot = shift || die;
   my $svol = shift // die;
   my $droot = shift || die;
-  my $snapshot_dir = shift;  # if not set, skip search for btrbk basename (set to empty string to enable at current dir)
-
-  my $related = get_related_subvolumes($sroot, $svol, $droot, $snapshot_dir);
+  my $related = get_related_subvolumes($snaproot, $svol, $droot, fallback_btrbk_basename => 1);
 
   # match receive targets of candidates
   foreach my $child (@$related) {
@@ -2994,7 +2992,7 @@ sub get_best_parent($$$;$)
       return ($child, $receive_target_nodes[0]);
     }
   }
-  DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
+  DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$snaproot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
   return undef;
 }
 
@@ -3760,7 +3758,7 @@ sub macro_archive_target($$$;$)
   my $archive_success = 0;
   foreach my $svol (@archive)
   {
-    my ($parent, $target_parent_node) = get_best_parent($sroot, $svol, $droot, "");
+    my ($parent, $target_parent_node) = get_best_parent($sroot, $svol, $droot);
     if(macro_send_receive(source => $svol,
                           target => $droot,
                           parent => $parent,  # this is <undef> if no suitable parent found
@@ -5537,7 +5535,7 @@ MAIN:
           my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my @snapshot_children = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
-                                       get_snapshot_children($snaproot, $svol, undef, $snapshot_basename));
+                                       get_snapshot_children($snaproot, $svol, $snapshot_basename));
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             foreach my $child (@snapshot_children) {
               my @receive_targets = get_receive_targets($droot, $child);
@@ -5797,7 +5795,7 @@ MAIN:
           my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my @snapshot_children = sort({ cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
-                                       get_snapshot_children($snaproot, $svol, undef, $snapshot_basename));
+                                       get_snapshot_children($snaproot, $svol, $snapshot_basename));
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in \"$droot->{PRINT}/\"";
             my @schedule;
@@ -5856,7 +5854,7 @@ MAIN:
                 }
 
                 INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
-                my ($parent, $target_parent_node) = get_best_parent($snaproot, $child, $droot, "");
+                my ($parent, $target_parent_node) = get_best_parent($snaproot, $child, $droot);
                 if(macro_send_receive(source => $child,
                                       target => $droot,
                                       parent => $parent,  # this is <undef> if no suitable parent found
@@ -5900,7 +5898,7 @@ MAIN:
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my $target_aborted = 0;
           my @snapshot_children = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
-                                       get_snapshot_children($snaproot, $svol, undef, $snapshot_basename));
+                                       get_snapshot_children($snaproot, $svol, $snapshot_basename));
 
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
             if(ABORTED($droot)) {
