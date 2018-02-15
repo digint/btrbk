@@ -5340,7 +5340,7 @@ MAIN:
       my $snapshot_basename = config_key($svol, "snapshot_name") // die;
       my $snapshot_target = $sroot->{URL_PREFIX} . ($realpath_cache{$snaproot->{URL}} // $snaproot->{PATH}) . '/' . $snapshot_basename;
       if(my $prev = $snapshot_check{$snapshot_target}) {
-        ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snapshot_target";
+        ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: ${snapshot_target}.*";
         ERROR "Please fix \"snapshot_name\" configuration options!";
         exit 1;
       }
@@ -5350,7 +5350,7 @@ MAIN:
         # check for duplicate snapshot locations
         my $snapshot_backup_target = $droot->{URL_PREFIX} . ($realpath_cache{$droot->{URL}} // $droot->{PATH}) . '/' . $snapshot_basename;
         if(my $prev = $backup_check{$snapshot_backup_target}) {
-          ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same backup target: $snapshot_backup_target";
+          ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same backup target: ${snapshot_backup_target}.*";
           ERROR "Please fix \"snapshot_name\" or \"target\" configuration options!";
           exit 1;
         }
