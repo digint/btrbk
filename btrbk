@@ -2053,9 +2053,13 @@ sub btr_tree($$)
                SUBTREE => []
               );
   my %id = ( 5 => \%tree );
+  my %uuid_hash;
+  my %received_uuid_hash;
 
   $tree{TREE_ROOT} = \%tree;
   $tree{ID_HASH} = \%id;
+  $tree{UUID_HASH} = \%uuid_hash;
+  $tree{RECEIVED_UUID_HASH} = \%received_uuid_hash;
 
   my $node_list = btrfs_subvolume_list($vol);
   return undef unless(ref($node_list) eq "ARRAY");
@@ -2078,7 +2082,7 @@ sub btr_tree($$)
     return $vol_root;
   }
 
-  # fill ID_HASH and uuid_cache
+  # fill our hashes and uuid_cache
   my $gen_max = 0;
   foreach my $node (@$node_list)
   {
@@ -2086,6 +2090,8 @@ sub btr_tree($$)
     die if exists($id{$node->{id}});
     $node->{SUBTREE} //= [];
     $id{$node->{id}} = $node;
+    $uuid_hash{$node->{uuid}} = $node;
+    push(@{$received_uuid_hash{$node->{received_uuid}}}, $node) if($node->{received_uuid} ne '-');
     $uuid_cache{$node->{uuid}} = $node;
     $gen_max = $node->{gen} if($node->{gen} > $gen_max);
   }
@@ -2139,13 +2145,15 @@ sub btr_tree_inject_node
   my $subtree = $top_node->{SUBTREE} // die;
   my $tree_root = $top_node->{TREE_ROOT};
 
+  die unless($detail->{parent_uuid} && $detail->{received_uuid} && exists($detail->{readonly}));
+
   $tree_inject_id -= 1;
   $tree_root->{GEN_MAX} += 1;
 
   my $uuid = sprintf("${fake_uuid_prefix}%012u", -($tree_inject_id));
   my $node = {
     %$detail, # make a copy
-    TREE_ROOT => $top_node->{TREE_ROOT},
+    TREE_ROOT => $tree_root,
     SUBTREE   => [],
     TOP_LEVEL => $top_node,
     REL_PATH  => $rel_path,
@@ -2158,6 +2166,8 @@ sub btr_tree_inject_node
   push(@$subtree, $node);
   $uuid_cache{$uuid} = $node;
   $tree_root->{ID_HASH}->{$tree_inject_id} = $node;
+  $tree_root->{UUID_HASH}->{$uuid} = $node;
+  push( @{$tree_root->{RECEIVED_UUID_HASH}->{$node->{received_uuid}}}, $node ) if($node->{received_uuid} ne '-');
   return $node;
 }
 
@@ -2569,6 +2579,27 @@ sub vinfo_subvol_list($;@)
 }
 
 
+# returns vinfo_child if $node is in tree below $vol, or undef
+sub vinfo_resolved($$)
+{
+  my $node = shift || die;
+  my $vol = shift || die;  # root vinfo node
+  my $top_id = $vol->{node}{id};
+  my @path;
+  my $nn = $node;
+  while(($nn->{id} != $top_id) && (!$nn->{is_root})) {
+    unshift(@path, $nn->{REL_PATH});
+    $nn = $nn->{TOP_LEVEL};
+  }
+  return undef if($nn->{is_root} && (!$vol->{node}{is_root}));
+  my $jpath = join('/', @path);
+  if($vol->{NODE_SUBDIR}) {
+    return undef unless($jpath =~ s/^\Q$vol->{NODE_SUBDIR}\E\///);
+  }
+  return vinfo_child($vol, $jpath);
+}
+
+
 sub vinfo_subvol($$)
 {
   my $vol = shift || die;
@@ -2719,14 +2750,11 @@ sub get_snapshot_children($$;$$)
 }
 
 
-sub get_receive_targets($$;@)
+sub _receive_target_nodes($$)
 {
   my $droot = shift || die;
   my $src_vol = shift || die;
-  my %opts = @_;
-  my $droot_subvols = $opts{droot_subvol_list} // vinfo_subvol_list($droot);
   my @ret;
-  my $unexpected_count = 0;
 
   if($src_vol->{node}{is_root}) {
     DEBUG "Skip search for targets: source subvolume is btrfs root: $src_vol->{PRINT}";
@@ -2741,85 +2769,58 @@ sub get_receive_targets($$;@)
   my $uuid = $src_vol->{node}{uuid};
   my $received_uuid = $src_vol->{node}{received_uuid};
   $received_uuid = undef if($received_uuid eq '-');
-  TRACE "get_receive_targets: src_vol=\"$src_vol->{PRINT}\", droot=\"$droot->{PRINT}\"";
+  TRACE "receive_target_nodes: src_vol=\"$src_vol->{PRINT}\", droot=\"$droot->{PRINT}\"";
 
-  foreach (@$droot_subvols) {
-    next unless($_->{node}{readonly});
+  my $tree_root = $droot->{node}{TREE_ROOT};
+  my $received_uuid_hash = $droot->{node}{TREE_ROOT}{RECEIVED_UUID_HASH};
+  my $uuid_hash = $droot->{node}{TREE_ROOT}{UUID_HASH};
 
-    # match uuid/received_uuid combinations (silently ignore uuid==uuid matches)
-    my $matched = undef;
-    if($_->{node}{received_uuid} eq $uuid) {
-      $matched = 'src.uuid == target.received_uuid';
-    }
-    elsif(defined($received_uuid) && ($_->{node}{received_uuid} eq $received_uuid)) {
-      $matched = 'src.received_uuid == target.received_uuid';
-    }
-    elsif(defined($received_uuid) && ($_->{node}{uuid} eq $received_uuid)) {
-      $matched = 'src.received_uuid == target.uuid';
-    }
-    next unless($matched);
-
-    TRACE "get_receive_targets: Found receive target ($matched): $_->{SUBVOL_PATH}";
-    push(@{$opts{seen}}, $_) if($opts{seen});
-    if($opts{exact_match} && !exists($_->{node}{BTRBK_RAW})) {
-      if($_->{direct_leaf} && ($_->{NAME} eq $src_vol->{NAME})) {
-        TRACE "get_receive_targets: exact_match: $_->{SUBVOL_PATH}";
-      }
-      else {
-        TRACE "get_receive_targets: skip non-exact match ($matched): $_->{PRINT}";
-        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $_->{PRINT}" if($opts{warn});
-        next;
-      }
-    }
-    push(@ret, $_);
+  # match uuid/received_uuid combinations
+  my @match;
+  push(@match, @{ $received_uuid_hash->{$uuid} // [] });      # match src.uuid == target.received_uuid
+  if($received_uuid) {
+    push(@match, $uuid_hash->{$received_uuid} );              # match src.received_uuid == target.uuid
+    push(@match, @{ $received_uuid_hash->{$received_uuid} }); # match src.received_uuid == target.received_uuid
   }
-  TRACE "get_receive_targets: " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
+
+  @ret = grep($_->{readonly}, @match);
+  TRACE "receive_target_nodes: " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
   return @ret;
 }
 
 
-sub get_receive_targets_fsroot($$@)
+# returns array of vinfo of receive targets matching btrbk name
+sub get_receive_targets($$;@)
 {
-  my $droot = shift // die;
-  my $src_vol = shift // die;
+  my $droot = shift || die;
+  my $src_vol = shift || die;
   my %opts = @_;
-  my $id            = $src_vol->{node}{id};
-  my $uuid          = $src_vol->{node}{uuid};
-  my $received_uuid = $src_vol->{node}{received_uuid};
-  $received_uuid = undef if(defined($received_uuid) && ($received_uuid eq '-'));
+  my @ret;
 
-  my @unexpected;
-  my @exclude;
-  @exclude = map { $_->{node}{id} } @{$opts{exclude}}  if($opts{exclude});
-
-  TRACE "get_receive_target_fsroot: uuid=$uuid, received_uuid=" . ($received_uuid // '-') . " exclude id={ " . join(', ', @exclude) . " }";
-
-  # search in filesystem for matching received_uuid
-  foreach my $node (
-    grep({ (not $_->{is_root}) &&
-           (($_->{received_uuid} eq $uuid) ||                                        # match src.uuid == target.received_uuid
-            (defined($received_uuid) && ($_->{received_uuid} eq $received_uuid)) ||  # match src.received_uuid == target.received_uuid
-            (defined($received_uuid) && ($_->{uuid} eq $received_uuid)))             # match src.received_uuid == target.uuid
-          } values(%{$droot->{node}{TREE_ROOT}{ID_HASH}}) ) )
-  {
-    next if(scalar grep($_ == $node->{id}, @exclude));
-    push @unexpected, $node;
-    if($opts{warn}) {
-      my $text;
-      my @url = get_cached_url_by_uuid($node->{uuid});
-      if(scalar(@url)) {
-        $text = vinfo($url[0])->{PRINT};
-      } else {
-        $text = '"' . _fs_path($node) . "\" (in filesystem at \"$droot->{PRINT}\")";
-      }
-      WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: $text";
+  my @match = _receive_target_nodes($droot, $src_vol);
+  foreach (@match) {
+    my $vinfo = vinfo_resolved($_, $droot); # returns undef if not below $droot
+    if(exists($_->{BTRBK_RAW})) {
+      TRACE "get_receive_targets: found raw receive target: " . _fs_path($_);
     }
+    elsif($vinfo && ($vinfo->{SUBVOL_PATH} eq $src_vol->{NAME})) { # direct leaf, (SUBVOL_PATH = "", matching NAME)
+      TRACE "get_receive_targets: found receive target (exact_match): $vinfo->{PRINT}";
+    }
+    else {
+      TRACE "get_receive_targets: skip non-exact match: " . _fs_path($_);
+      ${$opts{ret_unexpected}} = 1 if($opts{ret_unexpected});
+      if($opts{warn}) {
+        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: " . ($vinfo ? $vinfo->{PRINT} : _fs_path($_));
+      }
+      next;
+    }
+    push(@ret, $vinfo);
   }
-  return @unexpected;
+  return @ret;
 }
 
 
-sub get_latest_common($$$;$)
+sub get_related_subvolumes($$$;$)
 {
   my $sroot = shift || die;
   my $svol = shift // die;
@@ -2827,14 +2828,14 @@ sub get_latest_common($$$;$)
   my $snapshot_dir = shift;  # if not set, skip search for btrbk basename (set to empty string to enable at current dir)
   my $sroot_subvol_list = vinfo_subvol_list($sroot);
 
-  TRACE "get_latest_common: resolving latest common for subvolume: $svol->{PATH}  (sroot=$sroot->{PRINT}, droot=$droot->{PRINT}, snapdir=\"" . ($snapshot_dir // '<undef>') . "\")";
+  TRACE "get_related: resolving latest common for subvolume: $svol->{PATH}  (sroot=$sroot->{PRINT}, droot=$droot->{PRINT}, snapdir=\"" . ($snapshot_dir // '<undef>') . "\")";
   my @candidate;
   if($svol->{node}{readonly}) {
     if($svol->{node}{parent_uuid} ne '-') {
       # add readonly parent
       @candidate = grep { $_->{node}{readonly} && ($_->{node}{uuid} eq $svol->{node}{parent_uuid}) } @$sroot_subvol_list;
       die "multiple parents for $svol->{node}{parent_uuid}" if(scalar(@candidate) > 1);
-      TRACE "get_latest_common: subvolume has a read-only parent, add parent candidate" if(scalar(@candidate) > 0);
+      TRACE "get_related: subvolume has a read-only parent, add parent candidate" if(scalar(@candidate) > 0);
 
       # add snapshots with same parent_uuid (siblings)
       my @siblings = grep { $_->{node}{readonly} && ($_->{node}{parent_uuid} eq $svol->{node}{parent_uuid}) } @$sroot_subvol_list;
@@ -2842,7 +2843,7 @@ sub get_latest_common($$$;$)
       my @siblings_newer = grep { $_->{node}{cgen} >  $svol->{node}{cgen} } @siblings;
       push @candidate, sort { $b->{node}{cgen} <=> $a->{node}{cgen} } @siblings_older; # older first, descending by cgen
       push @candidate, sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @siblings_newer; # then newer, ascending by cgen
-      TRACE "get_latest_common: subvolume has siblings (same parent_uuid), add " . scalar(@siblings_older) . " older and " . scalar(@siblings_newer) . " newer (by cgen) candidates";
+      TRACE "get_related: subvolume has siblings (same parent_uuid), add " . scalar(@siblings_older) . " older and " . scalar(@siblings_newer) . " newer (by cgen) candidates";
     }
 
     if(defined($snapshot_dir) && exists($svol->{node}{BTRBK_BASENAME})) {
@@ -2852,19 +2853,19 @@ sub get_latest_common($$$;$)
       my @naming_match_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @naming_match;
       push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match_older;
       push @candidate, sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) } @naming_match_newer;
-      TRACE "get_latest_common: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{node}{BTRBK_BASENAME}.*";
+      TRACE "get_related: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{node}{BTRBK_BASENAME}.*";
     }
   }
   else
   {
     @candidate = sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($sroot, $svol);
-    TRACE "get_latest_common: subvolume is read-write, add " . scalar(@candidate) . " snapshot children, sorted by cgen: $svol->{PATH}";
+    TRACE "get_related: subvolume is read-write, add " . scalar(@candidate) . " snapshot children, sorted by cgen: $svol->{PATH}";
 
     if(defined($snapshot_dir)) {
       # add subvolumes in same directory matching btrbk file name scheme (using $svol->{NAME} as basename)
       my @naming_match = grep { $_->{node}{readonly} && exists($_->{node}{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq $snapshot_dir) && ($_->{node}{BTRBK_BASENAME} eq $svol->{NAME}) } @$sroot_subvol_list;
       push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match;
-      TRACE "get_latest_common: snapshot_dir is set, add " . scalar(@naming_match) . " candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{NAME}.*";
+      TRACE "get_related: snapshot_dir is set, add " . scalar(@naming_match) . " candidates with scheme: $sroot->{PRINT}/$snapshot_dir/$svol->{NAME}.*";
     }
   }
 
@@ -2873,15 +2874,15 @@ sub get_latest_common($$$;$)
   my $search_depth = 0;
   while($rnode && ($search_depth < 256)) {
     last if($rnode->{parent_uuid} eq '-');
-    TRACE "get_latest_common: searching parent chain (depth=$search_depth): $rnode->{uuid}";
+    TRACE "get_related: searching parent chain (depth=$search_depth): $rnode->{uuid}";
     my @parents = grep { $_->{node}{uuid} eq $rnode->{parent_uuid} } @$sroot_subvol_list;
     if(scalar(@parents) == 1) {
       my $parent = $parents[0];
       if($parent->{node}{readonly}) {
-        TRACE "get_latest_common: found read-only parent (depth=$search_depth), add as candidate: $parent->{PRINT}";
+        TRACE "get_related: found read-only parent (depth=$search_depth), add as candidate: $parent->{PRINT}";
         push @candidate, $parent;
       } else {
-        TRACE "get_latest_common: found read-write parent (depth=$search_depth), ignoring: $parent->{PRINT}";
+        TRACE "get_related: found read-write parent (depth=$search_depth), ignoring: $parent->{PRINT}";
       }
       $rnode = $parent->{node};
     }
@@ -2894,21 +2895,31 @@ sub get_latest_common($$$;$)
     $search_depth++;
   }
 
+  return \@candidate;
+}
+
+
+# returns ( parent, first_matching_target_node )
+sub get_best_parent($$$;$)
+{
+  my $sroot = shift || die;
+  my $svol = shift // die;
+  my $droot = shift || die;
+  my $snapshot_dir = shift;  # if not set, skip search for btrbk basename (set to empty string to enable at current dir)
+
+  my $related = get_related_subvolumes($sroot, $svol, $droot, $snapshot_dir);
+
   # match receive targets of candidates
-  my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list
-  foreach my $child (@candidate) {
-    if($child->{node}{id} == $svol->{node}{id}) {
-      TRACE "get_latest_common: skip self: $child->{PRINT}";
-      next;
-    }
-    my @receive_targets = get_receive_targets($droot, $child, droot_subvol_list => $droot_subvol_list);
-    if(scalar @receive_targets) {
-      DEBUG("Latest common subvolumes for: $svol->{PRINT}: src=$child->{PRINT}  target=$receive_targets[0]->{PRINT}");
-      return ($child, $receive_targets[0]);
+  foreach my $child (@$related) {
+    next if($child->{node}{id} == $svol->{node}{id}); # skip self
+    my @receive_target_nodes = _receive_target_nodes($droot, $child);
+    if(scalar @receive_target_nodes) {
+      DEBUG "Resolved best common parent for \"$svol->{PRINT}\": \"$child->{PRINT}\", " . join(",", map('"' . _fs_path($_) . '"',@receive_target_nodes));
+      return ($child, $receive_target_nodes[0]);
     }
   }
-  DEBUG("No common subvolumes of \"$svol->{PRINT}\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
-  return (undef, undef);
+  DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$sroot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
+  return undef;
 }
 
 
@@ -3543,11 +3554,11 @@ sub macro_send_receive(@)
       # NOTE: this is not necessarily the correct parent_uuid (on
       # receive, btrfs-progs picks the uuid of the first (lowest id)
       # matching possible parent), whereas the target_parent is the
-      # first from get_receive_targets().
+      # first from _receive_target_nodes().
       #
       # NOTE: the parent_uuid of an injected receive target is not used
       # anywhere in btrbk at the time of writing
-      parent_uuid    => $parent ? $info{latest_common_target}->{node}{uuid} : '-',
+      parent_uuid    => $parent ? $info{target_parent_node}->{uuid} : '-',
       received_uuid  => $source->{node}{received_uuid} eq '-' ? $source->{node}{uuid} : $source->{node}{received_uuid},
       readonly       => 1,
       TARGET_TYPE    => $target_type,
@@ -3630,18 +3641,12 @@ sub macro_archive_target($$$;$)
   my @schedule;
 
   # NOTE: this is pretty much the same as "resume missing"
-  my @unexpected_location;
-  my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list for get_receive_targets()
+  my $has_unexpected_location = 0;
   foreach my $svol (@{vinfo_subvol_list($sroot, sort => 'path')})
   {
     next unless($svol->{node}{readonly});
     next unless($svol->{btrbk_direct_leaf} && ($svol->{node}{BTRBK_BASENAME} eq $snapshot_name));
-
-    my $warning_seen = [];
-    my @receive_targets = get_receive_targets($droot, $svol, exact_match => 1, warn => 1, seen => $warning_seen, droot_subvol_list => $droot_subvol_list );
-    push @unexpected_location, get_receive_targets_fsroot($droot, $svol, exclude => $warning_seen, warn => 1); # warn if unexpected on fs
-
-    next if(scalar(@receive_targets));
+    next if(get_receive_targets($droot, $svol, warn => 1, ret_unexpected => \$has_unexpected_location));
     DEBUG "Adding archive candidate: $svol->{PRINT}";
 
     push @schedule, { value      => $svol,
@@ -3650,14 +3655,14 @@ sub macro_archive_target($$$;$)
                     };
   }
 
-   if(scalar(@unexpected_location)) {
-     ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
-     WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
-     return undef;
-   }
+  if($has_unexpected_location) {
+    ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
+    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
+    return undef;
+  }
 
   # add all present archives as informative_only: these are needed for correct results of schedule()
-  foreach my $dvol (@$droot_subvol_list)
+  foreach my $dvol (@{vinfo_subvol_list($droot)})
   {
     next unless($dvol->{btrbk_direct_leaf} && ($dvol->{node}{BTRBK_BASENAME} eq $snapshot_name));
     next unless($dvol->{node}{readonly});
@@ -3679,11 +3684,11 @@ sub macro_archive_target($$$;$)
   my $archive_success = 0;
   foreach my $svol (@archive)
   {
-    my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot, "");
+    my ($parent, $target_parent_node) = get_best_parent($sroot, $svol, $droot, "");
     if(macro_send_receive(source => $svol,
                           target => $droot,
-                          parent => $latest_common_src,
-                          latest_common_target => $latest_common_target,
+                          parent => $parent,  # this is <undef> if no suitable parent found
+                          target_parent_node => $target_parent_node,
                          ))
     {
       $archive_success++;
@@ -5514,20 +5519,29 @@ MAIN:
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $found = 0;
+          my $snapdir = config_key($svol, "snapshot_dir") // "";
+          my $snapshot_basename = config_key($svol, "snapshot_name") // die;
+          my @snapshot_children = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
+                                       get_snapshot_children($sroot, $svol, $snapdir, $snapshot_basename));
           foreach my $droot (vinfo_subsection($svol, 'target')) {
-            my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $svol, $droot);
-            if ($latest_common_src && $latest_common_target) {
-              push @data, { type => "latest_common",
-                            status => ($latest_common_src->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
-                            vinfo_prefixed_keys("source", $svol),
-                            vinfo_prefixed_keys("snapshot", $latest_common_src),
-                            vinfo_prefixed_keys("target", $latest_common_target),
-                          };
-              $found = 1;
+            foreach my $child (@snapshot_children) {
+              my @receive_targets = get_receive_targets($droot, $child);
+              if(scalar(@receive_targets)) {
+                foreach(@receive_targets) {
+                  push @data, { type => "latest_common",
+                                status => ($child->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
+                                vinfo_prefixed_keys("source", $svol),
+                                vinfo_prefixed_keys("snapshot", $child),
+                                vinfo_prefixed_keys("target", $_),
+                              };
+                }
+                $found = 1;
+                last;
+              }
             }
           }
-          unless($found) {
-            my $latest_snapshot = get_latest_snapshot_child($sroot, $svol);
+          if(!$found) {
+            my $latest_snapshot = $snapshot_children[0];
             push @data, { type => "latest_snapshot",
                           status => ($latest_snapshot && ($latest_snapshot->{node}{cgen} == $svol->{node}{gen})) ? "up-to-date" : undef,
                           vinfo_prefixed_keys("source", $svol),
@@ -5777,13 +5791,9 @@ MAIN:
             my $resume_total = 0;
             my $resume_success = 0;
 
-            my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list for get_receive_targets()
             foreach my $child (@snapshot_children)
             {
-              my $warning_seen = [];
-              my @receive_targets = get_receive_targets($droot, $child, exact_match => 1, warn => 1, seen => $warning_seen, droot_subvol_list => $droot_subvol_list );
-              get_receive_targets_fsroot($droot, $child, exclude => $warning_seen, warn => 1); # warn on unexpected on fs
-              if(scalar(@receive_targets)){
+              if(get_receive_targets($droot, $child, warn => 1)){
                 DEBUG "Found receive target of: $child->{PRINT}";
                 next;
               }
@@ -5800,7 +5810,7 @@ MAIN:
             {
               DEBUG "Checking schedule for backup candidates";
               # add all present backups as informative_only: these are needed for correct results of schedule()
-              foreach my $vol (@$droot_subvol_list) {
+              foreach my $vol (@{vinfo_subvol_list($droot)}) {
                 unless($vol->{btrbk_direct_leaf} && ($vol->{node}{BTRBK_BASENAME} eq $snapshot_basename)) {
                   TRACE "Receive target does not match btrbk filename scheme, skipping: $vol->{PRINT}";
                   next;
@@ -5833,11 +5843,11 @@ MAIN:
                 }
 
                 INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
-                my ($latest_common_src, $latest_common_target) = get_latest_common($sroot, $child, $droot, $snapdir);
+                my ($parent, $target_parent_node) = get_best_parent($sroot, $child, $droot, $snapdir);
                 if(macro_send_receive(source => $child,
                                       target => $droot,
-                                      parent => $latest_common_src,  # this is <undef> if no common found
-                                      latest_common_target => $latest_common_target,
+                                      parent => $parent,  # this is <undef> if no suitable parent found
+                                      target_parent_node => $target_parent_node,
                                      ))
                 {
                   $resume_success++;
@@ -5891,9 +5901,8 @@ MAIN:
             }
 
             # always preserve latest common snapshot/backup pair
-            my $droot_subvol_list = vinfo_subvol_list($droot); # cache subvol list for get_receive_targets()
             foreach my $child (@snapshot_children) {
-              my @receive_targets = get_receive_targets($droot, $child, droot_subvol_list => $droot_subvol_list);
+              my @receive_targets = get_receive_targets($droot, $child);
               if(scalar(@receive_targets)) {
                 DEBUG "Force preserve for latest common snapshot: $child->{PRINT}";
                 $child->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
