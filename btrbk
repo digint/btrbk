@@ -378,7 +378,7 @@ sub ABORTED($;$)
   $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
   return $config->{ABORTED} unless(defined($abrt));
 
-  unless($abrt eq "USER_SKIP") {
+  unless(($abrt eq "USER_SKIP") || ($abrt eq "ARCHIVE_EXCLUDE_SKIP")) {
     $abrt =~ s/\n/\\\\/g;
     $abrt =~ s/\r//g;
     action("abort_" . ($config->{CONTEXT} || "undef"),
@@ -4206,7 +4206,9 @@ sub exit_status
 {
   my $config = shift;
   foreach my $subsection (@{$config->{SUBSECTION}}) {
-    return 10 if($subsection->{ABORTED} && ($subsection->{ABORTED} ne "USER_SKIP"));
+    return 10 if($subsection->{ABORTED} &&
+                 ($subsection->{ABORTED} ne "USER_SKIP") &&
+                 ($subsection->{ABORTED} ne "ARCHIVE_EXCLUDE_SKIP"));
     return 10 if(exit_status($subsection));
   }
   return 0;
