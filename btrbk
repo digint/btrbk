@@ -76,7 +76,7 @@ my %config_options = (
   # NOTE: files "." and "no" map to <undef>
   timestamp_format            => { default => "short",   accept => [ "short", "long", "long-iso" ], context => [ "root", "volume", "subvolume" ] },
   snapshot_dir                => { default => undef,     accept_file => { relative => 1 }, context => [ "root", "volume", "subvolume" ] },
-  snapshot_name               => { default => undef,     accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
+  snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "root", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
@@ -3247,7 +3247,9 @@ sub append_config_option($$$$;@)
     $value = $aref;
   }
   elsif(exists($config->{$key})) {
-    WARN "Option \"$key\" redefined $error_statement";
+    unless($opt->{c_default}) { # note: computed defaults are already present
+      WARN "Option \"$key\" redefined $error_statement";
+    }
   }
 
   TRACE "adding option \"$key=$value\" to $context context";
@@ -3302,7 +3304,7 @@ sub parse_config_line($$$$$)
                       # SUBSECTION    => [],  # handled by target propagation
                       rel_path      => $rel_path,
                       url           => $cur->{url} . '/' . $rel_path,
-                      snapshot_name => $snapshot_name,
+                      snapshot_name => $snapshot_name,  # computed default to subvolume name (c_default)
                      };
     $subvolume->{GLOB_CONTEXT} = 1 if($value =~ /\*/);
     push(@{$cur->{SUBSECTION}}, $subvolume);
