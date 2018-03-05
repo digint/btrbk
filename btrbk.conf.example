@@ -88,7 +88,7 @@ snapshot_dir               _btrbk_snap
 #   <volume-directory>  Directory of a btrfs volume (or subvolume)
 #                       containing the subvolume to be backuped
 #                       (usually the mount-point of a btrfs filesystem
-#                       mounted with subvolid=0 option)
+#                       mounted with subvolid=5 option)
 #
 # Subvolume section: "subvolume <subvolume-name>
 #

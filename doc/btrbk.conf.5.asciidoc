@@ -44,7 +44,7 @@ SECTIONS
 	Directory of a btrfs volume containing the source subvolume(s)
 	to be backed up. '<volume-directory>' must be an absolute path
 	and point to a btrfs volume (or subvolume). Usually the mount
-	point of a btrfs filesystem mounted with the 'subvolid=0'
+	point of a btrfs filesystem mounted with the 'subvolid=5'
 	option.
 
 *subvolume* <subvolume-name>::
