@@ -1,8 +1,9 @@
-btrbk-current
+btrbk-0.26.1
 
+  * Add "archive_exclude" configuration option.
+  * Add warning on redefined configuration option.
   * Bugfix: fix parsing of "openssl_iv_size" configuration option.
   * Bugfix: fix filter statement matching for volume=/ (close #209).
-  * Add "archive_exclude" configuration option.
 
 btrbk-0.26.0
 

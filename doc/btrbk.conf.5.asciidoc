@@ -1,7 +1,7 @@
 btrbk.conf(5)
 =============
-:date:        2017-10-11
-:revision:    0.26.0
+:date:        2018-03-05
+:revision:    0.26.1
 :man manual:  Btrbk Manual
 :man source:  Btrbk
 

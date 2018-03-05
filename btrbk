@@ -2,7 +2,7 @@
 #
 # btrbk - Create snapshots and remote backups of btrfs subvolumes
 #
-# Copyright (C) 2014-2017 Axel Burri
+# Copyright (C) 2014-2018 Axel Burri
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,7 +32,7 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
-our $VERSION         = '0.26.1-dev';
+our $VERSION         = '0.26.1';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<https://digint.ch/btrbk/>';
 
