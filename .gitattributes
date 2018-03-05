@@ -1,0 +1,3 @@
+# remove files from deployment using `git archive`
+.gitattributes export-ignore
+.gitignore export-ignore
