@@ -152,6 +152,11 @@ Note that using ``long-iso'' has implications on the scheduling, see
 
 === Retention Policy Options
 
+*preserve_hour_of_day* <number>::
+    Defines after what time (in full hours since midnight) a
+    backup/snapshot is considered as a daily backup.
+    Defaults to ``0''.
+
 *preserve_day_of_week* monday|tuesday|...|sunday::
     Defines on what day a backup/snapshot is considered as a weekly
     backup. Defaults to ``sunday''.

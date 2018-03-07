@@ -40,6 +40,10 @@ snapshot_dir               _btrbk_snap
 # creation of non-incremental backups if no parent is found).
 #incremental                yes
 
+# Specify after what time (in full hours after midnight) backups/
+# snapshots are considered as a daily backup/snapshot
+#preserve_hour_of_day       0
+
 # Specify on which day of week weekly/monthly backups are to be
 # preserved.
 #preserve_day_of_week       sunday
