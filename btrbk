@@ -305,48 +305,50 @@ sub VERSION_MESSAGE
 
 sub HELP_MESSAGE
 {
-  print STDERR "usage: btrbk [options] <command> [filter...]\n";
-  print STDERR "\n";
-  print STDERR "options:\n";
-  #            "--------------------------------------------------------------------------------"; # 80
-  print STDERR "   -h, --help                display this help message\n";
-  print STDERR "       --version             display version information\n";
-  print STDERR "   -c, --config=FILE         specify configuration file\n";
-  print STDERR "   -n, --dry-run             perform a trial run with no changes made\n";
-  print STDERR "   -p, --preserve            preserve all (do not delete anything)\n";
-  print STDERR "       --preserve-snapshots  preserve snapshots (do not delete snapshots)\n";
-  print STDERR "       --preserve-backups    preserve backups (do not delete backups)\n";
-  print STDERR "       --wipe                delete all but latest snapshots\n";
-  print STDERR "   -v, --verbose             be verbose (set loglevel=info)\n";
-  print STDERR "   -q, --quiet               be quiet (do not print backup summary)\n";
-  print STDERR "   -l, --loglevel=LEVEL      set logging level (warn, info, debug, trace)\n";
-  print STDERR "   -t, --table               change output to table format\n";
-  print STDERR "       --format=FORMAT       change output format, FORMAT=table|long|raw\n";
-  print STDERR "       --print-schedule      print scheduler details (for the \"run\" command)\n";
-  print STDERR "       --progress            show progress bar on send-receive operation\n";
-  print STDERR "\n";
-  print STDERR "commands:\n";
-  print STDERR "   run                   run snapshot and backup operations\n";
-  print STDERR "   dryrun                don't run btrfs commands; show what would be executed\n";
-  print STDERR "   snapshot              run snapshot operations only\n";
-  print STDERR "   resume                run backup operations, and delete snapshots\n";
-  print STDERR "   prune                 only delete snapshots and backups\n";
-  print STDERR "   archive <src> <dst>   recursively copy all subvolumes (experimental)\n";
-  print STDERR "   clean                 delete incomplete (garbled) backups\n";
-  print STDERR "   stats                 print snapshot/backup statistics\n";
-  print STDERR "   list <subcommand>     available subcommands are:\n";
-  print STDERR "      backups            all backups and corresponding snapshots\n";
-  print STDERR "      snapshots          all snapshots and corresponding backups\n";
-  print STDERR "      latest             most recent snapshots and backups\n";
-  print STDERR "      config             configured source/snapshot/target relations\n";
-  print STDERR "      source             configured source/snapshot relations\n";
-  print STDERR "      volume             configured volume sections\n";
-  print STDERR "      target             configured targets\n";
-  print STDERR "   usage                 print filesystem usage\n";
-  print STDERR "   origin <subvol>       print origin information for subvolume\n";
-  print STDERR "   diff <from> <to>      shows new files between related subvolumes\n";
-  print STDERR "\n";
-  print STDERR "For additional information, see $PROJECT_HOME\n";
+  print STDERR <<"END_HELP";
+usage: btrbk [options] <command> [filter...]
+
+options:
+--------------------------------------------------------------------------------
+   -h, --help                display this help message
+       --version             display version information
+   -c, --config=FILE         specify configuration file
+   -n, --dry-run             perform a trial run with no changes made
+   -p, --preserve            preserve all (do not delete anything)
+       --preserve-snapshots  preserve snapshots (do not delete snapshots)
+       --preserve-backups    preserve backups (do not delete backups)
+       --wipe                delete all but latest snapshots
+   -v, --verbose             be verbose (set loglevel=info)
+   -q, --quiet               be quiet (do not print backup summary)
+   -l, --loglevel=LEVEL      set logging level (warn, info, debug, trace)
+   -t, --table               change output to table format
+       --format=FORMAT       change output format, FORMAT=table|long|raw
+       --print-schedule      print scheduler details (for the "run" command)
+       --progress            show progress bar on send-receive operation
+
+commands:
+   run                   run snapshot and backup operations
+   dryrun                don't run btrfs commands; show what would be executed
+   snapshot              run snapshot operations only
+   resume                run backup operations, and delete snapshots
+   prune                 only delete snapshots and backups
+   archive <src> <dst>   recursively copy all subvolumes (experimental)
+   clean                 delete incomplete (garbled) backups
+   stats                 print snapshot/backup statistics
+   list <subcommand>     available subcommands are:
+      backups            all backups and corresponding snapshots
+      snapshots          all snapshots and corresponding backups
+      latest             most recent snapshots and backups
+      config             configured source/snapshot/target relations
+      source             configured source/snapshot relations
+      volume             configured volume sections
+      target             configured targets
+   usage                 print filesystem usage
+   origin <subvol>       print origin information for subvolume
+   diff <from> <to>      shows new files between related subvolumes
+
+For additional information, see $PROJECT_HOME
+END_HELP
 }
 
 
