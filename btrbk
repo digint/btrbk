@@ -2378,6 +2378,7 @@ sub add_btrbk_filename_info($;$)
   my @tm = ( ($+{ss} // 0), ($+{mm} // 0), ($+{hh} // 0), $+{DD}, ($+{MM} - 1), ($+{YYYY} - 1900) );
   my $NN = $+{NN} // 0;
   my $zz = $+{zz};
+  my $has_exact_time = defined($+{hh}); # false if timestamp_format=short
 
   my $time;
   if(defined($zz)) {
@@ -2409,7 +2410,7 @@ sub add_btrbk_filename_info($;$)
   }
 
   $node->{BTRBK_BASENAME} = $name;
-  $node->{BTRBK_DATE} = [ $time, $NN ];
+  $node->{BTRBK_DATE} = [ $time, $NN, $has_exact_time ];
   $node->{BTRBK_RAW} = $raw_info if($raw_info);
   return $node;
 }
@@ -3743,16 +3744,16 @@ sub schedule(@)
   DEBUG "Scheduler reference time: " . timestamp(\@tm_now, 'debug-iso');
 
   # first, do our calendar calculations
+  # - days start on $preserve_hour_of_day (or 00:00 if timestamp_format=short)
   # - weeks start on $preserve_day_of_week
-  # - days start on $preserve_hour_of_day
   # - leap hours are NOT taken into account for $delta_hours
   my $now_h = timegm_nocheck( 0, 0, $tm_now[2], $tm_now[3], $tm_now[4], $tm_now[5] ); # use timelocal() here (and below) if you want to honor leap hours
 
   foreach my $href (@sorted_schedule)
   {
-    my $time = $href->{btrbk_date}->[0];
-    my @tm =  localtime($time);
-    my $delta_hours_from_hod = $tm[2] - $preserve_hour_of_day;
+    my @tm = localtime($href->{btrbk_date}->[0]);
+    my $has_exact_time = $href->{btrbk_date}->[2];
+    my $delta_hours_from_hod = $tm[2] - ($has_exact_time ? $preserve_hour_of_day : 0);
     my $delta_days_from_eow = $tm[6] - $day_of_week_map{$preserve_day_of_week};
     if($delta_hours_from_hod < 0) {
       $delta_hours_from_hod += 24;
@@ -3780,6 +3781,7 @@ sub schedule(@)
     $href->{month} = $tm[4] + 1;
     $href->{delta_hours_from_hod} = $delta_hours_from_hod;
     $href->{delta_days_from_eow} = $delta_days_from_eow;
+    $href->{real_hod} = $preserve_hour_of_day if($has_exact_time);
 
     if($preserve_date_in_future && ($delta_hours < 0)) {
       $href->{preserve} = "preserve forced: " . -($delta_hours) . " hours in the future";
@@ -3827,28 +3829,29 @@ sub schedule(@)
   foreach (sort {$b <=> $a} keys %first_in_delta_days) {
     my $href = $first_in_delta_days{$_} || die;
     if($preserve_daily && (($preserve_daily eq 'all') || ($href->{delta_days} <= $preserve_daily))) {
-      $href->{preserve} = "preserve daily: first of day" . ($preserve_hour_of_day ? sprintf(" (starting at %02u:00)", $preserve_hour_of_day) : "") . ", $href->{delta_days} days ago, " . ($href->{delta_hours_from_hod} ? "$href->{delta_hours_from_hod}h after " : "at ") . sprintf("%02u:00", $preserve_hour_of_day);
+      $href->{preserve} = "preserve daily: first of day" . ($href->{real_hod} ? sprintf(" (starting at %02u:00)", $href->{real_hod}) : "") . ", $href->{delta_days} days ago"
+                          . (defined($href->{real_hod}) ? ($href->{delta_hours_from_hod} ? ", $href->{delta_hours_from_hod}h after " : ", at ") . sprintf("%02u:00", $href->{real_hod}) : "");
     }
     $first_in_delta_weeks{$href->{delta_weeks}} //= $href;
   }
   foreach (sort {$b <=> $a} keys %first_in_delta_weeks) {
     my $href = $first_in_delta_weeks{$_} || die;
     if($preserve_weekly && (($preserve_weekly eq 'all') || ($href->{delta_weeks} <= $preserve_weekly))) {
-      $href->{preserve} = "preserve weekly: $href->{delta_weeks} weeks ago," . _format_preserve_delta($href, $preserve_hour_of_day, $preserve_day_of_week);
+      $href->{preserve} = "preserve weekly: $href->{delta_weeks} weeks ago," . _format_preserve_delta($href, $preserve_day_of_week);
     }
     $first_weekly_in_delta_months{$href->{delta_months}} //= $href;
   }
   foreach (sort {$b <=> $a} keys %first_weekly_in_delta_months) {
     my $href = $first_weekly_in_delta_months{$_} || die;
     if($preserve_monthly && (($preserve_monthly eq 'all') || ($href->{delta_months} <= $preserve_monthly))) {
-      $href->{preserve} = "preserve monthly: first weekly of month $href->{year}-" . sprintf("%02u", $href->{month}) . " ($href->{delta_months} months ago," . _format_preserve_delta($href, $preserve_hour_of_day, $preserve_day_of_week) . ")";
+      $href->{preserve} = "preserve monthly: first weekly of month $href->{year}-" . sprintf("%02u", $href->{month}) . " ($href->{delta_months} months ago," . _format_preserve_delta($href, $preserve_day_of_week) . ")";
     }
     $first_monthly_in_delta_years{$href->{delta_years}} //= $href;
   }
   foreach (sort {$b <=> $a} keys %first_monthly_in_delta_years) {
     my $href = $first_monthly_in_delta_years{$_} || die;
     if($preserve_yearly && (($preserve_yearly eq 'all') || ($href->{delta_years} <= $preserve_yearly))) {
-      $href->{preserve} = "preserve yearly: first weekly of year $href->{year} ($href->{delta_years} years ago," . _format_preserve_delta($href, $preserve_hour_of_day, $preserve_day_of_week) . ")";
+      $href->{preserve} = "preserve yearly: first weekly of year $href->{year} ($href->{delta_years} years ago," . _format_preserve_delta($href, $preserve_day_of_week) . ")";
     }
   }
 
@@ -3889,12 +3892,11 @@ sub schedule(@)
 sub _format_preserve_delta($$$)
 {
   my $href = shift;
-  my $preserve_hour_of_day = shift;
   my $preserve_day_of_week = shift;
   my $s = "";
   $s .= " $href->{delta_days_from_eow}d" if($href->{delta_days_from_eow});
   $s .= " $href->{delta_hours_from_hod}h" if($href->{delta_hours_from_hod});
-  return ($s ? "$s after" : " at") . " $preserve_day_of_week " . sprintf("%02u:00", $preserve_hour_of_day);
+  return ($s ? "$s after " : " at ") . $preserve_day_of_week . (defined($href->{real_hod}) ? sprintf(" %02u:00", $href->{real_hod}) : "");
 }
 
 
