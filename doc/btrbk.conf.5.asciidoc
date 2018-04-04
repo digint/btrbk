@@ -153,14 +153,19 @@ Note that using ``long-iso'' has implications on the scheduling, see
 === Retention Policy Options
 
 *preserve_day_of_week* monday|tuesday|...|sunday::
-    Defines on what day a backup/snapshot is considered as a weekly
-    backup. Defaults to ``sunday''.
+    Defines on what day a snapshot/backup is considered to be a
+    "weekly" backup. Weekly, monthly and yearly backups are preserved
+    on this day of week (see <<_retention_policy,RETENTION POLICY>>
+    below). Defaults to ``sunday''.
 
 *preserve_hour_of_day* [0..23]::
     Defines after what time (in full hours since midnight) a
-    backup/snapshot is considered as a daily backup. If you set this
+    snapshot/backup is considered to be a "daily" backup. Daily,
+    weekly, monthly and yearly backups are preserved on this hour (see
+    <<_retention_policy,RETENTION POLICY>> below). If you set this
     option, make sure to also set 'timestamp_format' to ``long'' or
-    ``long-iso''. Defaults to ``0''.
+    ``long-iso'' (backups and snapshots having no time information
+    will ignore this option). Defaults to ``0''.
 
 *snapshot_preserve* no|<retention_policy>::
     Set retention policy for snapshots (see
@@ -337,8 +342,8 @@ RETENTION POLICY
 
 btrbk uses separate retention policies for snapshots and backups,
 which are defined by the 'snapshot_preserve_min', 'snapshot_preserve',
-'target_preserve_min', 'target_preserve', and
-'preserve_day_of_week' configuration options.
+'target_preserve_min', 'target_preserve', 'preserve_day_of_week' and
+'preserve_hour_of_day' configuration options.
 
 Within this section, any statement about "backups" is always valid for
 backups as well as snapshots, referring to 'target_preserve' or
@@ -359,7 +364,8 @@ With the following semantics:
 
 *daily*::
     Defines how many days back daily backups should be preserved. The
-    first backup of a day is considered a daily backup.
+    first backup of a day (starting at 'preserve_hour_of_day') is
+    considered a daily backup.
 
 *weekly*::
     Defines how many weeks back weekly backups should be
@@ -384,6 +390,9 @@ backups").
 The reference time (which defines the beginning of a day, week, month
 or year) for all date/time calculations is the local time of the host
 running btrbk.
+
+Hint: Run btrbk with the '--print-schedule' option to get a
+comprehensive output of the scheduler results.
 
 Caveats:
 
