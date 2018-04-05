@@ -3746,7 +3746,9 @@ sub schedule(@)
   # first, do our calendar calculations
   # - days start on $preserve_hour_of_day (or 00:00 if timestamp_format=short)
   # - weeks start on $preserve_day_of_week
-  # - leap hours are NOT taken into account for $delta_hours
+  # - months start on first $preserve_day_of_week of month
+  # - years start on first $preserve_day_of_week of year
+  # NOTE: leap hours are NOT taken into account for $delta_hours
   my $now_h = timegm_nocheck( 0, 0, $tm_now[2], $tm_now[3], $tm_now[4], $tm_now[5] ); # use timelocal() here (and below) if you want to honor leap hours
 
   foreach my $href (@sorted_schedule)
@@ -3762,13 +3764,23 @@ sub schedule(@)
     if($delta_days_from_eow < 0) {
       $delta_days_from_eow += 7;
     }
+    my $month_corr = $tm[4];  # [0..11]
+    my $year_corr = $tm[5];
+    if($tm[3] <= $delta_days_from_eow) {
+      # our month/year start on first $preserve_day_of_week, corrected value
+      $month_corr -= 1;
+      if($month_corr < 0) {
+        $month_corr = 11;
+        $year_corr -= 1;
+      }
+    }
 
     # check timegm: ignores leap hours
     my $delta_hours  = int(($now_h - timegm_nocheck( 0, 0, $tm[2], $tm[3], $tm[4], $tm[5] )  ) / (60 * 60));
     my $delta_days   = int(($delta_hours + $delta_hours_from_hod) / 24);  # days from beginning of day
     my $delta_weeks  = int(($delta_days + $delta_days_from_eow) / 7);  # weeks from beginning of week
-    my $delta_years  = ($tm_now[5] - $tm[5]);
-    my $delta_months = $delta_years * 12 + ($tm_now[4] - $tm[4]);
+    my $delta_years  = ($tm_now[5] - $year_corr);
+    my $delta_months = $delta_years * 12 + ($tm_now[4] - $month_corr);
 
     $href->{delta_hours}   = $delta_hours;
     $href->{delta_days}    = $delta_days;
@@ -3777,8 +3789,8 @@ sub schedule(@)
     $href->{delta_years}   = $delta_years;
 
     # these are only needed for text output (format_preserve_delta)
-    $href->{year} = $tm[5] + 1900;
-    $href->{month} = $tm[4] + 1;
+    $href->{year} = $year_corr + 1900;
+    $href->{month} = $month_corr + 1;
     $href->{delta_hours_from_hod} = $delta_hours_from_hod;
     $href->{delta_days_from_eow} = $delta_days_from_eow;
     $href->{real_hod} = $preserve_hour_of_day if($has_exact_time);
