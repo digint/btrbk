@@ -38,15 +38,18 @@ clean:
 	gzip -9f $<
 
 # convert using a2x from asciidoc package: http://asciidoc.org
-
-# NOTE: we are using -L (--no-xmllint), as this xmllint is a separate
+# with a fallback on asciidoctor if the asciidoc commands are not found
+#
+# NOTE: we are using -L (--no-xmllint) for asciidoc as this xmllint is a separate
 # package on many distros.
+ASCIIDOC_MAN_CMD := $(if $(shell which a2x),a2x -L -d manpage -f manpage,asciidoctor -d manpage -b manpage)
+ASCIIDOC_HTML_CMD := $(if $(shell which asciidoc),asciidoc -b html -d article -o,asciidoctor -b html5 -d article -o)
 
 %.1 : %.1.asciidoc
-	a2x -L -d manpage -f manpage $<
+	$(ASCIIDOC_MAN_CMD) $<
 
 %.5 : %.5.asciidoc
-	a2x -L -d manpage -f manpage $<
+	$(ASCIIDOC_MAN_CMD) $<
 
 %.html : %.asciidoc
-	asciidoc -b html -d article -o $@ $<
+	$(ASCIIDOC_HTML_CMD) $@ $<
