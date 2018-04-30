@@ -4,6 +4,7 @@ btrbk-0.27.0-dev
   * Bugfix: correct scheduling of "first weekly backup in month/year"
     (close #217). Note that this change may result in (previously
     preserved) backups to be deleted!
+  * Bugfix: add "btrfs filesystem usage" backend mapping (close #222).
 
 btrbk-0.26.1
 

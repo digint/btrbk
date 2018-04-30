@@ -221,6 +221,7 @@ my %backend_cmd_map = (
                            "btrfs subvolume delete"   => [ "btrfs-subvolume-delete"   ],
                            "btrfs send"               => [ "btrfs-send"               ],
                            "btrfs receive"            => [ "btrfs-receive"            ],
+                           "btrfs filesystem usage"   => [ "btrfs-filesystem-usage"   ],
                            "btrfs qgroup destroy"     => [ "btrfs-qgroup-destroy"     ],
                          },
   "btrfs-progs-sudo" =>  { "btrfs subvolume list"     => [ "sudo", "-n", "btrfs", "subvolume", "list"     ],
@@ -229,6 +230,7 @@ my %backend_cmd_map = (
                            "btrfs subvolume delete"   => [ "sudo", "-n", "btrfs", "subvolume", "delete"   ],
                            "btrfs send"               => [ "sudo", "-n", "btrfs", "send"                  ],
                            "btrfs receive"            => [ "sudo", "-n", "btrfs", "receive"               ],
+                           "btrfs filesystem usage"   => [ "sudo", "-n", "btrfs", "filesystem", "usage"   ],
                            "btrfs qgroup destroy"     => [ "sudo", "-n", "btrfs", "qgroup", "destroy"     ],
                          },
 );
