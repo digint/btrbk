@@ -5313,31 +5313,38 @@ MAIN:
   }
 
   # read target btrfs tree
-  foreach my $sroot (vinfo_subsection($config, 'volume')) {
-    foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-      foreach my $droot (vinfo_subsection($svol, 'target')) {
-        DEBUG "Initializing target section: $droot->{PRINT}";
-        my $target_type = $droot->{CONFIG}->{target_type} || die;
-        if($target_type eq "send-receive")
-        {
-          unless(vinfo_init_root($droot, resolve_subdir => 1)) {
-            ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-            WARN "Skipping target \"$droot->{PRINT}\": $abrt";
-            next;
+  if($action_run && $skip_backups && $preserve_snapshots && $preserve_backups) {
+    # if running "btrbk snapshot --preserve", there is no need to
+    # initialize targets, and we don't want to fail on missing targets.
+    DEBUG "Skipping target tree readin (preserving all snapshots and backups)";
+  }
+  else {
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+        foreach my $droot (vinfo_subsection($svol, 'target')) {
+          DEBUG "Initializing target section: $droot->{PRINT}";
+          my $target_type = $droot->{CONFIG}->{target_type} || die;
+          if($target_type eq "send-receive")
+          {
+            unless(vinfo_init_root($droot, resolve_subdir => 1)) {
+              ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
+              WARN "Skipping target \"$droot->{PRINT}\": $abrt";
+              next;
+            }
           }
-        }
-        elsif($target_type eq "raw")
-        {
-          unless(vinfo_init_raw_root($droot)) {
-            ABORTED($droot, "Failed to fetch raw target metadata" . ($err ? ": $err" : ""));
-            WARN "Skipping target \"$droot->{PRINT}\": $abrt";
-            next;
+          elsif($target_type eq "raw")
+          {
+            unless(vinfo_init_raw_root($droot)) {
+              ABORTED($droot, "Failed to fetch raw target metadata" . ($err ? ": $err" : ""));
+              WARN "Skipping target \"$droot->{PRINT}\": $abrt";
+              next;
+            }
           }
-        }
 
-        if($config_override{FAILSAFE_PRESERVE}) {
-          ABORTED($droot, $config_override{FAILSAFE_PRESERVE});
-          WARN  "Skipping target \"$droot->{PRINT}\": $abrt";
+          if($config_override{FAILSAFE_PRESERVE}) {
+            ABORTED($droot, $config_override{FAILSAFE_PRESERVE});
+            WARN  "Skipping target \"$droot->{PRINT}\": $abrt";
+          }
         }
       }
     }
