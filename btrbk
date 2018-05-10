@@ -4376,9 +4376,9 @@ MAIN:
     'version'            => sub { VERSION_MESSAGE(); exit 0; },
     'config|c=s'         => \$config_cmdline,
     'dry-run|n'          => \$dryrun,
-    'preserve|p'         => sub { $preserve_snapshots = 1, $preserve_backups = 1 },
-    'preserve-snapshots' => \$preserve_snapshots,
-    'preserve-backups'   => \$preserve_backups,
+    'preserve|p'         => sub { $preserve_snapshots = "preserve", $preserve_backups = "preserve" },
+    'preserve-snapshots' => sub { $preserve_snapshots = "preserve-snapshots" },
+    'preserve-backups'   => sub { $preserve_backups = "preserve-backups" },
     'wipe'               => \$wipe_snapshots,
     'resume-only|r'      => \$resume_only_DEPRECATED,
     'quiet|q'            => \$quiet,
@@ -4416,9 +4416,9 @@ MAIN:
   # DEPRECATED options
   if($resume_only_DEPRECATED) {
     WARN "Found deprecated command line option \"-r, --resume-only\": Use \"btrbk resume --preserve\"";
-    $skip_snapshots = 1;
-    $preserve_backups = 1;
-    $preserve_snapshots = 1;
+    $skip_snapshots = "resume-only";
+    $preserve_backups = "resume-only";
+    $preserve_snapshots = "resume-only";
   }
 
   # check command line options
@@ -4439,21 +4439,21 @@ MAIN:
   }
   elsif($command eq "snapshot") {
     $action_run = 1;
-    $skip_backups = 1;
-    $preserve_backups = 1;
+    $skip_backups = "snapshot";
+    $preserve_backups = "snapshot";
     $args_allow_group = 1;
     @filter_args = @ARGV;
   }
   elsif($command eq "resume") {
     $action_run = 1;
-    $skip_snapshots = 1;
+    $skip_snapshots = "resume";
     $args_allow_group = 1;
     @filter_args = @ARGV;
   }
   elsif($command eq "prune") {
     $action_run = 1;
-    $skip_snapshots = 1;
-    $skip_backups = 1;
+    $skip_snapshots = "prune";
+    $skip_backups = "prune";
     $args_allow_group = 1;
     @filter_args = @ARGV;
   }
@@ -6085,10 +6085,10 @@ MAIN:
         }
 
         my @cmdline_options;
-        push @cmdline_options, "btrbk resume: No snapshots created" if($skip_snapshots);
-        push @cmdline_options, "btrbk snapshot: No backups created" if($skip_backups);
-        push @cmdline_options, "preserve-snapshots: Preserved all snapshots" if($preserve_snapshots);
-        push @cmdline_options, "preserve-backups: Preserved all backups" if($preserve_backups);
+        push @cmdline_options, "$skip_snapshots: No snapshots created" if($skip_snapshots);
+        push @cmdline_options, "$skip_backups: No backups created" if($skip_backups);
+        push @cmdline_options, "$preserve_snapshots: Preserved all snapshots" if($preserve_snapshots);
+        push @cmdline_options, "$preserve_backups: Preserved all backups" if($preserve_backups);
 
         print_header(title => "Backup Summary",
                      config => $config,
