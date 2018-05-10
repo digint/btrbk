@@ -5524,9 +5524,6 @@ MAIN:
                                 vinfo_prefixed_keys("source", $svol),
                               };
                 }
-                else {
-                  DEBUG "ignoring subvolume with non-matching snapshot_name";
-                }
               }
             }
             my $stats_total = $stats_correlated + $stats_incomplete + $stats_orphaned;
