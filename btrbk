@@ -255,7 +255,7 @@ my %raw_info_sort = (
  );
 
 my %raw_url_cache;   # map URL to (fake) btr_tree node
-my %mountpoint_cache;# map HOST to btrfs mount points
+my %mountpoint_cache;# map HOST to mount points (sorted descending by file length)
 my %spec_cache;      # map HOST:fs_spec (aka device) to btr_tree node
 my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target)
@@ -1800,9 +1800,6 @@ sub btrfs_mountpoint($)
   my $vol = shift // die;
 
   DEBUG "Resolving btrfs mount point for: $vol->{PRINT}";
-  my $host = $vol->{HOST} || "localhost";
-  my $mounts = $mountpoint_cache{$host};
-  TRACE "mountpoint_cache " . ($mounts ? "HIT" : "MISS") . ": $host";
 
   # get real path
   my $realpath = $realpath_cache{$vol->{URL}};
@@ -1812,45 +1809,55 @@ sub btrfs_mountpoint($)
   }
   return undef unless($realpath);
 
+  # get all mountpoints
+  my $host = $vol->{HOST} || "localhost";
+  my $mounts = $mountpoint_cache{$host};
+  TRACE "mountpoint_cache " . ($mounts ? "HIT" : "MISS") . ": $host";
   unless($mounts) {
-    $mounts = [];
-    my $all_mounts = system_list_mounts($vol);
-
-    foreach my $mnt (@$all_mounts) {
-      if($mnt->{vfstype} ne 'btrfs') {
-        TRACE "non-btrfs mount point: $mnt->{spec} $mnt->{file} $mnt->{vfstype}";
-        next;
-      }
-      my $file = $mnt->{file} // die;
-      unless($file =~ /^$file_match$/) {
-        WARN "Skipping non-parseable file in btrfs mounts of $host: \"$file\"";
-        next;
-      }
-      TRACE "btrfs mount point (spec=$mnt->{spec}, subvolid=" . ($mnt->{MNTOPS}->{subvolid} // '<undef>') . "): $file";
-      push @$mounts, $mnt;
-    }
+    $mounts = system_list_mounts($vol);
+    return undef unless($mounts);
+    # sort descending by file length
+    my @sorted = sort { length($b->{file}) <=> length($a->{file}) } @$mounts;
+    $mounts = \@sorted;
     $mountpoint_cache{$host} = $mounts;
   }
 
   # find longest match
   $realpath .= '/' unless($realpath =~ /\/$/);  # correctly handle root path="/"
-  my $len = 0;
-  my $mounts_match;
+  my $mountpoint;
   foreach(@$mounts) {
     my $mnt_path = $_->{file};
     $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # correctly handle root path="/"
-    $mounts_match = $_ if((length($mnt_path) > $len) && ($realpath =~ /^\Q$mnt_path\E/));
+    if($realpath =~ /^\Q$mnt_path\E/) {
+      $mountpoint = $_;
+      last;
+    }
   }
-  unless($mounts_match) {
+  unless($mountpoint) {
+    # should never happen, as "/" should always be present in mounts
+    ERROR "No mount point found for: $vol->{PRINT} (realpath=\"$realpath\")";
+    return undef;
+  }
+  TRACE "resolved mount point (spec=$mountpoint->{spec}, subvolid=" . ($mountpoint->{MNTOPS}->{subvolid} // '<undef>') . "): $mountpoint->{file}";
+  unless($mountpoint->{vfstype} eq 'btrfs') {
     DEBUG "No btrfs mount point found for: $vol->{PRINT}";
     return undef;
   }
 
   # list all mountpoints of same device
   my @spec_mounts;
-  my $spec_match = $mounts_match->{spec};
+  my $spec_match = $mountpoint->{spec};
   foreach my $mnt (@$mounts) {
     if($mnt->{spec} eq $spec_match) {
+      unless($mnt->{vfstype} eq 'btrfs') {
+        # should never happen, same device should always have vfstype=btrfs
+        DEBUG "Ignoring non-btrfs mount point: $mnt->{spec} $mnt->{file} $mnt->{vfstype}";
+        next;
+      }
+      unless($mnt->{file} =~ /^$file_match$/) {
+        WARN "Ignoring non-parseable btrfs mountpoint on $host: \"$mnt->{file}\"";
+        next;
+      }
       unless($mnt->{MNTOPS}->{subvolid}) {
         # kernel <= 4.2 does not have subvolid=NN in /proc/self/mounts, read it with btrfs-progs
         DEBUG "No subvolid provided in mounts for: $mnt->{file}";
@@ -1863,8 +1870,8 @@ sub btrfs_mountpoint($)
     }
   }
 
-  DEBUG "Btrfs mount point for \"$vol->{PRINT}\": $mounts_match->{file} (subvolid=$mounts_match->{MNTOPS}->{subvolid})";
-  return ($mounts_match->{file}, $realpath, $mounts_match->{MNTOPS}->{subvolid}, $spec_match, \@spec_mounts);
+  DEBUG "Btrfs mount point for \"$vol->{PRINT}\": $mountpoint->{file} (subvolid=$mountpoint->{MNTOPS}->{subvolid})";
+  return ($mountpoint->{file}, $realpath, $mountpoint->{MNTOPS}->{subvolid}, $spec_match, \@spec_mounts);
 }
 
 
