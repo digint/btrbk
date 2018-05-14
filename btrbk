@@ -2725,7 +2725,9 @@ sub vinfo_is_btrbk_snapshot($$;$)
   my $vol = shift || die;
   my $btrbk_basename = shift || die;
   my $subvol_dir = shift // "";
-  return $vol->{node}{readonly} && ($vol->{SUBVOL_DIR} eq $subvol_dir) && ($vol->{node}{BTRBK_BASENAME} eq $btrbk_basename);
+  return ($vol->{node}{readonly} && defined($vol->{node}{BTRBK_BASENAME}) &&
+          ($vol->{SUBVOL_DIR} eq $subvol_dir) &&
+          ($vol->{node}{BTRBK_BASENAME} eq $btrbk_basename));
 }
 
 
@@ -2862,7 +2864,6 @@ sub _receive_target_nodes($$)
   $received_uuid = undef if($received_uuid eq '-');
   TRACE "receive_target_nodes: src_vol=\"$src_vol->{PRINT}\", droot=\"$droot->{PRINT}\"";
 
-  my $tree_root = $droot->{node}{TREE_ROOT};
   my $received_uuid_hash = $droot->{node}{TREE_ROOT}{RECEIVED_UUID_HASH};
   my $uuid_hash = $droot->{node}{TREE_ROOT}{UUID_HASH};
 
@@ -2894,11 +2895,14 @@ sub get_receive_targets($$;@)
     if(exists($_->{BTRBK_RAW})) {
       TRACE "get_receive_targets: found raw receive target: " . _fs_path($_);
     }
-    elsif($vinfo && ($vinfo->{SUBVOL_PATH} eq $src_vol->{NAME})) { # direct leaf, (SUBVOL_PATH = "", matching NAME)
-      TRACE "get_receive_targets: found receive target (exact_match): $vinfo->{PRINT}";
+    elsif($vinfo && ($vinfo->{SUBVOL_PATH} eq $src_vol->{NAME})) { # direct leaf, (SUBVOL_DIR = "", matching NAME)
+      TRACE "get_receive_targets: found receive target (exact-match): $vinfo->{PRINT}";
+    }
+    elsif($vinfo && (not $opts{exact})) {
+      TRACE "get_receive_targets: found receive target (non-exact-match): $vinfo->{PRINT}";
     }
     else {
-      TRACE "get_receive_targets: skip non-exact match: " . _fs_path($_);
+      TRACE "get_receive_targets: skip unexpected match: " . _fs_path($_);
       ${$opts{ret_unexpected}} = 1 if($opts{ret_unexpected});
       if($opts{warn}) {
         WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: " . ($vinfo ? $vinfo->{PRINT} : _fs_path($_));
@@ -3736,7 +3740,7 @@ sub macro_archive_target($$$;$)
   my $has_unexpected_location = 0;
   foreach my $svol (@{vinfo_subvol_list($sroot, readonly => 1, btrbk_direct_leaf => $snapshot_name, sort => 'path')})
   {
-    next if(get_receive_targets($droot, $svol, warn => 1, ret_unexpected => \$has_unexpected_location));
+    next if(get_receive_targets($droot, $svol, exact => 1, warn => 1, ret_unexpected => \$has_unexpected_location));
     DEBUG "Adding archive candidate: $svol->{PRINT}";
 
     push @schedule, { value      => $svol,
@@ -5434,10 +5438,9 @@ MAIN:
       #
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_name = config_key($svol, "snapshot_name") // die;
-          # note: we list all snapshot children within $snaproot here, not only the ones matching btrbk naming
-          foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_snapshot_children($snaproot, $svol)) {
+          # note: we list all snapshot children within $sroot here, not only the ones matching btrbk naming
+          foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_snapshot_children($sroot, $svol)) {
             my $snapshot_data = { type => "snapshot",
                                   status => ($snapshot->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
                                   vinfo_prefixed_keys("source", $svol),
@@ -5466,10 +5469,9 @@ MAIN:
       #
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_name = config_key($svol, "snapshot_name") // die;
-          # note: we list all snapshot children within $snaproot here, not only the ones matching btrbk naming
-          my @snapshot_children = get_snapshot_children($snaproot, $svol);
+          # note: we list all snapshot children within $sroot here, not only the ones matching btrbk naming
+          my @snapshot_children = get_snapshot_children($sroot, $svol);
           my $stats_snapshot_uptodate = "";
           foreach my $snapshot (@snapshot_children) {
             if($snapshot->{node}{cgen} == $svol->{node}{gen}) {
@@ -5478,7 +5480,7 @@ MAIN:
             }
           }
           push @stats_data, [ $svol->{PRINT}, sprintf("%4u snapshots$stats_snapshot_uptodate", scalar(@snapshot_children)) ];
-          $stats_snapshots_total += scalar(@snapshot_children);  # NOTE: this adds ALL snaphot children under $snaproot (not only the ones created by btrbk!)
+          $stats_snapshots_total += scalar(@snapshot_children);  # NOTE: this adds ALL snaphot children under $sroot (not only the ones created by btrbk!)
 
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             my $stats_correlated = 0;
@@ -5556,7 +5558,7 @@ MAIN:
                                        get_snapshot_children($snaproot, $svol, $snapshot_basename));
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             foreach my $child (@snapshot_children) {
-              my @receive_targets = get_receive_targets($droot, $child);
+              my @receive_targets = get_receive_targets($droot, $child, exact => 1);
               if(scalar(@receive_targets)) {
                 foreach(@receive_targets) {
                   push @data, { type => "latest_common",
@@ -5821,7 +5823,7 @@ MAIN:
 
             foreach my $child (@snapshot_children)
             {
-              if(get_receive_targets($droot, $child, warn => 1)){
+              if(get_receive_targets($droot, $child, exact => 1, warn => 1)){
                 DEBUG "Found receive target of: $child->{PRINT}";
                 next;
               }
@@ -5925,7 +5927,7 @@ MAIN:
 
             # always preserve latest common snapshot/backup pair
             foreach my $child (@snapshot_children) {
-              my @receive_targets = get_receive_targets($droot, $child);
+              my @receive_targets = get_receive_targets($droot, $child, exact => 1);
               if(scalar(@receive_targets)) {
                 DEBUG "Force preserve for latest common snapshot: $child->{PRINT}";
                 $child->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
