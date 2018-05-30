@@ -97,6 +97,11 @@ inconvenience.
 If a '<url>' is specified, btrbk actions for '<hostname>' (shell
 commands) are executed via ssh, using the "ssh_" options described
 below.
+
+Note that btrbk keeps mountpoint and btrfs-tree information per
+'hostname': specifying different 'ssh_port' for the same host,
+e.g. for several virtual machines listening on same address, will NOT
+work. If you need this, define alias host names for each vm.
 --
 
 
@@ -245,6 +250,13 @@ Note that using ``long-iso'' has implications on the scheduling, see
 *ssh_port* <port>|default::
     Port to connect to on the remote host. Defaults to ``default''
     (the port specified in 'ssh_config', which defaults to 22).
++
+--
+Note that btrbk keeps mountpoint and btrfs-tree information per
+'hostname': specifying different 'ssh_port' for the same host,
+e.g. for several virtual machines listening on same address, will NOT
+work. If you need this, define alias host names for each vm.
+--
 
 *ssh_compression* yes|no:: 
     Enables or disables the compression of ssh connections. Defaults
