@@ -63,19 +63,32 @@ SECTIONS
     declaration already exists (hint: run "btrbk config print" to see
     the resulting configuration).
 
-For the 'volume' and 'target' sections, you can specify a ssh-url
-instead of a local directory. The syntax for '<url>' is:
 
-    ssh://host.xz/path/to/volume
+<target-directory>::
+    Run actions locally.
++
+--
+Note that 'whitespace' or 'unicode' characters are NOT allowed
+for file names. Allowed characters are:
 
-If a '<url>' is specified, all access to the filesystem is performed
-via ssh, using the "ssh_" options described below. For convenience,
-"+ssh://<hostname>/<directory>+" can also be specified as
-"+<hostname>:<directory>+".
+    [0-9] [a-z] [A-Z] and "._+-@"
 
-Note that btrfs is very picky on file names (mainly for security
-reasons), only the characters [0-9] [a-z] [A-Z] and "._+-@" are
-allowed.
+This is for sanity/safety/security reasons, we apologize for the
+inconvenience.
+--
+
+<url>::
+    Run actions remotely via ssh.
+    Either:
++
+--
+  ssh://<hostname>/<directory>
+  <hostname>:<directory>
+
+If a '<url>' is specified, btrbk actions for '<hostname>' (shell
+commands) are executed via ssh, using the "ssh_" options described
+below.
+--
 
 
 OPTIONS
