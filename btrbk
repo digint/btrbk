@@ -1855,7 +1855,7 @@ sub btrfs_mountpoint($)
         next;
       }
       unless($mnt->{file} =~ /^$file_match$/) {
-        WARN "Ignoring non-parseable btrfs mountpoint on $host: \"$mnt->{file}\"";
+        INFO "Ignoring non-parseable btrfs mountpoint on $host: \"$mnt->{file}\"";
         next;
       }
       unless($mnt->{MNTOPS}->{subvolid}) {
