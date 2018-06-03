@@ -1041,7 +1041,14 @@ sub btrfs_subvolume_list($;@)
   {
     my %node;
     # NOTE: btrfs-progs >= 4.13.2 pads uuid's with 36 whitespaces
-    unless(/^ID\s+([0-9]+)\s+gen\s+([0-9]+)\s+cgen\s+([0-9]+)\s+top level\s+([0-9]+)\s+parent_uuid\s+([0-9a-f-]+)\s+received_uuid\s+([0-9a-f-]+)\s+uuid\s+([0-9a-f-]+)\s+path\s+(.+)$/) {
+    unless(/^ID            \s+ ([0-9]+)     \s+
+            gen            \s+ ([0-9]+)     \s+
+            cgen           \s+ ([0-9]+)     \s+
+            top\ level     \s+ ([0-9]+)     \s+
+            parent_uuid    \s+ ([0-9a-f-]+) \s+
+            received_uuid  \s+ ([0-9a-f-]+) \s+
+            uuid           \s+ ([0-9a-f-]+) \s+
+            path           \s+ (.+)         $/x) {
       ERROR "Failed to parse subvolume list (unsupported btrfs-progs) for: $vol->{PRINT}";
       DEBUG "Offending line: $_";
       return undef;
