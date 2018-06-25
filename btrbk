@@ -2878,10 +2878,10 @@ sub _receive_target_nodes($$)
 
   # match uuid/received_uuid combinations
   my @match;
-  push(@match, @{ $received_uuid_hash->{$uuid} // [] });      # match src.uuid == target.received_uuid
+  push(@match, @{ $received_uuid_hash->{$uuid} // [] });            # match src.uuid == target.received_uuid
   if($received_uuid) {
-    push(@match, $uuid_hash->{$received_uuid} );              # match src.received_uuid == target.uuid
-    push(@match, @{ $received_uuid_hash->{$received_uuid} }); # match src.received_uuid == target.received_uuid
+    push(@match, $uuid_hash->{$received_uuid} );                    # match src.received_uuid == target.uuid
+    push(@match, @{ $received_uuid_hash->{$received_uuid} // [] }); # match src.received_uuid == target.received_uuid
   }
 
   @ret = grep($_->{readonly}, @match);
