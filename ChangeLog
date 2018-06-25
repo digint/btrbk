@@ -17,6 +17,7 @@ btrbk-0.27.0-dev
       due to uptream bug: github.com/kdave/btrfs-progs/issues/96).
     - Always read /proc/self/mounts.
     - Resolve realpath using readlink(1).
+  * Fallback to "asciidoctor" for manpage generation (close #219).
 
 btrbk-0.26.1
 

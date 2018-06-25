@@ -13,6 +13,22 @@ MAN5DIR    = $(PREFIX)/share/man/man5
 GZ_MAN1 = $(addsuffix .gz,$(MAN_MAN1))
 GZ_MAN5 = $(addsuffix .gz,$(MAN_MAN5))
 
+# convert using "a2x" from asciidoc package <http://asciidoc.org>,
+# with fallback to "asciidoctor" <https://asciidoctor.org>
+ifneq (, $(shell command -v a2x 2> /dev/null))
+  # NOTE: using -L (--no-xmllint), as xmllint is a separate package on many distros.
+  ASCIIDOC_MANPAGE = a2x -L -d manpage -f manpage
+  ASCIIDOC_HTML    = asciidoc -b html -d article
+else ifneq (, $(shell command -v asciidoctor 2> /dev/null))
+  ASCIIDOC_MANPAGE = asciidoctor -d manpage -b manpage
+  ASCIIDOC_HTML    = asciidoctor -b html5 -d article
+else
+  ASCIIDOC_ERR = $(error "please install either asciidoc or asciidoctor")
+  ASCIIDOC_MANPAGE = $(ASCIIDOC_ERR)
+  ASCIIDOC_HTML    = $(ASCIIDOC_ERR)
+endif
+
+
 all: man
 man: man1 man5
 man1: $(GZ_MAN1)
@@ -37,16 +53,11 @@ clean:
 %.gz : %
 	gzip -9f $<
 
-# convert using a2x from asciidoc package: http://asciidoc.org
-
-# NOTE: we are using -L (--no-xmllint), as this xmllint is a separate
-# package on many distros.
-
 %.1 : %.1.asciidoc
-	a2x -L -d manpage -f manpage $<
+	$(ASCIIDOC_MANPAGE) $<
 
 %.5 : %.5.asciidoc
-	a2x -L -d manpage -f manpage $<
+	$(ASCIIDOC_MANPAGE) $<
 
 %.html : %.asciidoc
-	asciidoc -b html -d article -o $@ $<
+	$(ASCIIDOC_HTML) -o $@ $<
