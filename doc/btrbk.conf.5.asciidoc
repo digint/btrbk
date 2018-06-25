@@ -15,7 +15,7 @@ btrbk.conf - btrbk configuration file
 SYNOPSIS
 --------
 
-[literal]
+[verse]
 /etc/btrbk.conf
 /etc/btrbk/btrbk.conf
 
@@ -106,9 +106,9 @@ otherwise.
     names. Defaults to ``short''.
 +
 --
-ifndef::backend-docbook[]
+ifndef::backend-docbook,backend-manpage[]
 [horizontal]
-endif::backend-docbook[]
+endif::backend-docbook,backend-manpage[]
 *short*;;    +YYYYMMDD[_N]+  (e.g. "20150825", "20150825_1")
 *long*;;     +YYYYMMDD<T>hhmm[_N]+  (e.g. "20150825T1531")
 *long-iso*;; +YYYYMMDD<T>hhmmss&plusmn;hhmm[_N]+  (e.g. "20150825T153123+0200")

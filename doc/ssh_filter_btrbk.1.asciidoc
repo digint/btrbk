@@ -15,7 +15,7 @@ ssh_filter_btrbk - ssh command filter script for btrbk
 SYNOPSIS
 --------
 
-[literal]
+[verse]
 ssh_filter_btrbk.sh [-s|--source] [-t|--target] [-d|--delete]
     [-i|--info] [--snapshot] [--send] [--receive]
     [-p|--restrict-path <path>] [-l|--log] [--sudo]

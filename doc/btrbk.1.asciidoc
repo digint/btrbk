@@ -15,7 +15,7 @@ btrbk - backup tool for btrfs subvolumes
 SYNOPSIS
 --------
 
-[literal]
+[verse]
 btrbk [-h|--help] [--version]
       [-c|--config <file>] [-n|--dry-run]
       [-p|--preserve] [--preserve-snapshots] [--preserve-backups]
@@ -240,7 +240,7 @@ The following table gives a quick overview of the action commands and
 resulting snapshot creation (S+), backup creation (B+), snapshot
 deletion (S-), and backup deletion (B-):
 
-ifdef::backend-docbook[]
+ifdef::backend-docbook,backend-manpage[]
 ....
 Command   Option                 S+ B+ S- B-
 --------------------------------------------
@@ -258,8 +258,8 @@ prune                                  x  x
 prune     --preserve-snapshots            x
 prune     --preserve-backups           x
 ....
-endif::backend-docbook[]
-ifndef::backend-docbook[]
+endif::backend-docbook,backend-manpage[]
+ifndef::backend-docbook,backend-manpage[]
 [cols="2*<m,4*^", options="header,autowidth,compact", style="monospaced"]
 |=======
 |Command  |Option                |S+ |B+ |S- |B-
@@ -277,7 +277,7 @@ ifndef::backend-docbook[]
 |prune    |--preserve-snapshots  |   |   |   | x
 |prune    |--preserve-backups    |   |   | x |
 |=======
-endif::backend-docbook[]
+endif::backend-docbook,backend-manpage[]
 
 
 === Informative Commands
@@ -298,9 +298,9 @@ file system.
 Available subcommands:
 +
 --
-ifndef::backend-docbook[]
+ifndef::backend-docbook,backend-manpage[]
 [horizontal]
-endif::backend-docbook[]
+endif::backend-docbook,backend-manpage[]
 
 *snapshots*;; List all snapshots (and corresponding backups). Note
               that all snapshots related to configured subvolumes are
@@ -381,9 +381,9 @@ EXIT STATUS
 
 *btrbk* returns the following error codes:
 
-ifndef::backend-docbook[]
+ifndef::backend-docbook,backend-manpage[]
 [horizontal]
-endif::backend-docbook[]
+endif::backend-docbook,backend-manpage[]
 0::   No problems occurred.
 1::   Generic error code.
 2::   Parse error: when parsing command-line options or configuration
