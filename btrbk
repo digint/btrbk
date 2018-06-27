@@ -27,6 +27,8 @@
 
 use strict;
 use warnings FATAL => qw( all ), NONFATAL => qw( deprecated );
+binmode STDOUT, ':encoding(UTF-8)';
+binmode STDERR, ':encoding(UTF-8)';
 
 use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
@@ -419,7 +421,9 @@ sub init_transaction_log($$)
   my $file = shift;
   my $config_syslog_facility = shift;
   if(defined($file) && (not $dryrun)) {
-    if(open($tlog_fh, ">> $file")) {
+    if(open($tlog_fh, '>>', $file)) {
+      binmode $tlog_fh, ':encoding(UTF-8)';
+
       # print headers (disabled)
       # print_formatted("transaction", [ ], output_format => "tlog", outfile => $tlog_fh);
       INFO "Using transaction log: $file";
@@ -3544,6 +3548,8 @@ sub parse_config(@)
 
   INFO "Using configuration: $file";
   open(FILE, '<', $file) or die $!;
+  binmode FILE, ':encoding(UTF-8)';
+
   while (<FILE>) {
     chomp;
     s/#.*//;         # remove comments
