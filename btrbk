@@ -874,8 +874,10 @@ sub btrfs_filesystem_usage($)
 }
 
 
-# returns hashref with keys: (name uuid parent_uuid id gen cgen top_level)
+# returns hashref with keys: (uuid parent_uuid id gen cgen top_level)
+# for btrfs root, returns at least: (id is_root)
 # for btrfs-progs >= 4.1, also returns key: "received_uuid"
+# if present, also returns (unvalidated) keys: (name creation_time flags)
 sub btrfs_subvolume_show($)
 {
   my $vol = shift || die;
@@ -935,9 +937,6 @@ sub btrfs_subvolume_show($)
     $detail{id} = 5;
   }
   else {
-    # NOTE: received_uuid is not required here, as btrfs-progs < 4.1 does not give us that information.
-    #       no worries, we get this from btrfs_subvolume_list() for all subvols.
-    my @required_keys = qw(name uuid parent_uuid id gen cgen top_level readonly);
     my %trans = (
       "Name"                  => "name",
       "uuid"                  => "uuid",
@@ -968,24 +967,45 @@ sub btrfs_subvolume_show($)
     }
     DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
 
+    # validate required keys
+    unless((defined($detail{parent_uuid}) && (($detail{parent_uuid} eq '-') || ($detail{parent_uuid} =~ /^$uuid_match$/))) &&
+           (defined($detail{id}) && ($detail{id} =~ /^\d+$/) && ($detail{id} >= 5)) &&
+           (defined($detail{gen}) && ($detail{gen} =~ /^\d+$/)) &&
+           (defined($detail{cgen}) && ($detail{cgen} =~ /^\d+$/)) &&
+           (defined($detail{top_level}) && ($detail{top_level} =~ /^\d+$/)))
+    {
+      ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
+      return undef;
+    }
+
+    # NOTE: filesystems created with btrfs-progs < 4.16 have no UUID for subvolid=5,
+    # assert {uuid} is either valid or undef
+    if(defined($detail{uuid}) && ($detail{uuid} !~ /^$uuid_match$/)) {
+      if($detail{id} == 5) {
+        DEBUG "No UUID on btrfs root (id=5): $vol->{PRINT}";
+      } else {
+        ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
+        return undef;
+      }
+      delete $detail{uuid};
+    }
+
+    # NOTE: received_uuid is not required here, as btrfs-progs < 4.1 does not give us that information.
+    #       no worries, we get this from btrfs_subvolume_list() for all subvols.
+    if(defined($detail{received_uuid}) && ($detail{received_uuid} ne '-') && ($detail{received_uuid} !~ /^$uuid_match$/)) {
+      ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
+      return undef;
+    }
+
     # NOTE: as of btrfs-progs v4.6.1, flags are either "-" or "readonly"
     $detail{readonly} = ($detail{flags} =~ /readonly/) ? 1 : 0;
 
     VINFO(\%detail, "detail") if($loglevel >=4);
-    foreach(@required_keys) {
-      unless(defined($detail{$_})) {
-        ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
-        return undef;
-      }
-    }
   }
 
   if($detail{id} == 5) {
-    # NOTE: as of btrfs-progs v4.8.3, we get full output for root
-    # subvolume, with lots of '0' and '-' (especially uuid='-').
-    # This breaks things, set $detail to sane values:
     DEBUG "found btrfs root: $vol->{PRINT}";
-    %detail = ( id => 5, is_root => 1 );
+    $detail{is_root} = 1;
   }
 
   return \%detail;
