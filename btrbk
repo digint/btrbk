@@ -5303,8 +5303,11 @@ MAIN:
         WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
         next;
       }
-      if($svol->{node}{uuid} && _is_child_of($sroot->{node}, $svol->{node}{uuid})) {
-        DEBUG "Found \"$svol->{PRINT}\" (id=$svol->{node}{id}) in btrfs subtree of: $sroot->{PRINT}";
+      if($svol->{node}{uuid} &&
+          (_is_child_of($sroot->{node}, $svol->{node}{uuid}) ||
+           ($svol->{node}{uuid} eq $sroot->{node}{uuid})))
+      {
+        DEBUG "Found \"$svol->{PRINT}\" (id=$svol->{node}{id}) in btrfs tree of: $sroot->{PRINT}";
       } else {
         ABORTED($svol, "Not a child subvolume of: $sroot->{PRINT}");
         WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
