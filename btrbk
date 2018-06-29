@@ -5309,6 +5309,11 @@ MAIN:
         WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
         next;
       }
+      if((not $svol->{node}{uuid}) || ($svol->{node}{uuid} eq '-')) {
+        ABORTED($svol, "subvolume has no UUID");
+        ERROR "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        next;
+      }
       if($svol->{node}{readonly}) {
         ABORTED($svol, "subvolume is readonly");
         WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
@@ -5319,9 +5324,8 @@ MAIN:
         WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
         next;
       }
-      if($svol->{node}{uuid} &&
-          (_is_child_of($sroot->{node}, $svol->{node}{uuid}) ||
-           ($svol->{node}{uuid} eq $sroot->{node}{uuid})))
+      if(_is_child_of($sroot->{node}, $svol->{node}{uuid}) ||
+         ($svol->{node}{uuid} eq $sroot->{node}{uuid}))
       {
         DEBUG "Found \"$svol->{PRINT}\" (id=$svol->{node}{id}) in btrfs tree of: $sroot->{PRINT}";
       } else {
