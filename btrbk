@@ -2101,21 +2101,27 @@ sub btr_tree($$$$)
     return $node;
   }
 
-  # assemble subvolume tree
-  my %tree = ( id => 5, # top-level subvolume id is always 5 (by btrfs spec)
-               is_root => 1,
-               host_spec => $vol_host_spec, # unique identifier, e.g. "localhost:/dev/sda1"
-               MOUNTPOINTS => $mountpoints, # { file, spec, node }
-               SUBTREE => []
-              );
-  my %id = ( 5 => \%tree );
+  # btrfs root (id=5) is not provided by btrfs_subvolume_list below, read it separately (best-efford)
+  my $tree_root = btrfs_subvolume_show($vol, rootid => 5);
+  unless($tree_root) {
+    # this is not an error:
+    #  - btrfs-progs < 4.12 does not support rootid lookup
+    #  - UUID can be missing if filesystem was created with btrfs-progs < 4.16
+    DEBUG "Failed to fetch subvolume detail (old btrfs-progs?) for btrfs root (id=5) on: $vol->{PRINT}";
+    $tree_root = { id => 5, is_root => 1 };
+  }
+  $tree_root->{host_spec} = $vol_host_spec; # unique identifier, e.g. "localhost:/dev/sda1"
+
+  my %id = ( 5 => $tree_root );
   my %uuid_hash;
   my %received_uuid_hash;
 
-  $tree{TREE_ROOT} = \%tree;
-  $tree{ID_HASH} = \%id;
-  $tree{UUID_HASH} = \%uuid_hash;
-  $tree{RECEIVED_UUID_HASH} = \%received_uuid_hash;
+  $tree_root->{TREE_ROOT} = $tree_root;
+  $tree_root->{SUBTREE} = [];
+  $tree_root->{MOUNTPOINTS} = $mountpoints; # { file, spec, node }
+  $tree_root->{ID_HASH} = \%id;
+  $tree_root->{UUID_HASH} = \%uuid_hash;
+  $tree_root->{RECEIVED_UUID_HASH} = \%received_uuid_hash;
 
   my $node_list = btrfs_subvolume_list($vol);
   return undef unless(ref($node_list) eq "ARRAY");
@@ -2151,7 +2157,13 @@ sub btr_tree($$$$)
     $uuid_cache{$node->{uuid}} = $node;
     $gen_max = $node->{gen} if($node->{gen} > $gen_max);
   }
-  $tree{GEN_MAX} = $gen_max;
+  $tree_root->{GEN_MAX} = $gen_max;
+
+  $vol_root = $id{$vol_root_id};
+  unless($vol_root) {
+    ERROR "Failed to resolve tree root for subvolid=$vol_root_id: " . ($vol->{PRINT} // $vol->{id});
+    return undef;
+  }
 
   # note: it is possible that id < top_level, e.g. after restoring
   foreach my $node (@$node_list)
@@ -2162,7 +2174,7 @@ sub btr_tree($$$$)
 
     push(@{$top_level->{SUBTREE}}, $node);
     $node->{TOP_LEVEL} = $top_level;
-    $node->{TREE_ROOT} = \%tree;
+    $node->{TREE_ROOT} = $tree_root;
 
     # "path" always starts with set REL_PATH
     my $rel_path = $node->{path};
@@ -2173,17 +2185,6 @@ sub btr_tree($$$$)
     $node->{REL_PATH} = $rel_path;  # relative to {TOP_LEVEL}->{path}
 
     add_btrbk_filename_info($node);
-
-    $vol_root = $node if($vol_root_id == $node->{id});
-  }
-  unless($vol_root) {
-    if($vol_root_id == 5) {
-      $vol_root = \%tree;
-    }
-    else {
-      ERROR "Failed to resolve tree root for: " . ($vol->{PRINT} // $vol->{id});
-      return undef;
-    }
   }
 
   # add known mountpoints to nodes
@@ -2199,7 +2200,7 @@ sub btr_tree($$$$)
   TRACE "btr_tree: returning tree at id=$vol_root->{id}";
   VINFO($vol_root, "node") if($loglevel >=4);
 
-  $spec_cache{$vol_host_spec} = \%tree;
+  $spec_cache{$vol_host_spec} = $tree_root;
   return $vol_root;
 }
 
