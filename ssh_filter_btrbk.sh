@@ -48,7 +48,7 @@ run_cmd()
 reject_filtered_cmd()
 {
     # note that the backslash is NOT a metacharacter in a POSIX bracket expression!
-    option_match='-[a-zA-Z-]+'       # matches short as well as long options
+    option_match='-[a-zA-Z0-9=-]+'   # matches short as well as long options
     file_match='[0-9a-zA-Z_@+./-]*'  # matches file path (equal to $file_match in btrbk)
 
     if [[ -n "$restrict_path_list" ]]; then

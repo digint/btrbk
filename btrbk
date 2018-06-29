@@ -878,11 +878,14 @@ sub btrfs_filesystem_usage($)
 # for btrfs root, returns at least: (id is_root)
 # for btrfs-progs >= 4.1, also returns key: "received_uuid"
 # if present, also returns (unvalidated) keys: (name creation_time flags)
-sub btrfs_subvolume_show($)
+sub btrfs_subvolume_show($;@)
 {
   my $vol = shift || die;
+  my %opts = @_;
+  my @cmd_options;
+  push(@cmd_options, '--rootid=' . $opts{rootid}) if($opts{rootid});  # btrfs-progs >= 4.12
   my $path = $vol->{PATH} // die;
-  my $ret = run_cmd(cmd => vinfo_cmd($vol, "btrfs subvolume show", { unsafe => $path }),
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "btrfs subvolume show", @cmd_options, { unsafe => $path }),
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                     catch_stderr => 1, # hack for shell-based run_cmd()
@@ -943,7 +946,7 @@ sub btrfs_subvolume_show($)
       "Top level ID"          => "top_level",       # btrfs-progs >= 4.1
       "Flags"                 => "flags",
      );
-    foreach (split("\n", $ret)) {
+    foreach (@ret_lines) {
       next unless /^\s+(.+):\s+(.*)$/;
       my ($key, $value) = ($1, $2);
       if($trans{$key}) {
@@ -988,6 +991,11 @@ sub btrfs_subvolume_show($)
     $detail{readonly} = ($detail{flags} =~ /readonly/) ? 1 : 0;
 
     VINFO(\%detail, "detail") if($loglevel >=4);
+  }
+
+  if($opts{rootid} && ($detail{id} != $opts{rootid})) {
+    ERROR "Failed to parse subvolume detail (rootid mismatch) for: $vol->{PRINT}";
+    return undef;
   }
 
   if($detail{id} == 5) {
