@@ -912,22 +912,9 @@ sub btrfs_subvolume_show($)
     return undef;
   }
 
-  if($ret_lines[0] =~ /^($file_match)/) {
-    # use the resolved full path for realpath_cache (if present)
-    # btrfs-progs <  4.12 prints the full (absolute, resolved) path
-    # btrfs-progs >= 4.12 prints the relative path to btrfs root (or "/" if it is the root)
-    my $real_or_rel_path = $1;
-    if($real_or_rel_path ne '/') {
-      my $real_path = check_file($real_or_rel_path, { absolute => 1 }, sanitize => 1); # returns undef if not absolute
-      if($real_path && ($real_path ne $path)) {
-        DEBUG "Real path for subvolume \"$vol->{PRINT}\" is: $real_path";
-        $realpath_cache{$vol->{URL}} = $real_path;
-      }
-    }
-    else {
-      DEBUG "No real path provided by \"btrfs subvolume show\" for subvolume \"$vol->{PRINT}\"";
-    }
-  }
+  # NOTE: the first line starts with a path:
+  #  - btrfs-progs <  4.12 prints the full (absolute, resolved) path
+  #  - btrfs-progs >= 4.12 prints the relative path to btrfs root (or "/" if it is the root)
 
   my %detail;
   if($ret_lines[0] =~ / is (btrfs root|toplevel subvolume)$/) {
