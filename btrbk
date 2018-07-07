@@ -3112,6 +3112,7 @@ sub check_file($$;@)
   if($sanitize) {
     $file =~ s/\/+/\//g;     # sanitize multiple slash
     $file =~ s/\/\.\//\//g;  # sanitize "/./" -> "/"
+    $file =~ s/\/\.$/\//;    # sanitize trailing "/." -> "/"
     $file =~ s/\/$// unless($file eq '/');   # remove trailing slash
   }
   return $file;
