@@ -3433,16 +3433,18 @@ sub parse_config_line($$$$$)
     my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, sanitize => 1, error_statement => "for option \"$key\" in \"$file\" line $.");
     return undef unless(defined($rel_path));
 
+    # snapshot_name defaults to subvolume name (or volume name if subvolume=".")
+    my $default_snapshot_name = ($rel_path eq '.') ? $cur->{url} : $rel_path;
+    $default_snapshot_name =~ s/^.*\///;
+    $default_snapshot_name = 'ROOT' if($default_snapshot_name eq ""); # if volume="/"
+
     TRACE "config: adding subvolume \"$rel_path\" to volume context: $cur->{url}";
-    my $snapshot_name = $rel_path;
-    $snapshot_name =~ s/^.*\///; # snapshot_name defaults to subvolume name
-    die unless($cur->{CONTEXT} eq "volume");
     my $subvolume = { CONTEXT       => "subvolume",
                       PARENT        => $cur,
                       # SUBSECTION    => [],  # handled by target propagation
                       rel_path      => $rel_path,
                       url           => $cur->{url} . '/' . $rel_path,
-                      snapshot_name => $snapshot_name,  # computed default to subvolume name (c_default)
+                      snapshot_name => $default_snapshot_name,  # computed default (c_default)
                      };
     $subvolume->{GLOB_CONTEXT} = 1 if($value =~ /\*/);
     push(@{$cur->{SUBSECTION}}, $subvolume);
