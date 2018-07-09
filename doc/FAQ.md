@@ -35,35 +35,22 @@ nothing is deleted, add the btrbk command line options `--preserve
 --override=snapshot_create=always`.
 
 
-Why is it not possible to backup '/' (btrfs root) ?
+Why is "subvolume ." configuration not recommended?
 ---------------------------------------------------
 
-or in other words: why does this config not work:
-
-/etc/btrbk/btrbk.conf:
+Referring to a btrbk configuration like this:
 
     volume /
-      subvolume /
+      subvolume .
         snapshot_name rootfs
 
-*ERROR: Only relative files allowed for option "subvolume"*.
+Btrbk is designed to operate on the subvolumes *within* a root
+subvolume. In the config above, the btrbk snapshots would be created
+*inside* the source subvolume, altering it (from user perspective).
+From btrfs perspective this is not a problem, as the snapshots are
+separate subvolumes referring to the source subvolume and mapped into
+the file system tree below the source subvolume.
 
-
-### Answer
-
-btrbk is designed to never alter your source subvolume. In the config
-above, the btrbk snapshots would be created *inside* the source
-subvolume, altering it.
-
-The same applies to **any "btrfs root" mount point** (subvolid=5). In
-the example below, you will **not be able to backup** `/mnt/data`
-using btrbk:
-
-/etc/fstab:
-
-    /dev/sda1  /mnt/data  btrfs  subvolid=5 [...]
-
-btrbk is designed to operate on the subvolumes *within* `/mnt/data`.
 The recommended way is to split your data into subvolumes, e.g.:
 
      # btrfs subvolume create /mnt/data/www
@@ -84,23 +71,6 @@ The btrbk configuration for this would be:
         [...]
       subvolume projectx
         [...]
-
-
-### Tech Answer
-
-While *btrfs root* (subvolid=5) is a regular subvolume, it is still
-special: being the root node, it does not have a "name" inside the
-subvolume tree.
-
-Here, `/mnt/btr_pool` is mounted with `subvolid=5`:
-
-    # btrfs sub show /mnt/btr_pool/
-    /mnt/btr_data is toplevel subvolume
-
-    # btrfs sub show /mnt/btr_pool/rootfs
-    /mnt/btr_pool/rootfs
-            Name:    rootfs
-            uuid:    [...]
 
 
 How should I organize my btrfs filesystem?
@@ -323,3 +293,20 @@ Finally, don't forget to delete the broken source subvolume:
 
 You should now have a clean environment, and btrbk will not complain
 any more.
+
+
+I'm getting an error: Aborted: subvolume has no UUID
+----------------------------------------------------
+
+If your file system was created with btrfs-progs < 4.16, the btrfs
+root subvolume (id=5) has no UUID. You can check this by calling:
+
+    # btrfs subvolume show /mnt/btr_pool
+    /
+        Name:    <FS_TREE>
+        UUID:    -
+        [...]
+
+Without a UUID, the snapshots would get no parent_uuid, leaving btrbk
+unable to track parent/child relationships. In this case, btrbk
+refuses to create snapshots and backups.

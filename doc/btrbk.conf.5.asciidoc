@@ -52,6 +52,15 @@ SECTIONS
     specified in the 'volume' section. Multiple 'subvolume' sections
     are allowed within 'volume' sections. Accepts wildcard character
     "*".
++
+--
+If set to ".", the subvolume at '<volume-directory>' is used as backup
+source, and the snapshots will be created within the source subvolume
+itself (see 'snapshot_dir' option below), which is not recommended.
+Note that if this subvolume is btrfs root (id=5), it needs to have a
+valid UUID, which is not the case for file systems created with
+btrfs-progs < 4.16.
+--
 
 *target* <type> <target-directory>|<url>::
     Target type and directory where the backup subvolumes are to be
