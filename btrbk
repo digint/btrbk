@@ -256,7 +256,7 @@ my %raw_info_sort = (
 
 my %raw_url_cache;   # map URL to (fake) btr_tree node
 my %mountpoint_cache;# map HOST to mount points (sorted descending by file length)
-my %spec_cache;      # map HOST:fs_spec (aka device) to btr_tree node
+my %fs_spec_cache;   # map HOST:fs_spec (aka device) to btr_tree node
 my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target)
 
@@ -2108,18 +2108,18 @@ sub btr_tree($$$$)
 {
   my $vol = shift;
   my $vol_root_id = shift || die;
-  my $spec = shift || die;  # aka device
+  my $fs_spec = shift || die;  # aka device
   my $mountpoints = shift || die; # all known mountpoints for this filesystem: arrayref of { file, subvolid }
   die unless($vol_root_id >= 5);
 
-  # return parsed tree from %spec_cache if present
-  my $vol_host_spec = ($vol->{HOST} // "localhost") . ':' . $spec;
-  my $cached_tree = $spec_cache{$vol_host_spec};
-  TRACE "spec_cache " . ($cached_tree ? "HIT" : "MISS") . ": $vol_host_spec";
+  # return parsed tree from %fs_spec_cache if present
+  my $host_fs_spec = ($vol->{HOST} // "localhost") . ':' . $fs_spec;
+  my $cached_tree = $fs_spec_cache{$host_fs_spec};
+  TRACE "fs_spec_cache " . ($cached_tree ? "HIT" : "MISS") . ": $host_fs_spec";
   if($cached_tree) {
     TRACE "btr_tree: returning cached tree at id=$vol_root_id";
     my $node = $cached_tree->{ID_HASH}{$vol_root_id};
-    ERROR "Unknown subvolid=$vol_root_id in btrfs tree of $vol_host_spec" unless($node);
+    ERROR "Unknown subvolid=$vol_root_id in btrfs tree of $host_fs_spec" unless($node);
     return $node;
   }
 
@@ -2179,7 +2179,7 @@ sub btr_tree($$$$)
   $tree_root->{UUID_HASH} = \%uuid_hash;
   $tree_root->{RECEIVED_UUID_HASH} = \%received_uuid_hash;
   $tree_root->{GEN_MAX} = $gen_max;
-  $tree_root->{host_spec} = $vol_host_spec; # unique identifier, e.g. "localhost:/dev/sda1"
+  $tree_root->{host_fs_spec} = $host_fs_spec; # unique identifier, e.g. "localhost:/dev/sda1"
 
   $vol_root = $id{$vol_root_id};
   unless($vol_root) {
@@ -2212,7 +2212,7 @@ sub btr_tree($$$$)
   foreach(@$mountpoints) {
     my $node = $id{$_->{subvolid}};
     unless($node) {
-      WARN "Unknown subvolid=$_->{subvolid} (in btrfs tree of $vol_host_spec) for mountpoint: $vol->{URL_PREFIX}$_->{file}";
+      WARN "Unknown subvolid=$_->{subvolid} (in btrfs tree of $host_fs_spec) for mountpoint: $vol->{URL_PREFIX}$_->{file}";
       next;
     }
     $node->{MOUNTPOINT_URL} = $vol->{URL_PREFIX} . $_->{file};
@@ -2221,7 +2221,7 @@ sub btr_tree($$$$)
   TRACE "btr_tree: returning tree at id=$vol_root->{id}";
   VINFO($vol_root, "node") if($loglevel >=4);
 
-  $spec_cache{$vol_host_spec} = $tree_root;
+  $fs_spec_cache{$host_fs_spec} = $tree_root;
   return $vol_root;
 }
 
@@ -2265,7 +2265,7 @@ sub _fs_path
 {
   my $node = shift // die;
   return $node->{MOUNTPOINT_URL} if($node->{MOUNTPOINT_URL});
-  return "<$node->{host_spec}>" if($node->{is_root});
+  return "<$node->{host_fs_spec}>" if($node->{is_root});
   return _fs_path($node->{TOP_LEVEL}) . '/' . $node->{REL_PATH};
 }
 
@@ -2284,7 +2284,7 @@ sub _is_correlated($$)
 
 sub _is_same_fs_tree($$)
 {
-  return ($_[0]->{TREE_ROOT}{host_spec} eq $_[1]->{TREE_ROOT}{host_spec});
+  return ($_[0]->{TREE_ROOT}{host_fs_spec} eq $_[1]->{TREE_ROOT}{host_fs_spec});
 }
 
 
@@ -2496,12 +2496,12 @@ sub vinfo_init_root($;@)
   my %opts = @_;
 
   # resolve btrfs tree from mount point
-  my ($mnt_path, $real_path, $subvolid, $spec, $spec_mounts) = btrfs_mountpoint($vol);
+  my ($mnt_path, $real_path, $subvolid, $fs_spec, $mountpoints) = btrfs_mountpoint($vol);
   return undef unless($mnt_path && $real_path && $subvolid);
 
   # read btrfs tree for the mount point
   my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
-  my $mnt_tree_root = btr_tree($mnt_vol, $subvolid, $spec, $spec_mounts);
+  my $mnt_tree_root = btr_tree($mnt_vol, $subvolid, $fs_spec, $mountpoints);
   return undef unless($mnt_tree_root);
 
   # find longest match in btrfs tree
@@ -2543,7 +2543,7 @@ sub vinfo_init_raw_root($;@)
     # create fake btr_tree
     $tree_root = { id => 5,
                    is_root => 1,
-                   host_spec => 'raw_tree@' . $droot->{URL}, # for completeness (this is never used)
+                   host_fs_spec => 'raw_tree@' . $droot->{URL}, # for completeness (this is never used)
                    GEN_MAX => 1,
                    SUBTREE => [],
                    UUID_HASH => {},
