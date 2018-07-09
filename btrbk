@@ -3145,8 +3145,11 @@ sub check_url($;@)
   my %opts = @_;
   my $url_prefix = "";
 
-  if($url =~ s/^(ssh:\/\/($ip_addr_match|$host_name_match))\//\//) {
-    $url_prefix = $1;
+  if($url =~ /^ssh:\/\//) {
+    if($url =~ s/^(ssh:\/\/($ip_addr_match|$host_name_match))\//\//) {
+      $url_prefix = $1;
+    }
+    # if no match, treat it as file and let check_file() print errors
   }
   elsif($url =~ s/^($ip_addr_match|$host_name_match)://) {
     # convert "my.host.com:/my/path" to ssh url
