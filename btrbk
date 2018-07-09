@@ -1085,15 +1085,38 @@ sub btrfs_subvolume_list($;@)
   }
   DEBUG "Parsed " . scalar(@nodes) . " total subvolumes for filesystem at: $vol->{PRINT}";
 
+  return \@nodes;
+}
+
+
+sub btrfs_subvolume_list_complete($)
+{
+  my $vol = shift || die;
+
+  # fetch subvolume list
+  my $nodes = btrfs_subvolume_list($vol);
+  return undef unless($nodes);
+
   # fetch readonly flag
   # NOTE: the only way to get "readonly" flag is via a second call to "btrfs subvol list" with the "-r" option (as of btrfs-progs v4.3.1)
   my $ro = btrfs_subvolume_list_readonly_flag($vol);
   return undef unless(defined($ro));
-  foreach (@nodes) {
+  foreach (@$nodes) {
     $_->{readonly} = $ro->{$_->{id}} // 0;
   }
 
-  return \@nodes;
+  # btrfs root (id=5) is not provided by btrfs_subvolume_list above, read it separately (best-efford)
+  my $tree_root = btrfs_subvolume_show($vol, rootid => 5);
+  unless($tree_root) {
+    # this is not an error:
+    #  - btrfs-progs < 4.12 does not support rootid lookup
+    #  - UUID can be missing if filesystem was created with btrfs-progs < 4.16
+    DEBUG "Failed to fetch subvolume detail (old btrfs-progs?) for btrfs root (id=5) on: $vol->{PRINT}";
+    $tree_root = { id => 5, is_root => 1 };
+  }
+  unshift(@$nodes, $tree_root);
+
+  return $nodes;
 }
 
 
@@ -2101,29 +2124,7 @@ sub btr_tree($$$$)
     return $node;
   }
 
-  # btrfs root (id=5) is not provided by btrfs_subvolume_list below, read it separately (best-efford)
-  my $tree_root = btrfs_subvolume_show($vol, rootid => 5);
-  unless($tree_root) {
-    # this is not an error:
-    #  - btrfs-progs < 4.12 does not support rootid lookup
-    #  - UUID can be missing if filesystem was created with btrfs-progs < 4.16
-    DEBUG "Failed to fetch subvolume detail (old btrfs-progs?) for btrfs root (id=5) on: $vol->{PRINT}";
-    $tree_root = { id => 5, is_root => 1 };
-  }
-  $tree_root->{host_spec} = $vol_host_spec; # unique identifier, e.g. "localhost:/dev/sda1"
-
-  my %id = ( 5 => $tree_root );
-  my %uuid_hash;
-  my %received_uuid_hash;
-
-  $tree_root->{TREE_ROOT} = $tree_root;
-  $tree_root->{SUBTREE} = [];
-  $tree_root->{MOUNTPOINTS} = $mountpoints; # { file, spec, node }
-  $tree_root->{ID_HASH} = \%id;
-  $tree_root->{UUID_HASH} = \%uuid_hash;
-  $tree_root->{RECEIVED_UUID_HASH} = \%received_uuid_hash;
-
-  my $node_list = btrfs_subvolume_list($vol);
+  my $node_list = btrfs_subvolume_list_complete($vol);
   return undef unless(ref($node_list) eq "ARRAY");
   my $vol_root;
 
@@ -2135,29 +2136,49 @@ sub btr_tree($$$$)
   # if local or remote).
   # note: this relies on subvolume UUID's to be "universally unique"
   # (which is why cloning btrfs filesystems using "dd" is a bad idea)
-  if((scalar @$node_list) && $uuid_cache{$node_list->[0]->{uuid}}) {
-    # first uuid of $node_list is already known
-    TRACE "uuid_cache HIT: $node_list->[0]->{uuid}";
-    $vol_root = $uuid_cache{$node_list->[0]->{uuid}}->{TREE_ROOT}->{ID_HASH}->{$vol_root_id};
-    die "Duplicate UUID on different file systems"  unless($vol_root);
-    TRACE "btr_tree: returning already parsed tree at id=$vol_root->{id}";
-    return $vol_root;
+  foreach(@$node_list) {
+    my $node_uuid = $_->{uuid};
+    next unless($node_uuid);
+    if($uuid_cache{$node_uuid}) {
+      # at least one uuid of $node_list is already known
+      TRACE "uuid_cache HIT: $node_uuid";
+      $vol_root = $uuid_cache{$node_uuid}->{TREE_ROOT}->{ID_HASH}->{$vol_root_id};
+      die "Duplicate UUID on different file systems"  unless($vol_root);
+      TRACE "btr_tree: returning already parsed tree at id=$vol_root->{id}";
+      return $vol_root;
+    }
+    last; # check only first UUID (for performance)
   }
 
   # fill our hashes and uuid_cache
+  my %id;
+  my %uuid_hash;
+  my %received_uuid_hash;
   my $gen_max = 0;
-  foreach my $node (@$node_list)
-  {
-    die unless($node->{id} >= 0);
-    die if exists($id{$node->{id}});
-    $node->{SUBTREE} //= [];
-    $id{$node->{id}} = $node;
-    $uuid_hash{$node->{uuid}} = $node;
+  foreach my $node (@$node_list) {
+    my $node_id = $node->{id};
+    die unless($node_id >= 5);
+    die "duplicate node id" if(exists($id{$node_id}));
+    $id{$node_id} = $node;
+    if($node->{uuid}) {
+      $uuid_hash{$node->{uuid}} = $node;
+      $uuid_cache{$node->{uuid}} = $node;
+    }
+    elsif(not $node->{is_root}) {
+      # uuid on btrfs root (id=5) is not always present
+      die "missing uuid on subvolume";
+    }
     push(@{$received_uuid_hash{$node->{received_uuid}}}, $node) if($node->{received_uuid} ne '-');
-    $uuid_cache{$node->{uuid}} = $node;
     $gen_max = $node->{gen} if($node->{gen} > $gen_max);
+    $node->{SUBTREE} = [];
   }
+  my $tree_root = $id{5} // die "missing btrfs root";
+  $tree_root->{MOUNTPOINTS} = $mountpoints; # { file, spec, node }
+  $tree_root->{ID_HASH} = \%id;
+  $tree_root->{UUID_HASH} = \%uuid_hash;
+  $tree_root->{RECEIVED_UUID_HASH} = \%received_uuid_hash;
   $tree_root->{GEN_MAX} = $gen_max;
+  $tree_root->{host_spec} = $vol_host_spec; # unique identifier, e.g. "localhost:/dev/sda1"
 
   $vol_root = $id{$vol_root_id};
   unless($vol_root) {
@@ -2165,25 +2186,24 @@ sub btr_tree($$$$)
     return undef;
   }
 
-  # note: it is possible that id < top_level, e.g. after restoring
-  foreach my $node (@$node_list)
-  {
-    # set SUBTREE / TOP_LEVEL node
-    die unless exists($id{$node->{top_level}});
-    my $top_level = $id{$node->{top_level}};
+  # set REL_PATH and tree references (TREE_ROOT, SUBTREE, TOP_LEVEL)
+  foreach my $node (@$node_list) {
+    unless($node->{is_root}) {
+      # note: it is possible that id < top_level, e.g. after restoring
+      my $top_level = $id{$node->{top_level}};
+      die "missing top_level reference" unless(defined($top_level));
 
-    push(@{$top_level->{SUBTREE}}, $node);
-    $node->{TOP_LEVEL} = $top_level;
-    $node->{TREE_ROOT} = $tree_root;
+      push(@{$top_level->{SUBTREE}}, $node);
+      $node->{TOP_LEVEL} = $top_level;
 
-    # "path" always starts with set REL_PATH
-    my $rel_path = $node->{path};
-    if($node->{top_level} != 5) {
-      die unless($rel_path =~ s/^$top_level->{path}\///);
+      # "path" always starts with set REL_PATH
+      my $rel_path = $node->{path};
+      unless($top_level->{is_root}) {
+        die unless($rel_path =~ s/^$top_level->{path}\///);
+      }
+      $node->{REL_PATH} = $rel_path;  # relative to {TOP_LEVEL}->{path}
     }
-
-    $node->{REL_PATH} = $rel_path;  # relative to {TOP_LEVEL}->{path}
-
+    $node->{TREE_ROOT} = $tree_root;
     add_btrbk_filename_info($node);
   }
 
