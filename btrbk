@@ -2157,19 +2157,21 @@ sub btr_tree($$$$)
   my $gen_max = 0;
   foreach my $node (@$node_list) {
     my $node_id = $node->{id};
+    my $node_uuid = $node->{uuid};
     die unless($node_id >= 5);
     die "duplicate node id" if(exists($id{$node_id}));
     $id{$node_id} = $node;
-    if($node->{uuid}) {
-      $uuid_hash{$node->{uuid}} = $node;
-      $uuid_cache{$node->{uuid}} = $node;
+    if($node_uuid) {
+      # NOTE: uuid on btrfs root (id=5) is not always present
+      $uuid_hash{$node_uuid} = $node;
+      $uuid_cache{$node_uuid} = $node;
+      # hacky: if root node has no "uuid", it also has no "received_uuid" and no "gen"
+      push(@{$received_uuid_hash{$node->{received_uuid}}}, $node) if($node->{received_uuid} ne '-');
+      $gen_max = $node->{gen} if($node->{gen} > $gen_max);
     }
     elsif(not $node->{is_root}) {
-      # uuid on btrfs root (id=5) is not always present
       die "missing uuid on subvolume";
     }
-    push(@{$received_uuid_hash{$node->{received_uuid}}}, $node) if($node->{received_uuid} ne '-');
-    $gen_max = $node->{gen} if($node->{gen} > $gen_max);
     $node->{SUBTREE} = [];
   }
   my $tree_root = $id{5} // die "missing btrfs root";
