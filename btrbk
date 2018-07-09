@@ -1432,26 +1432,26 @@ sub btrfs_send_receive($$$$)
     }
   }
 
-  unless($send_receive_error) {
-    # Read in target subvolume metadata (btrfs subvolume show):
-    # Double checking the output increases robustness against exotic
-    # revisions of external commands (btrfs-progs, pv, xz, lz4, ...).
-    #
-    # NOTE: we cannot rely on the underlying shell to have
-    # "pipefail" functionality.
-    #
-    # NOTE (bug?) (checked with btrfs-progs v4.6.1 and earlier):
-    # "cat /dev/null | btrfs receive" returns with exitcode=0 and no
-    # error message, having the effect that silently no subvolume is
-    # created if any command in @cmd_pipe fail.
-
-    if($dryrun) {
-      INFO "[send/receive] (dryrun, skip) checking target metadata: $vol_received->{PRINT}";
-    }
-    else {
-      INFO "[send/receive] checking target metadata: $vol_received->{PRINT}";
-      my $detail = btrfs_subvolume_show($vol_received);
-      if(defined($detail)) {
+  # Read in target subvolume metadata (btrfs subvolume show):
+  # Double checking the output increases robustness against exotic
+  # revisions of external commands (btrfs-progs, pv, xz, lz4, ...).
+  #
+  # NOTE: we cannot rely on the underlying shell to have
+  # "pipefail" functionality.
+  #
+  # NOTE: btrfs-progs < 4.11:
+  # "cat /dev/null | btrfs receive" returns with exitcode=0 and no
+  # error message, having the effect that silently no subvolume is
+  # created if any command in @cmd_pipe fail.
+  my $is_garbled;
+  if($dryrun) {
+    INFO "[send/receive] (dryrun, skip) checking target metadata: $vol_received->{PRINT}";
+  }
+  else {
+    INFO "[send/receive] checking target metadata: $vol_received->{PRINT}";
+    my $detail = btrfs_subvolume_show($vol_received);
+    if(defined($detail)) {
+      unless($send_receive_error) {
         # plausibility checks on target detail
         unless($detail->{readonly}) {
           ERROR "[send/receive] target is not readonly: $vol_received->{PRINT}";
@@ -1472,9 +1472,12 @@ sub btrfs_send_receive($$$$)
           $send_receive_error = 1;
         }
       }
-      else {
-        $send_receive_error = 1;
-      }
+
+      # incomplete received (garbled) subvolumes are not readonly and have no received_uuid
+      $is_garbled = ((not $detail->{readonly}) && defined($detail->{received_uuid}) && ($detail->{received_uuid} eq '-'));
+    }
+    else {
+      $send_receive_error = 1;
     }
   }
 
@@ -1482,11 +1485,12 @@ sub btrfs_send_receive($$$$)
 
   if($send_receive_error) {
     ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
+  }
 
-    # NOTE: btrfs-progs v3.19.1 does not delete garbled received subvolume,
+  if($is_garbled) {
+    # NOTE: btrfs-progs does not delete incomplete received (garbled) subvolumes,
     #       we need to do this by hand.
     # TODO: remove this as soon as btrfs-progs handle receive errors correctly.
-    DEBUG "send/received failed, deleting (possibly present and garbled) received subvolume: $vol_received->{PRINT}";
     my @deleted = btrfs_subvolume_delete($vol_received, commit => "after", type => "delete_garbled");
     if(scalar(@deleted)) {
       WARN "Deleted partially received (garbled) subvolume: $vol_received->{PRINT}";
@@ -1494,10 +1498,8 @@ sub btrfs_send_receive($$$$)
     else {
       WARN "Deletion of partially received (garbled) subvolume failed, assuming clean environment: $vol_received->{PRINT}";
     }
-
-    return undef;
   }
-  return 1;
+  return $send_receive_error ? undef : 1;
 }
 
 
