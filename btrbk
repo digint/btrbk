@@ -1422,17 +1422,12 @@ sub btrfs_send_receive($$$$)
     $ret = $err;  # print the errors below
   }
   if(defined($ret)) {
-    # NOTE: if "btrfs send" fails, "btrfs receive" returns 0! so we need to parse the output...
-    foreach(split("\n", $ret)) {
-      if(/^ERROR: /) {
-        ERROR $';
-        $send_receive_error = 1;
-      }
-      elsif(/^WARNING: /) {
-        WARN "[send/receive] (send=$snapshot_path, receive=$target_path) $'";
-      }
-      else {
-        WARN "[send/receive] (send=$snapshot_path, receive=$target_path) $_" if($send_receive_error);
+    # NOTE: btrfs-progs < 4.11: if "btrfs send" fails, "btrfs receive" returns 0! so we need to parse the output for "ERROR:" lines:
+    my @ret_lines = split("\n", $ret);
+    $send_receive_error = 1 if(grep /^ERROR: /, @ret_lines);
+    foreach(@ret_lines) {
+      if(/^WARNING: / || $send_receive_error) {
+        WARN "[send/receive] (send=$snapshot_path, receive=$target_path) $_";
       }
     }
   }
