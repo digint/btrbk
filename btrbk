@@ -1277,13 +1277,15 @@ sub btrfs_subvolume_delete($@)
                    catch_stderr => 1, # hack for shell-based run_cmd()
                    filter_stderr => sub {
                      # catch errors from btrfs command
+                     # NOTE: this is NOT RELIABLE ANY MORE (path is not printed in btrfs-progs >= 4.16), e.g.:
+                     #       "ERROR: Could not statfs: No such file or directory"
                      my @error_lines = split("\n", $_);
                      foreach (@error_lines) {
                        next if(/^Delete subvolume/); # NOTE: stdout is also reflected here!
-                       if(/^ERROR: cannot access subvolume ($file_match):/     ||
-                          /^ERROR: not a subvolume: ($file_match)/             ||
+                       if(/^ERROR: cannot access subvolume ($file_match):/     ||  # btrfs-progs < 4.16
+                          /^ERROR: not a subvolume: ($file_match)/             ||  # btrfs-progs < 4.16
                           /^ERROR: cannot find real path for '($file_match)':/ ||
-                          /^ERROR: cannot delete '($file_match)'/              ||
+                          /^ERROR: cannot delete '($file_match)'/              ||  # btrfs-progs < 4.16
                           /^ERROR: cannot access subvolume '($file_match)'$/   ||  # btrfs-progs < 4.4
                           /^ERROR: error accessing '($file_match)'/            ||  # btrfs-progs < 4.4
                           /^ERROR: '($file_match)' is not a subvolume/         ||  # btrfs-progs < 4.4
@@ -1326,7 +1328,7 @@ sub btrfs_subvolume_delete($@)
     }
     if(@unparsed_errors) {
       @deleted = ();
-      ERROR "Failed to parse error messages, assuming nothing deleted";
+      ERROR "Failed to delete subvolume, assuming nothing deleted";
       ERROR "[delete]: $_" foreach(@unparsed_errors);
       ERROR "Failed to delete subvolume: $_" foreach(map( { $_->{PRINT} } @$targets));
     }
