@@ -61,7 +61,7 @@ reject_filtered_cmd()
     fi
 
     if [[ -n "$allow_compress" ]]; then
-        decompress_match="((${compress_list}) -d -c( -[0-9])?( -[pT][0-9]+)? \| )?"
+        decompress_match="((${compress_list}) -d -c( -[pT][0-9]+)? \| )?"
         compress_match="( \| (${compress_list}) -c( -[0-9])?( -[pT][0-9]+)?)?"
     else
         decompress_match=
