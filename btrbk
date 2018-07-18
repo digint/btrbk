@@ -2989,9 +2989,9 @@ sub get_related_subvolumes($$;@)
 
     if($opts{fallback_btrbk_basename} && exists($svol->{node}{BTRBK_BASENAME})) {
       # add subvolumes in same directory matching btrbk file name scheme
-      my @naming_match = grep { $_->{node}{readonly} && exists($_->{node}{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq "") && ($_->{node}{BTRBK_BASENAME} eq $svol->{node}{BTRBK_BASENAME}) } @$snaproot_subvol_list;
-      my @naming_match_older = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @naming_match;
-      my @naming_match_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @naming_match;
+      my $snaproot_btrbk_direct_leaf = vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $svol->{node}{BTRBK_BASENAME});
+      my @naming_match_older = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @$snaproot_btrbk_direct_leaf;
+      my @naming_match_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snaproot_btrbk_direct_leaf;
       push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match_older;
       push @candidate, sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) } @naming_match_newer;
       TRACE "get_related: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $snaproot->{PRINT}/$svol->{node}{BTRBK_BASENAME}.*";
