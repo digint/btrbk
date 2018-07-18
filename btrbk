@@ -2961,16 +2961,15 @@ sub get_receive_targets($$;@)
 }
 
 
-sub get_related_subvolumes($$$;@)
+sub get_related_subvolumes($$;@)
 {
   my $snaproot = shift || die;
   my $svol = shift // die;
-  my $droot = shift || die;
   my %opts = @_;
   my $snapshot_dir = shift;  # if not set, skip search for btrbk basename (set to empty string to enable at current dir)
   my $snaproot_subvol_list = vinfo_subvol_list_all_accessible($snaproot);
 
-  TRACE "get_related: resolving latest common for subvolume: $svol->{PATH}  (snaproot=$snaproot->{PRINT}, droot=$droot->{PRINT})";
+  TRACE "get_related: resolving related subvolumes of: $svol->{PATH}  (snaproot=$snaproot->{PRINT})";
   my @candidate;
   if($svol->{node}{readonly}) {
     if($svol->{node}{parent_uuid} ne '-') {
@@ -3048,7 +3047,9 @@ sub get_best_parent($$$)
   my $snaproot = shift || die;
   my $svol = shift // die;
   my $droot = shift || die;
-  my $related = get_related_subvolumes($snaproot, $svol, $droot, fallback_btrbk_basename => 1);
+
+  TRACE "get_best_parent: resolving best common parent for subvolume: $svol->{PATH}  (snaproot=$snaproot->{PRINT}, droot=$droot->{PRINT})";
+  my $related = get_related_subvolumes($snaproot, $svol, fallback_btrbk_basename => 1);
 
   # match receive targets of candidates
   foreach my $child (@$related) {
