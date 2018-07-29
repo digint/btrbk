@@ -155,12 +155,12 @@ Note that using ``long-iso'' has implications on the scheduling, see
     ``onchange'', snapshots are only created if the source subvolume
     has changed since the last snapshot (more precisely: if the btrfs
     generation has been increased since the last snapshot). If set to
-    ``ondemand'', snapshots are only created if the target subvolume
-    is reachable (useful if you are tight on disk space and you only
-    need btrbk for backups to an external disk which is not always
-    connected). If set to ``no'', the snapshots are never created
-    (useful if another instance of btrbk is taking care of snapshot
-    creation). Defaults to ``always''.
+    ``ondemand'', snapshots are only created if at least one target
+    subvolume is reachable (useful if you are tight on disk space and
+    you only need btrbk for backups to an external disk which is not
+    always connected). If set to ``no'', the snapshots are never
+    created (useful if another instance of btrbk is taking care of
+    snapshot creation). Defaults to ``always''.
 
 *incremental* yes|no|strict::
     If set, incremental backups are created. If set to ``strict'',
