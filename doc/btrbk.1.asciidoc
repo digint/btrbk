@@ -191,9 +191,12 @@ configuring the retention policy.
     Snapshot only: skips backup creation and deletion (steps 2 and
     3). Use in conjunction with -p, --preserve (or
     --preserve-snapshots) if you also want to skip snapshot deletion
-    (step 4). Note that snapshot deletion is skipped if the target is
-    not accessible, as it is still required in order to determine the
-    latest snapshot/backup pair.
+    (step 4).
++
+Note that snapshot deletion is skipped if the target is not
+accessible, as it is still required in order to determine the latest
+snapshot/backup pair (which is always preserved, regardless of the
+retention policy).
 
 *resume* [filter...]::
     Resume backups: skips snapshot creation (step 1), transfers and
@@ -209,6 +212,11 @@ configuring the retention policy.
     disk after changing the retention policy. Use in conjunction with
     --preserve-backups, --preserve-snapshots if you want to skip
     backup or snapshot deletion (steps 3, 4).
++
+Note that deletion is skipped if source or target is not accessible,
+as it is still required in order to determine the latest
+snapshot/backup pair (which is always preserved, regardless of the
+retention policy).
 
 *archive* <source> <target> _*experimental*_::
     Recursively copy all subvolumes created by btrbk from <source> to
