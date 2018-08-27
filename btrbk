@@ -4431,7 +4431,7 @@ MAIN:
   @tm_now = localtime($start_time);
 
   my @config_override_cmdline;
-  my ($config_cmdline, $quiet, $verbose, $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups, $print_schedule, $lockfile_cmdline);
+  my ($config_cmdline, $quiet, $verbose, $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups, $ignore_related, $print_schedule, $lockfile_cmdline);
   my $resume_only_DEPRECATED;  # as of btrbk-v0.26.0
   unless(GetOptions(
     'help|h'             => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
@@ -4442,6 +4442,7 @@ MAIN:
     'preserve-snapshots' => sub { $preserve_snapshots = "preserve-snapshots" },
     'preserve-backups'   => sub { $preserve_backups = "preserve-backups" },
     'wipe'               => \$wipe_snapshots,
+    'ignore-related'     => \$ignore_related,  # TODO: find better name for this
     'resume-only|r'      => \$resume_only_DEPRECATED,
     'quiet|q'            => \$quiet,
     'verbose|v'          => sub { $loglevel = 2; },
@@ -5387,6 +5388,11 @@ MAIN:
     # initialize targets, and we don't want to fail on missing targets.
     DEBUG "Skipping target tree readin (preserving all snapshots and backups)";
   }
+  elsif($action_run && $skip_backups && $preserve_backups && $ignore_related) {
+    # if running "btrbk prune --preserve-backups --ignore-related", there is no need to
+    # initialize targets, and we don't want to fail on missing targets.
+    DEBUG "Skipping target tree readin (ignoring latest common match)";
+  }
   else {
     foreach my $sroot (vinfo_subsection($config, 'volume')) {
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
@@ -5991,16 +5997,18 @@ MAIN:
             }
 
             # always preserve latest common snapshot/backup pair
-            foreach my $child (@snapshot_children) {
-              my @receive_targets = get_receive_targets($droot, $child, exact => 1);
-              if(scalar(@receive_targets)) {
-                DEBUG "Force preserve for latest common snapshot: $child->{PRINT}";
-                $child->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
-                foreach(@receive_targets) {
-                  DEBUG "Force preserve for latest common target: $_->{PRINT}";
-                  $_->{node}{FORCE_PRESERVE} = 'preserve forced: latest common target';
+            unless($ignore_related) {
+              foreach my $child (@snapshot_children) {
+                my @receive_targets = get_receive_targets($droot, $child, exact => 1);
+                if(scalar(@receive_targets)) {
+                  DEBUG "Force preserve for latest common snapshot: $child->{PRINT}";
+                  $child->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
+                  foreach(@receive_targets) {
+                    DEBUG "Force preserve for latest common target: $_->{PRINT}";
+                    $_->{node}{FORCE_PRESERVE} = 'preserve forced: latest common target';
+                  }
+                  last;
                 }
-                last;
               }
             }
 
