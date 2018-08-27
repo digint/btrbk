@@ -1862,9 +1862,6 @@ sub btrfs_mountpoint($)
   unless($mounts) {
     $mounts = system_list_mounts($vol);
     return undef unless($mounts);
-    # sort descending by file length
-    my @sorted = sort { length($b->{file}) <=> length($a->{file}) } @$mounts;
-    $mounts = \@sorted;
     $mountpoint_cache{$host} = $mounts;
   }
 
@@ -1875,8 +1872,11 @@ sub btrfs_mountpoint($)
     my $mnt_path = $_->{file};
     $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # correctly handle root path="/"
     if($realpath =~ /^\Q$mnt_path\E/) {
-      $mountpoint = $_;
-      last;
+      if((not $mountpoint) || (length($_->{file}) >= length($mountpoint->{file}))) {
+        # pick longest match (last if same size).
+        # NOTE: on duplicate match (mounted multiple times, e.g. autofs), use the latest in list.
+        $mountpoint = $_;
+      }
     }
   }
   unless($mountpoint) {
