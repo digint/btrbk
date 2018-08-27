@@ -37,7 +37,7 @@ The following commands are always allowed:
  - "btrfs subvolume show"
  - "btrfs subvolume list"
  - "readlink"
- - "cat /proc/self/mounts"
+ - "cat /proc/self/mountinfo"
  - pipes through "gzip", "pigz", "bzip2", "pbzip2", "xz", "lzop",
    "lz4" (stream_compress)
  - pipes through "mbuffer" (stream_buffer)

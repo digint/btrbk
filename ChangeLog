@@ -2,7 +2,7 @@ btrbk-0.27.0-dev
 
   * MIGRATION
     - update ssh_filter_btrbk.sh on remote hosts (btrbk always calls
-      "readlink" and "cat /proc/self/mounts").
+      "readlink" and "cat /proc/self/mountinfo").
   * Add "preserve_hour_of_day" configuration option (close #202).
   * Allow backup of filesystem root using "subvolume ." (close #240).
   * Bugfix: correct scheduling of "first weekly backup in month/year"
@@ -16,7 +16,8 @@ btrbk-0.27.0-dev
     - Search complete target tree for correlated subvolumes.
     - Include snapshots from all mountpoints as candidates (disabled
       due to uptream bug: github.com/kdave/btrfs-progs/issues/96).
-    - Always read /proc/self/mounts.
+    - Read /proc/self/mountinfo instead of /proc/self/mounts.
+    - Always read /proc/self/mountinfo.
     - Resolve realpath using readlink(1).
   * Fallback to "asciidoctor" for manpage generation (close #219).
 

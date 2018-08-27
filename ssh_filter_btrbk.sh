@@ -163,8 +163,9 @@ done
 
 allow_cmd "${sudo_prefix}btrfs subvolume show"; # subvolume queries are always allowed
 allow_cmd "${sudo_prefix}btrfs subvolume list"; # subvolume queries are always allowed
-allow_cmd "readlink"                            # used to identify mountpoints
-allow_exact_cmd "cat /proc/self/mounts"         # used to identify mountpoints
+allow_cmd "readlink"                            # used to resolve mountpoints
+allow_exact_cmd "cat /proc/self/mountinfo"      # used to resolve mountpoints
+allow_exact_cmd "cat /proc/self/mounts"         # legacy, for btrbk < 0.27.0
 
 # remove leading "|" on alternation lists
 allow_list=${allow_list#\|}

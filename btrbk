@@ -255,8 +255,8 @@ my %raw_info_sort = (
  );
 
 my %raw_url_cache;   # map URL to (fake) btr_tree node
-my %mountpoint_cache;# map HOST to mount points (sorted descending by file length)
-my %fs_spec_cache;   # map HOST:fs_spec (aka device) to btr_tree node
+my %mountinfo_cache; # map HOST to mount points (sorted descending by file length)
+my %mount_source_cache; # map HOST:mount_source (aka device) to btr_tree node
 my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target)
 
@@ -1763,7 +1763,7 @@ sub btrfs_send_to_file($$$;$$)
 sub system_list_mountinfo($)
 {
   my $vol = shift // die;
-  my $file = '/proc/self/mountinfo';
+  my $file = '/proc/self/mountinfo'; # NOTE: /proc/self/mounts is deprecated
   my $ret = run_cmd(cmd => [ qw(cat), $file ],
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
@@ -1804,48 +1804,6 @@ sub system_list_mountinfo($)
   }
   # TRACE(Data::Dumper->Dump([\@mountinfo], ["mountinfo"])) if($do_dumper);
   return \@mountinfo;
-}
-
-
-sub system_list_mounts($)
-{
-  my $vol = shift // die;
-  my $file = '/proc/self/mounts';
-  my $ret = run_cmd(cmd => [ qw(cat), $file ],
-                    rsh => vinfo_rsh($vol),
-                    non_destructive => 1,
-                    catch_stderr => 1, # hack for shell-based run_cmd()
-                   );
-  return undef unless(defined($ret));
-
-  my @mounts;
-  foreach (split(/\n/, $ret))
-  {
-    # from fstab(5)
-    unless(/^(\S+) (\S+) (\S+) (\S+) (\S+) (\S+)$/) {
-      ERROR "Failed to parse \"$file\" on " . ($vol->{HOST} || "localhost");
-      DEBUG "Offending line: $_";
-      return undef;
-    }
-    my %line = (
-      spec    => $1,
-      file    => $2,
-      vfstype => $3,
-      mntops  => $4,
-      freq    => $5,
-      passno  => $6,
-    );
-    foreach (split(',', $line{mntops})) {
-      if(/^(.+?)=(.+)$/) {
-        $line{MNTOPS}->{$1} = $2;
-      } else {
-        $line{MNTOPS}->{$_} = 1;
-      }
-    }
-    push @mounts, \%line;
-  }
-  # TRACE(Data::Dumper->Dump([\@mounts], ["mounts"])) if($do_dumper);
-  return \@mounts;
 }
 
 
@@ -1904,22 +1862,22 @@ sub btrfs_mountpoint($)
 
   # get all mountpoints
   my $host = $vol->{HOST} || "localhost";
-  my $mounts = $mountpoint_cache{$host};
-  TRACE "mountpoint_cache " . ($mounts ? "HIT" : "MISS") . ": $host";
-  unless($mounts) {
-    $mounts = system_list_mounts($vol);
-    return undef unless($mounts);
-    $mountpoint_cache{$host} = $mounts;
+  my $mountinfo = $mountinfo_cache{$host};
+  TRACE "mountinfo_cache " . ($mountinfo ? "HIT" : "MISS") . ": $host";
+  unless($mountinfo) {
+    $mountinfo = system_list_mountinfo($vol);
+    return undef unless($mountinfo);
+    $mountinfo_cache{$host} = $mountinfo;
   }
 
   # find longest match
   $realpath .= '/' unless($realpath =~ /\/$/);  # correctly handle root path="/"
   my $mountpoint;
-  foreach(@$mounts) {
-    my $mnt_path = $_->{file};
+  foreach(@$mountinfo) {
+    my $mnt_path = $_->{mount_point};
     $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # correctly handle root path="/"
     if($realpath =~ /^\Q$mnt_path\E/) {
-      if((not $mountpoint) || (length($_->{file}) >= length($mountpoint->{file}))) {
+      if((not $mountpoint) || (length($_->{mount_point}) >= length($mountpoint->{mount_point}))) {
         # pick longest match (last if same size).
         # NOTE: on duplicate match (mounted multiple times, e.g. autofs), use the latest in list.
         $mountpoint = $_;
@@ -1931,40 +1889,40 @@ sub btrfs_mountpoint($)
     ERROR "No mount point found for: $vol->{PRINT} (realpath=\"$realpath\")";
     return undef;
   }
-  TRACE "resolved mount point (spec=$mountpoint->{spec}, subvolid=" . ($mountpoint->{MNTOPS}->{subvolid} // '<undef>') . "): $mountpoint->{file}";
-  unless($mountpoint->{vfstype} eq 'btrfs') {
+  TRACE "resolved mount point (mount_source=$mountpoint->{mount_source}, subvolid=" . ($mountpoint->{MNTOPS}->{subvolid} // '<undef>') . "): $mountpoint->{mount_point}";
+  unless($mountpoint->{fs_type} eq 'btrfs') {
     DEBUG "No btrfs mount point found for: $vol->{PRINT}";
     return undef;
   }
 
   # list all mountpoints of same device
-  my @spec_mounts;
-  my $spec_match = $mountpoint->{spec};
-  foreach my $mnt (@$mounts) {
-    if($mnt->{spec} eq $spec_match) {
-      unless($mnt->{vfstype} eq 'btrfs') {
-        # should never happen, same device should always have vfstype=btrfs
-        DEBUG "Ignoring non-btrfs mount point: $mnt->{spec} $mnt->{file} $mnt->{vfstype}";
+  my @same_source_mounts;
+  my $mount_source_match = $mountpoint->{mount_source};
+  foreach my $mnt (@$mountinfo) {
+    if($mnt->{mount_source} eq $mount_source_match) {
+      unless($mnt->{fs_type} eq 'btrfs') {
+        # should never happen, same device should always have fs_type=btrfs
+        DEBUG "Ignoring non-btrfs mount point: $mnt->{mount_source} $mnt->{mount_point} $mnt->{fs_type}";
         next;
       }
-      unless($mnt->{file} =~ /^$file_match$/) {
-        INFO "Ignoring non-parseable btrfs mountpoint on $host: \"$mnt->{file}\"";
+      unless($mnt->{mount_point} =~ /^$file_match$/) {
+        INFO "Ignoring non-parseable btrfs mountpoint on $host: \"$mnt->{mount_point}\"";
         next;
       }
       unless($mnt->{MNTOPS}->{subvolid}) {
         # kernel <= 4.2 does not have subvolid=NN in /proc/self/mounts, read it with btrfs-progs
-        DEBUG "No subvolid provided in mounts for: $mnt->{file}";
-        my $detail = btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mnt->{file}, $vol->{CONFIG}));
+        DEBUG "No subvolid provided in mounts for: $mnt->{mount_point}";
+        my $detail = btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mnt->{mount_point}, $vol->{CONFIG}));
         return undef unless($detail);
-        $mnt->{MNTOPS}->{subvolid} = $detail->{id} || die;  # also affects %mountpoint_cache
+        $mnt->{MNTOPS}->{subvolid} = $detail->{id} || die;  # also affects %mountinfo_cache
       }
-      TRACE "using btrfs mount point (spec=$mnt->{spec}, subvolid=$mnt->{MNTOPS}->{subvolid}): $mnt->{file}";
-      push(@spec_mounts, { file => $mnt->{file}, subvolid => $mnt->{MNTOPS}->{subvolid} } );
+      TRACE "using btrfs mount point (mount_source=$mnt->{mount_source}, subvolid=$mnt->{MNTOPS}->{subvolid}): $mnt->{mount_point}";
+      push(@same_source_mounts, { file => $mnt->{mount_point}, subvolid => $mnt->{MNTOPS}->{subvolid} } );
     }
   }
 
-  DEBUG "Btrfs mount point for \"$vol->{PRINT}\": $mountpoint->{file} (subvolid=$mountpoint->{MNTOPS}->{subvolid})";
-  return ($mountpoint->{file}, $realpath, $mountpoint->{MNTOPS}->{subvolid}, $spec_match, \@spec_mounts);
+  DEBUG "Btrfs mount point for \"$vol->{PRINT}\": $mountpoint->{mount_point} (mount_source=$mountpoint->{mount_source}, subvolid=$mountpoint->{MNTOPS}->{subvolid})";
+  return ($mountpoint->{mount_point}, $realpath, $mountpoint->{MNTOPS}->{subvolid}, $mountpoint->{mount_source}, \@same_source_mounts);
 }
 
 
@@ -2155,18 +2113,18 @@ sub btr_tree($$$$)
 {
   my $vol = shift;
   my $vol_root_id = shift || die;
-  my $fs_spec = shift || die;  # aka device
+  my $mount_source = shift || die;  # aka device
   my $mountpoints = shift || die; # all known mountpoints for this filesystem: arrayref of { file, subvolid }
   die unless($vol_root_id >= 5);
 
-  # return parsed tree from %fs_spec_cache if present
-  my $host_fs_spec = ($vol->{HOST} // "localhost") . ':' . $fs_spec;
-  my $cached_tree = $fs_spec_cache{$host_fs_spec};
-  TRACE "fs_spec_cache " . ($cached_tree ? "HIT" : "MISS") . ": $host_fs_spec";
+  # return parsed tree from %mount_source_cache if present
+  my $host_mount_source = ($vol->{HOST} // "localhost") . ':' . $mount_source;
+  my $cached_tree = $mount_source_cache{$host_mount_source};
+  TRACE "mount_source_cache " . ($cached_tree ? "HIT" : "MISS") . ": $host_mount_source";
   if($cached_tree) {
     TRACE "btr_tree: returning cached tree at id=$vol_root_id";
     my $node = $cached_tree->{ID_HASH}{$vol_root_id};
-    ERROR "Unknown subvolid=$vol_root_id in btrfs tree of $host_fs_spec" unless($node);
+    ERROR "Unknown subvolid=$vol_root_id in btrfs tree of $host_mount_source" unless($node);
     return $node;
   }
 
@@ -2221,12 +2179,12 @@ sub btr_tree($$$$)
     $node->{SUBTREE} = [];
   }
   my $tree_root = $id{5} // die "missing btrfs root";
-  $tree_root->{MOUNTPOINTS} = $mountpoints; # { file, spec, node }
+  $tree_root->{MOUNTPOINTS} = $mountpoints; # { file, mount_source, node }
   $tree_root->{ID_HASH} = \%id;
   $tree_root->{UUID_HASH} = \%uuid_hash;
   $tree_root->{RECEIVED_UUID_HASH} = \%received_uuid_hash;
   $tree_root->{GEN_MAX} = $gen_max;
-  $tree_root->{host_fs_spec} = $host_fs_spec; # unique identifier, e.g. "localhost:/dev/sda1"
+  $tree_root->{host_mount_source} = $host_mount_source; # unique identifier, e.g. "localhost:/dev/sda1"
 
   $vol_root = $id{$vol_root_id};
   unless($vol_root) {
@@ -2259,7 +2217,7 @@ sub btr_tree($$$$)
   foreach(@$mountpoints) {
     my $node = $id{$_->{subvolid}};
     unless($node) {
-      WARN "Unknown subvolid=$_->{subvolid} (in btrfs tree of $host_fs_spec) for mountpoint: $vol->{URL_PREFIX}$_->{file}";
+      WARN "Unknown subvolid=$_->{subvolid} (in btrfs tree of $host_mount_source) for mountpoint: $vol->{URL_PREFIX}$_->{file}";
       next;
     }
     $node->{MOUNTPOINT_URL} = $vol->{URL_PREFIX} . $_->{file};
@@ -2268,7 +2226,7 @@ sub btr_tree($$$$)
   TRACE "btr_tree: returning tree at id=$vol_root->{id}";
   VINFO($vol_root, "node") if($loglevel >=4);
 
-  $fs_spec_cache{$host_fs_spec} = $tree_root;
+  $mount_source_cache{$host_mount_source} = $tree_root;
   return $vol_root;
 }
 
@@ -2312,7 +2270,7 @@ sub _fs_path
 {
   my $node = shift // die;
   return $node->{MOUNTPOINT_URL} if($node->{MOUNTPOINT_URL});
-  return "<$node->{host_fs_spec}>" if($node->{is_root});
+  return "<$node->{host_mount_source}>" if($node->{is_root});
   return _fs_path($node->{TOP_LEVEL}) . '/' . $node->{REL_PATH};
 }
 
@@ -2331,7 +2289,7 @@ sub _is_correlated($$)
 
 sub _is_same_fs_tree($$)
 {
-  return ($_[0]->{TREE_ROOT}{host_fs_spec} eq $_[1]->{TREE_ROOT}{host_fs_spec});
+  return ($_[0]->{TREE_ROOT}{host_mount_source} eq $_[1]->{TREE_ROOT}{host_mount_source});
 }
 
 
@@ -2543,12 +2501,12 @@ sub vinfo_init_root($;@)
   my %opts = @_;
 
   # resolve btrfs tree from mount point
-  my ($mnt_path, $real_path, $subvolid, $fs_spec, $mountpoints) = btrfs_mountpoint($vol);
+  my ($mnt_path, $real_path, $subvolid, $mount_source, $mountpoints) = btrfs_mountpoint($vol);
   return undef unless($mnt_path && $real_path && $subvolid);
 
   # read btrfs tree for the mount point
   my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
-  my $mnt_tree_root = btr_tree($mnt_vol, $subvolid, $fs_spec, $mountpoints);
+  my $mnt_tree_root = btr_tree($mnt_vol, $subvolid, $mount_source, $mountpoints);
   return undef unless($mnt_tree_root);
 
   # find longest match in btrfs tree
@@ -2590,7 +2548,7 @@ sub vinfo_init_raw_root($;@)
     # create fake btr_tree
     $tree_root = { id => 5,
                    is_root => 1,
-                   host_fs_spec => 'raw_tree@' . $droot->{URL}, # for completeness (this is never used)
+                   host_mount_source => 'raw_tree@' . $droot->{URL}, # for completeness (this is never used)
                    GEN_MAX => 1,
                    SUBTREE => [],
                    UUID_HASH => {},
