@@ -11,6 +11,8 @@ btrbk-0.27.0-dev
   * Bugfix: add "btrfs filesystem usage" backend mapping (close #222).
   * Bugfix: do not fail (exitcode=10) if targets are not accessible on
     "btrfs snapshot --preserve".
+  * Bugfix: if "incremental no" is configured on target, do not keep
+    latest common snapshot.
   * Enhance internal data structures:
     - Allow snapshot_dir to be a mountpoint.
     - Search complete target tree for correlated subvolumes.

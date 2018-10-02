@@ -5990,17 +5990,19 @@ MAIN:
               next;
             }
 
-            # always preserve latest common snapshot/backup pair
-            foreach my $child (@snapshot_children) {
-              my @receive_targets = get_receive_targets($droot, $child, exact => 1);
-              if(scalar(@receive_targets)) {
-                DEBUG "Force preserve for latest common snapshot: $child->{PRINT}";
-                $child->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
-                foreach(@receive_targets) {
-                  DEBUG "Force preserve for latest common target: $_->{PRINT}";
-                  $_->{node}{FORCE_PRESERVE} = 'preserve forced: latest common target';
+            # preserve latest common snapshot/backup (for incremental targets)
+            if(config_key($droot, "incremental")) {
+              foreach my $child (@snapshot_children) {
+                my @receive_targets = get_receive_targets($droot, $child, exact => 1);
+                if(scalar(@receive_targets)) {
+                  DEBUG "Force preserve for latest common snapshot: $child->{PRINT}";
+                  $child->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
+                  foreach(@receive_targets) {
+                    DEBUG "Force preserve for latest common target: $_->{PRINT}";
+                    $_->{node}{FORCE_PRESERVE} = 'preserve forced: latest common target';
+                  }
+                  last;
                 }
-                last;
               }
             }
 
