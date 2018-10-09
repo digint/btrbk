@@ -53,10 +53,10 @@ Prerequisites
   * [OpenSSH]: If you want to transfer backups from/to remote locations
   * [Pipe Viewer]: If you want rate limiting and progress bars
 
-  [btrfs-progs]: http://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
+  [btrfs-progs]: https://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
   [Perl interpreter]: https://www.perl.org
-  [OpenSSH]: http://www.openssh.org
-  [Pipe Viewer]: http://www.ivarch.com/programs/pv.shtml
+  [OpenSSH]: https://www.openssh.org
+  [Pipe Viewer]: https://www.ivarch.com/programs/pv.shtml
 
 
 Instructions
@@ -112,7 +112,7 @@ btrbk is in Void's `current` repository
     xbps-install -S btrbk
 
 
-  [btrbk source tarball]: http://digint.ch/download/btrbk/releases/
+  [btrbk source tarball]: https://digint.ch/download/btrbk/releases/
 
 
 Synopsis
@@ -445,8 +445,8 @@ For even more security, set up a chroot environment in
 
 
   [ssh_filter_btrbk(1)]: https://digint.ch/btrbk/doc/ssh_filter_btrbk.1.html
-  [sshd(8)]: http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man8/sshd.8
-  [sshd_config(5)]: http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man5/sshd_config.5
+  [sshd(8)]: https://man.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man8/sshd.8
+  [sshd_config(5)]: https://man.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man5/sshd_config
   [btrfs-progs-btrbk]: https://github.com/digint/btrfs-progs-btrbk
 
 
@@ -569,8 +569,8 @@ If you would like to contribute or have found bugs:
 
 Any feedback is appreciated!
 
-  [btrbk project page on GitHub]: http://github.com/digint/btrbk
-  [issues tracker]: http://github.com/digint/btrbk/issues
+  [btrbk project page on GitHub]: https://github.com/digint/btrbk
+  [issues tracker]: https://github.com/digint/btrbk/issues
 
 
 License
@@ -579,4 +579,4 @@ License
 btrbk is free software, available under the [GNU General Public
 License, Version 3][GPLv3].
 
-  [GPLv3]: http://www.gnu.org/licenses/gpl.html
+  [GPLv3]: https://www.gnu.org/licenses/gpl.html
