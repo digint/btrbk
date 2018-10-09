@@ -378,32 +378,36 @@ understand the implications (see [btrbk.conf(5)], TARGET TYPES).
 Setting up SSH
 ==============
 
-Since btrbk needs root access on the remote side, it is *very
-advisable* to take all the security precautions you can. Usually
-backups are generated periodically without user interaction, so it is
-not possible to protect your ssh key with a password. The steps below
-will give you hints on how to secure your ssh server for a backup
-scenario. Note that the btrbk executable is not needed on the remote
-side, but you will need "/sbin/btrfs" from the btrfs-progs package.
+Since btrbk needs root access, it is *very advisable* to take all the
+security precautions you can. In most cases backups are generated
+periodically without user interaction, so it is not possible to
+protect your ssh key with a password. The steps below will give you
+hints on how to secure your ssh server for a backup scenario. Note
+that the `btrbk` executable is not needed on the remote side, but you
+will need the `btrfs` executable from the [btrfs-progs] package.
 
-btrbk comes with a shell script "ssh_filter_btrbk.sh", which restricts
-ssh access to sane calls to the /sbin/btrfs command needed for
-snapshot creation and send/receive operations (see
-[ssh_filter_btrbk(1)]). Here is an example on how it can be used with
-ssh:
 
-**Step 1** (client): Create a ssh key dedicated to btrbk, without
-  password protection:
+### Step 1: Create SSH keypair
+
+On the client side, create a ssh key dedicated to btrbk, without
+password protection:
 
     ssh-keygen -t rsa -b 2048 -f /etc/btrbk/ssh/id_rsa -C btrbk@mydomain.com -N ""
 
-**Step 2** (server): Copy the "ssh_filter_btrbk.sh" from the btrbk
-  project to "/backup/scripts/".
+The content of the public key (/etc/btrbk/ssh/id_rsa.pub) is used for
+authentication in "authorized_keys" on the server side (see [sshd(8)]
+for details).
 
-**Step 3** (server): Add contents of the public key
-  (/etc/btrbk/ssh/id_rsa.pub) to "/root/.ssh/authorized_keys", and
-  configure "ssh_filter_btrbk.sh" to be executed whenever this key is
-  used for authentication. Example lines:
+
+### Step 2 (option): root login restricted by "ssh_filter_btrbk.sh"
+
+Btrbk comes with a shell script "ssh_filter_btrbk.sh", which restricts
+ssh access to sane calls to the "btrfs" command needed for snapshot
+creation and send/receive operations (see [ssh_filter_btrbk(1)]).
+
+Copy "ssh_filter_btrbk.sh" to "/backup/scripts/", and configure sshd
+to run it whenever the key is used for authentication. Example
+"/root/.ssh/authorized_keys":
 
     # example backup source (also allowing deletion of old snapshots)
     command="/backup/scripts/ssh_filter_btrbk.sh -l --source --delete" <pubkey>...
@@ -415,25 +419,29 @@ ssh:
     # restricted to subvolumes within /home or /data
     command="/backup/scripts/ssh_filter_btrbk.sh -l --send -p /home -p /data" <pubkey>...
 
+
+### Step 2 (option): dedicated user login, using different backend
+
+Create a user dedicated to btrbk and add the public key to
+"/home/btrbk/.ssh/authorized_keys". In "btrbk.conf", choose either:
+
+ * `backend btrfs-progs-btrbk` to use separated binaries with elevated
+   privileges (suid or fscaps) instead of the "btrfs" command (see
+   [btrfs-progs-btrbk]).
+
+ * `backend btrfs-progs-sudo`, configure "/etc/sudoers" and add the
+   `ssh_filter_btrbk.sh --sudo` option.
+
+
+### Further considerations
+
 You might also want to restrict ssh access to a static IP address
 within your network:
 
-    from="192.168.0.42",command="/backup/scripts/ssh_filter_btrbk.sh [...]" <pubkey>...
-
-Please refer to [ssh_filter_btrbk(1)] for a description of the
-"ssh_filter_btrbk.sh" options, as well as [sshd(8)] for a description
-of the "authorized_keys" file format.
-
-Also consider setting up ssh access for a user dedicated to btrbk and
-choose either:
-
-  - `backend btrfs-progs-btrbk` to completely get rid of
-    ssh_filter_btrbk.sh, in conjunction with [btrfs-progs-btrbk],
-  - `backend btrfs-progs-sudo`, configure /etc/sudoers, and consider
-    using "ssh_filter_btrbk.sh --sudo" option.
+    from="192.168.0.42",command=... <pubkey>...
 
 For even more security, set up a chroot environment in
-/etc/ssh/sshd_config (see [sshd_config(5)]).
+"/etc/ssh/sshd_config" (see [sshd_config(5)]).
 
 
   [ssh_filter_btrbk(1)]: https://digint.ch/btrbk/doc/ssh_filter_btrbk.1.html
