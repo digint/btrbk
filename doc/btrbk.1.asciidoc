@@ -353,8 +353,9 @@ FILTER STATEMENTS
 Filter arguments are accepted in form:
 
 <group-name>::
-Matches the 'group' configuration option of a 'volume',
-'subvolume' or 'target' section.
+    Matches the 'group' configuration option of a 'volume',
+    'subvolume' or 'target' section (including all underlying
+    sections).
 
 [hostname:]<volume-directory>::
     Matches all subvolumes and targets of a 'volume' configuration
@@ -373,6 +374,11 @@ Matches the 'group' configuration option of a 'volume',
 
 For convenience, [hostname:] can be specified as either "hostname:" or
 "ssh://hostname/".
+
+Note that for *run* and *snapshot* commands, a filter matching a
+'target' configuration section also enables snapshot creation of the
+surrounding 'subvolume' section. If this is not desired, consider
+running *snapshot* and *resume* commands separately.
 
 
 FILES
