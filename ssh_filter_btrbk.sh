@@ -14,6 +14,10 @@ allow_stream_buffer=1
 allow_compress=1
 compress_list="gzip|pigz|bzip2|pbzip2|xz|lzop|lz4"
 
+# note that the backslash is NOT a metacharacter in a POSIX bracket expression!
+option_match='-[a-zA-Z0-9=-]+'   # matches short as well as long options
+file_match='[0-9a-zA-Z_@+./-]*'  # matches file path (equal to $file_match in btrbk)
+
 log_cmd()
 {
     if [[ -n "$enable_log" ]]; then
@@ -47,10 +51,6 @@ run_cmd()
 
 reject_filtered_cmd()
 {
-    # note that the backslash is NOT a metacharacter in a POSIX bracket expression!
-    option_match='-[a-zA-Z0-9=-]+'   # matches short as well as long options
-    file_match='[0-9a-zA-Z_@+./-]*'  # matches file path (equal to $file_match in btrbk)
-
     if [[ -n "$restrict_path_list" ]]; then
 	# match any of restrict_path_list with or without trailing slash,
 	# or any file/directory (matching file_match) below restrict_path
@@ -162,7 +162,7 @@ while [[ "$#" -ge 1 ]]; do
 done
 
 allow_cmd "${sudo_prefix}btrfs subvolume show"; # subvolume queries are always allowed
-allow_cmd "${sudo_prefix}btrfs subvolume list"; # subvolume queries are always allowed
+allow_exact_cmd "${sudo_prefix}btrfs subvolume list ${file_match}"; # subvolume queries are always allowed
 allow_cmd "readlink"                            # used to resolve mountpoints
 allow_exact_cmd "cat /proc/self/mountinfo"      # used to resolve mountpoints
 allow_exact_cmd "cat /proc/self/mounts"         # legacy, for btrbk < 0.27.0
