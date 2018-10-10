@@ -385,7 +385,7 @@ backups as well as snapshots, referring to 'target_preserve' or
 
 The format for '<retention_policy>' is:
 
-{nwsp}:: [<hourly>h] [<daily>d] [<weekly>w] [<monthly>m] [<yearly>y]
+    [<hourly>h] [<daily>d] [<weekly>w] [<monthly>m] [<yearly>y]
 
 With the following semantics:
 
