@@ -243,9 +243,9 @@ Note that using ``long-iso'' has implications on the scheduling, see
     input, which is usually not desired.
 
 *ssh_user* <username>::
-    Remote username for ssh. Defaults to ``root''. Note that you will
-    have to make sure that the remote user is able to run
-    "/sbin/btrfs" (which needs root privileges).
+    Remote username for ssh. Defaults to ``root''. Make sure the
+    remote user is able to run "btrfs" with root privileges (see
+    option 'backend' for details).
 
 *ssh_port* <port>|default::
     Port to connect to on the remote host. Defaults to ``default''
@@ -328,8 +328,7 @@ work. If you need this, define alias host names for each vm.
 
 *backend* btrfs-progs|btrfs-progs-btrbk|btrfs-progs-sudo::
     Backend filesystem utilities to be used for btrfs specific
-    operations. The default ``btrfs-progs'' simply executes btrfs(8)
-    commands groups (e.g. "btrfs subvolume show").
+    operations. Defaults to ``btrfs-progs''.
 +
 --
 btrfs-progs::
