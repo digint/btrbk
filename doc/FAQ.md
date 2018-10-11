@@ -205,12 +205,6 @@ effect, this also detects possible read-errors on your backup targets
 
 See **btrbk archive** command in [btrbk(1)] for more details.
 
-**Note that kernels >=4.1 and <4.4 have a bug when re-sending
-subvolumes**, make sure you run a recent/patched kernel or step 3 will
-fail. Read
-[this thread on gmane](http://thread.gmane.org/gmane.comp.file-systems.btrfs/48798)
-(the patch provided is confirmed working on kernels 4.2.x and 4.3.x).
-
 
 ### Answer 2: Use external storage as "stream-fifo"
 

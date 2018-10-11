@@ -227,16 +227,11 @@ retention policy).
     continue using btrbk after swapping your backup disk with the
     archive disk.
 +
-Note that this feature needs a *linux kernel >=4.4* to work correctly!
-Kernels >=4.1 and <4.4 have a bug when re-sending subvolumes (the
-archived subvolumes will have incorrect received_uuid, see
-<http://thread.gmane.org/gmane.comp.file-systems.btrfs/48798>), so
-make sure you run a recent kernel.
+If you want to use nested subvolumes on the target filesystem, you
+need to create them by hand (e.g. by running "btrfs subvolume create
+<target>/dir"). Check the output of --dry-run if unsure.
 +
-Known bugs: If you want to use nested subvolumes on the target
-filesystem, you need to create them by hand (e.g. by running "btrfs
-subvolume create <target>/dir"). Check the output of --dry-run if
-unsure.
+Note that this feature needs a *linux kernel >=4.4* to work correctly!
 
 *clean* [filter...]::
     Delete incomplete (garbled) backups. Incomplete backups can be
