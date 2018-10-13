@@ -258,7 +258,7 @@ e.g. for several virtual machines listening on same address, will NOT
 work. If you need this, define alias host names for each vm.
 --
 
-*ssh_compression* yes|no:: 
+*ssh_compression* yes|no::
     Enables or disables the compression of ssh connections. Defaults
     to ``no''.
 
