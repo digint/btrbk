@@ -456,6 +456,15 @@ like this:
 
     btrfs send /mnt/btr_backup/data.20150101 | ssh root@my-remote-host.com btrfs receive /mnt/btr_pool/
 
+Hint: If you still have common snapshot / backup pairs (i.e. both
+"snapshot_subvol" and "target_subvol" are listed) consider sending the
+backup incrementally by specifying a parent subvolume:
+
+    btrfs send -p /mnt/btr_backup/<parent-subvolume> [...]
+
+This allows btrbk to continue using the parent subvolume for
+incremental backups later.
+
 If everything went fine, nuke the broken subvolume:
 
     btrfs subvolume delete /mnt/btr_pool/data.BROKEN
