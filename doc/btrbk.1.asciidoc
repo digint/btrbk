@@ -35,7 +35,16 @@ btrfs specific capabilities to create atomic snapshots and transfer
 them incrementally to a target btrfs filesystem. It is able to perform
 backups from one source to multiple destinations.
 
-Snapshots as well as backup subvolume names are created in form:
+For most operations, *btrbk* requires 'root privileges' to run
+correctly. Alternatively, consider using "btrfs-progs-sudo" or
+"btrfs-progs-btrbk" backends, both of which allows you to run btrbk as
+a regular user. Refer to configuration option 'backend' in
+btrbk.conf(5) for more details.
+
+
+=== Snapshots and Backups
+
+Snapshots as well as backup subvolumes are created in form:
 
     <snapshot-name>.<timestamp>[_N]
 
@@ -47,6 +56,11 @@ unless the configuration option 'snapshot_name' is set. The
 minute of the creation time (local time of the host running btrbk). If
 multiple snapshots/backups are created on the same date/time, N will
 be incremented on each snapshot, starting at 1.
+
+Note that 'snapshot' is a btrfs terminology for a ``read-only
+subvolume'' (showing a parent-uuid, see btrfs-subvolume(8)); 'backup'
+is a btrbk terminology for a ``read-only subvolume created with
+send/receive'' (showing a received-uuid).
 
 
 OPTIONS
