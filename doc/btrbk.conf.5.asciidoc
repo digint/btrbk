@@ -141,9 +141,9 @@ Note that using ``long-iso'' has implications on the scheduling, see
 
 *snapshot_dir* <directory>::
     Directory in which the btrfs snapshots are created, relative to
-    '<volume-directory>' of the 'volume' section. Note that btrbk does
-    not autmatically create this directory, and the snapshot creation
-    will fail if it is not present.
+    '<volume-directory>' of the 'volume' section. This option is *not* valid in
+    the 'target' section. Note that btrbk does not autmatically create this
+    directory, and the snapshot creation will fail if it is not present.
 
 *snapshot_name* <basename>::
     Base name of the created snapshot (and backup). This option is
@@ -258,7 +258,7 @@ e.g. for several virtual machines listening on same address, will NOT
 work. If you need this, define alias host names for each vm.
 --
 
-*ssh_compression* yes|no:: 
+*ssh_compression* yes|no::
     Enables or disables the compression of ssh connections. Defaults
     to ``no''.
 
