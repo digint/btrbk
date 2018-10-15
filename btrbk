@@ -2756,7 +2756,9 @@ sub vinfo_resolved($$)
   if($vol->{NODE_SUBDIR}) {
     return undef unless($jpath =~ s/^\Q$vol->{NODE_SUBDIR}\E\///);
   }
-  return vinfo_child($vol, $jpath);
+  my $vinfo = vinfo_child($vol, $jpath);
+  $vinfo->{node} = $node;
+  return $vinfo;
 }
 
 
