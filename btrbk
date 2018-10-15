@@ -321,7 +321,7 @@ options:
    -l, --loglevel=LEVEL      set logging level (warn, info, debug, trace)
    -t, --table               change output to table format
        --format=FORMAT       change output format, FORMAT=table|long|raw
-       --print-schedule      print scheduler details (for the "run" command)
+   -S, --print-schedule      print scheduler details (for the "run" command)
        --progress            show progress bar on send-receive operation
 
 commands:
@@ -4451,7 +4451,7 @@ MAIN:
     'progress'           => \$show_progress,
     'table|t'            => sub { $output_format = "table" },
     'format=s'           => \$output_format,
-    'print-schedule'     => \$print_schedule,
+    'print-schedule|S'   => \$print_schedule,
     'lockfile=s'         => \$lockfile_cmdline,
     'override=s'         => \@config_override_cmdline,  # e.g. --override=incremental=no
    ))

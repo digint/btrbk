@@ -424,7 +424,7 @@ The reference time (which defines the beginning of a day, week, month
 or year) for all date/time calculations is the local time of the host
 running btrbk.
 
-Hint: Run btrbk with the '--print-schedule' option to get a
+Hint: Run btrbk with the '-S', '--print-schedule' option to get a
 comprehensive output of the scheduler results.
 
 Caveats:

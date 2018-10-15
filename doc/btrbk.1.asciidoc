@@ -21,7 +21,7 @@ btrbk [-h|--help] [--version]
       [-p|--preserve] [--preserve-snapshots] [--preserve-backups]
       [-v|--verbose] [-q|--quiet] [-l|--loglevel <level>]
       [-t|--table] [--format <output-format>]
-      [--progress] [--print-schedule]
+      [--progress] [-S|--print-schedule]
       [--override <config_option>=<value>]
       [--lockfile <file>]
       <command> [<args>]
@@ -125,7 +125,7 @@ OPTIONS
 --progress::
     Show progress bar on send-receive operation.
 
---print-schedule::
+-S, --print-schedule::
     Print detailed scheduler information on *run*, *snapshot*,
     *resume*, *prune* and *archive* commands. Use the '--format'
     command line option to switch between different output formats.

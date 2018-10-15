@@ -5,6 +5,7 @@ btrbk-0.27.0-dev
       "readlink" and "cat /proc/self/mountinfo").
   * Add "preserve_hour_of_day" configuration option (close #202).
   * Allow backup of filesystem root using "subvolume ." (close #240).
+  * Add "-S" command line option (shortcut for --print-schedule).
   * Bugfix: correct scheduling of "first weekly backup in month/year"
     (close #217). Note that this change may result in (previously
     preserved) backups to be deleted!
