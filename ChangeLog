@@ -1,4 +1,4 @@
-btrbk-0.27.0-dev
+btrbk-0.27.0
 
   * MIGRATION
     - Run "btrbk prune --dry-run --print-schedule" and check if any

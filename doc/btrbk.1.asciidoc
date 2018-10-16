@@ -1,7 +1,7 @@
 btrbk(1)
 ========
-:date:        2018-03-05
-:revision:    0.26.1
+:date:        2018-10-16
+:revision:    0.27.0
 :man manual:  Btrbk Manual
 :man source:  Btrbk
 
