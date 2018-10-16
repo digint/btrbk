@@ -1,14 +1,18 @@
 btrbk-0.27.0-dev
 
   * MIGRATION
-    - update ssh_filter_btrbk.sh on remote hosts (btrbk always calls
+    - Run "btrbk prune --dry-run --print-schedule" and check if any
+      snapshots/backups would get deleted [1] [2]. If you want to
+      forcibly preserve a snapshot/backup forever, rename it (btrbk
+      ignores subvolumes with unknown naming scheme), e.g.:
+      "mv mysubvol.YYYYMMDD mysubvol.YYYYMMDD.keep_forever"
+    - Update ssh_filter_btrbk.sh on remote hosts (btrbk always calls
       "readlink" and "cat /proc/self/mountinfo").
   * Add "preserve_hour_of_day" configuration option (close #202).
   * Allow backup of filesystem root using "subvolume ." (close #240).
   * Add "-S" command line option (shortcut for --print-schedule).
   * Bugfix: correct scheduling of "first weekly backup in month/year"
-    (close #217). Note that this change may result in (previously
-    preserved) backups to be deleted!
+    (close #217) [1] [2].
   * Bugfix: add "btrfs filesystem usage" backend mapping (close #222).
   * Bugfix: do not fail (exitcode=10) if targets are not accessible on
     "btrfs snapshot --preserve".
@@ -23,6 +27,9 @@ btrbk-0.27.0-dev
     - Always read /proc/self/mountinfo.
     - Resolve realpath using readlink(1).
   * Fallback to "asciidoctor" for manpage generation (close #219).
+
+      [1] https://github.com/digint/btrbk/issues/217
+      [2] https://github.com/digint/btrbk/commit/719fb5f
 
 btrbk-0.26.1
 
