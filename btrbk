@@ -3020,66 +3020,36 @@ sub get_related_subvolumes($$;@)
   my $snaproot = shift || die;
   my $svol = shift // die;
   my %opts = @_;
-  my $snapshot_dir = shift;  # if not set, skip search for btrbk basename (set to empty string to enable at current dir)
   my $snaproot_subvol_list = vinfo_subvol_list_all_accessible($snaproot);
 
   TRACE "get_related: resolving related subvolumes of: $svol->{PATH}  (snaproot=$snaproot->{PRINT})";
   my @candidate;
-  if($svol->{node}{readonly}) {
-    if($svol->{node}{parent_uuid} ne '-') {
-      # add readonly parent
-      @candidate = grep { $_->{node}{readonly} && ($_->{node}{uuid} eq $svol->{node}{parent_uuid}) } @$snaproot_subvol_list;
-      die "multiple parents for $svol->{node}{parent_uuid}" if(scalar(@candidate) > 1);
-      TRACE "get_related: subvolume has a read-only parent, add parent candidate" if(scalar(@candidate) > 0);
 
-      # add snapshots with same parent_uuid (siblings)
-      my @siblings = grep { $_->{node}{readonly} && ($_->{node}{parent_uuid} eq $svol->{node}{parent_uuid}) } @$snaproot_subvol_list;
-      my @siblings_older = grep { $_->{node}{cgen} <= $svol->{node}{cgen} } @siblings;
-      my @siblings_newer = grep { $_->{node}{cgen} >  $svol->{node}{cgen} } @siblings;
-      push @candidate, sort { $b->{node}{cgen} <=> $a->{node}{cgen} } @siblings_older; # older first, descending by cgen
-      push @candidate, sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @siblings_newer; # then newer, ascending by cgen
-      TRACE "get_related: subvolume has siblings (same parent_uuid), add " . scalar(@siblings_older) . " older and " . scalar(@siblings_newer) . " newer (by cgen) candidates";
-    }
-
-    if($opts{fallback_btrbk_basename} && exists($svol->{node}{BTRBK_BASENAME})) {
-      # add subvolumes in same directory matching btrbk file name scheme
-      my $snaproot_btrbk_direct_leaf = vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $svol->{node}{BTRBK_BASENAME});
-      my @naming_match_older = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @$snaproot_btrbk_direct_leaf;
-      my @naming_match_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snaproot_btrbk_direct_leaf;
-      push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match_older;
-      push @candidate, sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) } @naming_match_newer;
-      TRACE "get_related: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $snaproot->{PRINT}/$svol->{node}{BTRBK_BASENAME}.*";
-    }
-  }
-  else
-  {
-    # TODO: this is dead code, consider removing (or move to separate function)
-    @candidate = sort { $b->{node}{cgen} <=> $a->{node}{cgen} } get_snapshot_children($snaproot, $svol);
-    TRACE "get_related: subvolume is read-write, add " . scalar(@candidate) . " snapshot children, sorted by cgen: $svol->{PATH}";
-
-    if($opts{fallback_btrbk_basename}) {
-      # add subvolumes in same directory matching btrbk file name scheme (using $svol->{NAME} as basename)
-      my @naming_match = grep { $_->{node}{readonly} && exists($_->{node}{BTRBK_BASENAME}) && ($_->{SUBVOL_DIR} eq "") && ($_->{node}{BTRBK_BASENAME} eq $svol->{NAME}) } @$snaproot_subvol_list;
-      push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match;
-      TRACE "get_related: subvolume has btrbk naming scheme, add " . scalar(@naming_match) . " candidates with scheme: $snaproot->{PRINT}/$svol->{NAME}.*";
-    }
-  }
-
-  # add read-only ancestors from parent chain (recursive!)
+  # iterate parent chain (recursive!)
   my $rnode = $svol->{node};
   my $search_depth = 0;
   while($rnode && ($search_depth < 256)) {
     last if($rnode->{parent_uuid} eq '-');
-    TRACE "get_related: searching parent chain (depth=$search_depth): $rnode->{uuid}";
+    TRACE "get_related: searching parent chain (depth=$search_depth) for: $rnode->{uuid}";
     my @parents = grep { $_->{node}{uuid} eq $rnode->{parent_uuid} } @$snaproot_subvol_list;
     if(scalar(@parents) == 1) {
       my $parent = $parents[0];
+
+      TRACE "get_related: found parent (depth=$search_depth): $parent->{PRINT}";
+
       if($parent->{node}{readonly}) {
-        TRACE "get_related: found read-only parent (depth=$search_depth), add as candidate: $parent->{PRINT}";
+        TRACE "get_related: parent is read-only, add as candidate: $parent->{PRINT}";
         push @candidate, $parent;
-      } else {
-        TRACE "get_related: found read-write parent (depth=$search_depth), ignoring: $parent->{PRINT}";
       }
+
+      # add direct children (snapshots with same parent_uuid)
+      my @children = grep { $_->{node}{readonly} && ($_->{node}{parent_uuid} eq $rnode->{parent_uuid}) } @$snaproot_subvol_list;
+      my @children_older = grep { $_->{node}{cgen} <= $svol->{node}{cgen} } @children;
+      my @children_newer = grep { $_->{node}{cgen} >  $svol->{node}{cgen} } @children;
+      push @candidate, sort { $b->{node}{cgen} <=> $a->{node}{cgen} } @children_older; # older first, descending by cgen
+      push @candidate, sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @children_newer; # then newer, ascending by cgen
+      TRACE "get_related: add direct children as candidates: " . scalar(@children_older) . " older and " . scalar(@children_newer) . " newer (by cgen)";
+
       $rnode = $parent->{node};
     }
     elsif(scalar(@parents) > 1) {
@@ -3089,6 +3059,16 @@ sub get_related_subvolumes($$;@)
       $rnode = undef;
     }
     $search_depth++;
+  }
+
+  if($opts{fallback_btrbk_basename} && exists($svol->{node}{BTRBK_BASENAME})) {
+    # add subvolumes in same directory matching btrbk file name scheme
+    my $snaproot_btrbk_direct_leaf = vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $svol->{node}{BTRBK_BASENAME});
+    my @naming_match_older = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @$snaproot_btrbk_direct_leaf;
+    my @naming_match_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snaproot_btrbk_direct_leaf;
+    push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match_older;
+    push @candidate, sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) } @naming_match_newer;
+    TRACE "get_related: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $snaproot->{PRINT}/$svol->{node}{BTRBK_BASENAME}.*";
   }
 
   return \@candidate;
