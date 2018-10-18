@@ -2182,6 +2182,7 @@ sub btr_tree($$$$)
   my %id;
   my %uuid_hash;
   my %received_uuid_hash;
+  my %parent_uuid_hash;
   my $gen_max = 0;
   foreach my $node (@$node_list) {
     my $node_id = $node->{id};
@@ -2195,6 +2196,7 @@ sub btr_tree($$$$)
       $uuid_cache{$node_uuid} = $node;
       # hacky: if root node has no "uuid", it also has no "received_uuid" and no "gen"
       push(@{$received_uuid_hash{$node->{received_uuid}}}, $node) if($node->{received_uuid} ne '-');
+      push(@{$parent_uuid_hash{$node->{parent_uuid}}}, $node) if($node->{parent_uuid} ne '-');
       $gen_max = $node->{gen} if($node->{gen} > $gen_max);
     }
     elsif(not $node->{is_root}) {
@@ -2207,6 +2209,7 @@ sub btr_tree($$$$)
   $tree_root->{ID_HASH} = \%id;
   $tree_root->{UUID_HASH} = \%uuid_hash;
   $tree_root->{RECEIVED_UUID_HASH} = \%received_uuid_hash;
+  $tree_root->{PARENT_UUID_HASH} = \%parent_uuid_hash;
   $tree_root->{GEN_MAX} = $gen_max;
 
   # NOTE: host_mount_source is NOT dependent on MACHINE_ID:
@@ -2260,7 +2263,7 @@ sub btr_tree($$$$)
 }
 
 
-sub btr_tree_inject_node
+sub btr_tree_inject_node($$$)
 {
   my $top_node = shift;
   my $detail = shift;
@@ -2291,6 +2294,7 @@ sub btr_tree_inject_node
   $tree_root->{ID_HASH}->{$tree_inject_id} = $node;
   $tree_root->{UUID_HASH}->{$uuid} = $node;
   push( @{$tree_root->{RECEIVED_UUID_HASH}->{$node->{received_uuid}}}, $node ) if($node->{received_uuid} ne '-');
+  push( @{$tree_root->{PARENT_UUID_HASH}->{$node->{parent_uuid}}}, $node ) if($node->{parent_uuid} ne '-');
   return $node;
 }
 
@@ -2414,6 +2418,7 @@ sub vinfo_child($$;$)
     SUBVOL_PATH  => $rel_path,
     SUBVOL_DIR   => $subvol_dir,  # SUBVOL_PATH=SUBVOL_DIR/NAME
     CONFIG       => $config // $parent->{CONFIG},
+    VINFO_MOUNTPOINT => $parent->{VINFO_MOUNTPOINT},
    };
 
   # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
@@ -2569,8 +2574,8 @@ sub vinfo_init_root($;@)
   $vol->{NODE_SUBDIR} = $node_subdir if($node_subdir ne '');
   $vol->{node} = $tree_root;
 
-  $vol->{MOUNTPOINT} = $mnt_path;
-  $vol->{MOUNTPOINT_NODE} = $mnt_tree_root;
+  $vol->{VINFO_MOUNTPOINT} = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
+  $vol->{VINFO_MOUNTPOINT}{node} = $mnt_tree_root;
 
   return $tree_root;
 }
@@ -3015,86 +3020,103 @@ sub get_receive_targets($$;@)
 }
 
 
-sub get_related_subvolumes($$;@)
+sub _push_related_children
 {
-  my $snaproot = shift || die;
-  my $svol = shift // die;
-  my %opts = @_;
-  my $snaproot_subvol_list = vinfo_subvol_list_all_accessible($snaproot);
+  my $node = shift;
+  my $related = shift;
+  my $prune = shift;
+  my $distance = shift // 0;
+  my $cgen_ref = shift;
 
-  TRACE "get_related: resolving related subvolumes of: $svol->{PATH}  (snaproot=$snaproot->{PRINT})";
-  my @candidate;
-
-  # iterate parent chain (recursive!)
-  my $rnode = $svol->{node};
-  my $search_depth = 0;
-  while($rnode && ($search_depth < 256)) {
-    last if($rnode->{parent_uuid} eq '-');
-    TRACE "get_related: searching parent chain (depth=$search_depth) for: $rnode->{uuid}";
-    my @parents = grep { $_->{node}{uuid} eq $rnode->{parent_uuid} } @$snaproot_subvol_list;
-    if(scalar(@parents) == 1) {
-      my $parent = $parents[0];
-
-      TRACE "get_related: found parent (depth=$search_depth): $parent->{PRINT}";
-
-      if($parent->{node}{readonly}) {
-        TRACE "get_related: parent is read-only, add as candidate: $parent->{PRINT}";
-        push @candidate, $parent;
-      }
-
-      # add direct children (snapshots with same parent_uuid)
-      my @children = grep { $_->{node}{readonly} && ($_->{node}{parent_uuid} eq $rnode->{parent_uuid}) } @$snaproot_subvol_list;
-      my @children_older = grep { $_->{node}{cgen} <= $svol->{node}{cgen} } @children;
-      my @children_newer = grep { $_->{node}{cgen} >  $svol->{node}{cgen} } @children;
-      push @candidate, sort { $b->{node}{cgen} <=> $a->{node}{cgen} } @children_older; # older first, descending by cgen
-      push @candidate, sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @children_newer; # then newer, ascending by cgen
-      TRACE "get_related: add direct children as candidates: " . scalar(@children_older) . " older and " . scalar(@children_newer) . " newer (by cgen)";
-
-      $rnode = $parent->{node};
-    }
-    elsif(scalar(@parents) > 1) {
-      die "multiple parents for $rnode->{parent_uuid}";
-    }
-    else {
-      $rnode = undef;
-    }
-    $search_depth++;
+  if($distance >= 256) {
+    WARN "Maximum distance reached, aborting related subvolume search";
+    return;
   }
+  return if(defined($prune) && ($node->{id} == $prune->{id}));
 
-  if($opts{fallback_btrbk_basename} && exists($svol->{node}{BTRBK_BASENAME})) {
-    # add subvolumes in same directory matching btrbk file name scheme
-    my $snaproot_btrbk_direct_leaf = vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $svol->{node}{BTRBK_BASENAME});
-    my @naming_match_older = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @$snaproot_btrbk_direct_leaf;
-    my @naming_match_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snaproot_btrbk_direct_leaf;
-    push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @naming_match_older;
-    push @candidate, sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) } @naming_match_newer;
-    TRACE "get_related: subvolume has btrbk naming scheme, add " . scalar(@naming_match_older) . " older and " . scalar(@naming_match_newer) . " newer (by file suffix) candidates with scheme: $snaproot->{PRINT}/$svol->{node}{BTRBK_BASENAME}.*";
+  my $children = $node->{TREE_ROOT}{PARENT_UUID_HASH}->{$node->{uuid}} // [];
+  my @readonly = grep { $_->{readonly} } @$children;
+  TRACE "related_nodes: add " . scalar(@readonly) . " readonly children of uuid=$node->{uuid} (distance=$distance)" if(scalar(@readonly));
+
+  # sort by absolute cgen delta, favor older
+  push @$related, sort { (abs($cgen_ref - $a->{cgen}) <=> abs($cgen_ref - $b->{cgen})) ||
+                         ($a->{cgen} <=> $b->{cgen})
+                       } @readonly;
+
+  # recurse into all child subvolumes
+  foreach(@$children) {
+    _push_related_children($_, $related, $prune, $distance + 1, $cgen_ref);
   }
+}
 
-  return \@candidate;
+
+# returns subvolume nodes related to $vol (by parent_uuid relationship),
+# sorted by parent/child distance and cgen delta.
+sub get_related_subvolume_nodes($)
+{
+  my $vol = shift // die;
+  my $cgen_ref = $vol->{node}{readonly} ? $vol->{node}{cgen} : $vol->{node}{gen};
+  TRACE "related_nodes: resolving related subvolumes of: $vol->{PATH}";
+
+  # iterate parent chain
+  my @related_nodes;
+  my $uuid_hash = $vol->{node}{TREE_ROOT}{UUID_HASH};
+  my $parent_it = $vol->{node};
+  my $last_parent;
+  my $distance = 0;
+  while($parent_it && ($distance <= 256)) {
+    _push_related_children($parent_it, \@related_nodes, $last_parent, $distance + 1, $cgen_ref);
+    $last_parent = $parent_it;
+    $parent_it = $uuid_hash->{$parent_it->{parent_uuid}};
+    $distance++;
+    TRACE "related_nodes: found parent uuid=$parent_it->{uuid} (distance=$distance)" if($parent_it);
+  }
+  TRACE "related_nodes: found total=" . scalar(@related_nodes) . " related readonly subvolumes";
+  return \@related_nodes;
 }
 
 
 # returns ( parent, first_matching_target_node )
-sub get_best_parent($$$)
+sub get_best_parent($$;@)
 {
-  my $snaproot = shift || die;
   my $svol = shift // die;
   my $droot = shift || die;
+  my %opts = @_;
+  my $fallback_btrbk_basename = $opts{fallback_btrbk_basename};
+  my $resolve_root = $opts{resolve_root} || $svol->{VINFO_MOUNTPOINT};
 
-  TRACE "get_best_parent: resolving best common parent for subvolume: $svol->{PATH}  (snaproot=$snaproot->{PRINT}, droot=$droot->{PRINT})";
-  my $related = get_related_subvolumes($snaproot, $svol, fallback_btrbk_basename => 1);
+  TRACE "get_best_parent: resolving best common parent for subvolume: $svol->{PATH}  (droot=$droot->{PRINT})";
+  my $all_related_nodes = get_related_subvolume_nodes($svol);
+
+  # filter candidates
+  my @candidate;  # candidates for parent, ordered by "best suited"
+  foreach (@$all_related_nodes) {
+    next if($_->{id} == $svol->{node}{id}); # skip self
+    my $vinfo = vinfo_resolved($_, $resolve_root);
+    push @candidate, $vinfo if($vinfo);
+  }
+
+  if((not scalar @candidate) && $fallback_btrbk_basename && exists($svol->{node}{BTRBK_BASENAME})) {
+    # add subvolumes in same directory matching btrbk file name scheme
+    my $snaproot = vinfo_snapshot_root($svol);
+    my $snaproot_btrbk_direct_leaf = vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $svol->{node}{BTRBK_BASENAME});
+    my @direct_leaf_older = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @$snaproot_btrbk_direct_leaf;
+    my @direct_leaf_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snaproot_btrbk_direct_leaf;
+    push @candidate, sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @direct_leaf_older;
+    push @candidate, sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) } @direct_leaf_newer;
+    TRACE "get_best_parent: subvolume has btrbk naming scheme, add " . scalar(@direct_leaf_older) . " older and " . scalar(@direct_leaf_newer) . " newer (by file suffix) candidates with scheme: $snaproot->{PRINT}/$svol->{node}{BTRBK_BASENAME}.*";
+  }
 
   # match receive targets of candidates
-  foreach my $child (@$related) {
-    next if($child->{node}{id} == $svol->{node}{id}); # skip self
-    my @receive_target_nodes = _receive_target_nodes($droot, $child);
+  foreach (@candidate) {
+    my @receive_target_nodes = _receive_target_nodes($droot, $_);
     if(scalar @receive_target_nodes) {
-      DEBUG "Resolved best common parent for \"$svol->{PRINT}\": \"$child->{PRINT}\", " . join(",", map('"' . _fs_path($_) . '"',@receive_target_nodes));
-      return ($child, $receive_target_nodes[0]);
+      DEBUG "Resolved best common parent for \"$svol->{PRINT}\": \"$_->{PRINT}\", " . join(",", map('"' . _fs_path($_) . '"',@receive_target_nodes));
+      return ($_, $receive_target_nodes[0]);
     }
   }
-  DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$snaproot->{PRINT}/\", target=\"$droot->{PRINT}/\"");
+
+  DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$resolve_root->{PRINT}/\", target=\"$droot->{PRINT}/\"");
   return undef;
 }
 
@@ -3865,7 +3887,7 @@ sub macro_archive_target($$$;$)
   my $archive_success = 0;
   foreach my $svol (@archive)
   {
-    my ($parent, $target_parent_node) = get_best_parent($sroot, $svol, $droot);
+    my ($parent, $target_parent_node) = get_best_parent($svol, $droot, resolve_root => $sroot, fallback_btrbk_basename => 1);
     if(macro_send_receive(source => $svol,
                           target => $droot,
                           parent => $parent,  # this is <undef> if no suitable parent found
@@ -5993,7 +6015,7 @@ MAIN:
                 }
 
                 INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
-                my ($parent, $target_parent_node) = get_best_parent($snaproot, $child, $droot);
+                my ($parent, $target_parent_node) = get_best_parent($child, $droot, fallback_btrbk_basename => 1);
                 if(macro_send_receive(source => $child,
                                       target => $droot,
                                       parent => $parent,  # this is <undef> if no suitable parent found
