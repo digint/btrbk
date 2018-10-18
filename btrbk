@@ -2747,51 +2747,6 @@ sub vinfo_subvol_list($;@)
 }
 
 
-sub vinfo_subvol_list_all_accessible($;@)
-{
-  my $vol = shift || die;
-  my %opts = @_;
-  die "no mountpoint specified" unless($vol->{MOUNTPOINT});
-
-  TRACE "Creating subvolume list (mountpoint=$vol->{MOUNTPOINT}) for: $vol->{PRINT}";
-  my $mnt_node = $vol->{MOUNTPOINT_NODE} // die;
-  my $mnt_vol = vinfo($vol->{URL_PREFIX} . $vol->{MOUNTPOINT}, $vol->{CONFIG});
-  TRACE "Adding subvolumes from mountpoint=$vol->{URL_PREFIX}$vol->{MOUNTPOINT}";
-  return _vinfo_subtree_list($mnt_node, $mnt_vol, $opts{readonly});
-
-  # TODO: re-enable as soon as btrfs-progs are fixed
-  #       (if so, remove "elsif(scalar(@parents) > 1)" check in get_related_subvolumes().
-  #
-  # # really all, considering all mountpoints
-  # #
-  # # NOTE: btrfs-progs has a bug when parent is not on same mountpoint as source:
-  # # https://github.com/kdave/btrfs-progs/issues/96
-  # #
-  # TRACE "Creating subvolume list (all mountpoints) for: $vol->{PRINT}";
-  # my $tree_root = $vol->{node}{TREE_ROOT};
-  # if($tree_root->{MOUNTPOINT_PATH}) {
-  #   # btrfs root is mounted, use it
-  #   my $mnt_vol = vinfo($vol->{URL_PREFIX} . $tree_root->{MOUNTPOINT_PATH}, $vol->{CONFIG});
-  #   TRACE "Adding subvolumes from btrfs root mountpoint: $mnt_vol->{PRINT}";
-  #   return _vinfo_subtree_list($tree_root, $mnt_vol);
-  # }
-  # else {
-  #   # list subvolumes from all mountpoints
-  #   # NOTE: this can result in multiple identical subvolumes if mounted several times!
-  #   my $subvol_list = [];
-  #   foreach (@{$tree_root->{MOUNTPOINTS}}) {
-  #     my $mnt_path = $_->{file};
-  #     my $mnt_node = $tree_root->{ID_HASH}{$_->{subvolid}};
-  #     next unless($mnt_node);
-  #     my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
-  #     TRACE "Adding subvolumes from subvolid=$_->{subvolid}, mountpoint=$vol->{URL_PREFIX}$mnt_path";
-  #     _vinfo_subtree_list($mnt_node, $mnt_vol, $opts{readonly}, undef, $subvol_list);
-  #   }
-  #   return $subvol_list;
-  # }
-}
-
-
 # returns vinfo_child if $node is in tree below $vol, or undef
 sub vinfo_resolved($$)
 {
