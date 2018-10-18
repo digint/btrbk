@@ -79,6 +79,7 @@ my %config_options = (
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "root", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
+  incremental_resolve         => { default => "mountpoint", accept => [ "mountpoint", "directory", "_all_accessible" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   preserve_hour_of_day        => { default => 0,         accept => [ (0..23) ]  },
   snapshot_preserve           => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1, context => [ "root", "volume", "subvolume" ], },
@@ -2814,6 +2815,25 @@ sub vinfo_resolved($$)
 }
 
 
+# returns vinfo if $node is below any mountpoint of $vol
+sub vinfo_resolved_all_mountpoints($$)
+{
+  my $node = shift || die;
+  my $vol = shift || die;
+  my $tree_root = $vol->{node}{TREE_ROOT};
+  foreach (@{$tree_root->{MOUNTPOINTS}}) {
+    my $mnt_path = $_->{file};
+    my $mnt_node = $tree_root->{ID_HASH}{$_->{subvolid}};
+    next unless($mnt_node);
+    my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
+    $mnt_vol->{node} = $mnt_node;
+    TRACE "vinfo_resolved_all_mountpoints: trying mountpoint: $mnt_vol->{PRINT}";
+    my $vinfo = vinfo_resolved($node, $mnt_vol);
+    return $vinfo if($vinfo);
+  }
+  return undef;
+}
+
 sub vinfo_subvol($$)
 {
   my $vol = shift || die;
@@ -3020,6 +3040,31 @@ sub get_receive_targets($$;@)
 }
 
 
+# returns best correlated receive target within droot (independent of btrbk name)
+sub get_best_receive_target($$;@)
+{
+  my $droot = shift || die;
+  my $src_vol = shift || die;
+  my %opts = @_;
+  my $filtered_nodes = $opts{push_filtered_nodes};
+
+  my @correlated = _receive_target_nodes($droot, $src_vol); # all matching src_vol, from droot->TREE_ROOT
+  foreach (@correlated) {
+    my $vinfo = vinfo_resolved($_, $droot); # $vinfo is within $resolve_droot
+    return $vinfo if($vinfo);
+    push @$filtered_nodes, $_ if($filtered_nodes);
+  }
+  if($opts{fallback_all_mountpoints}) {
+    foreach (@correlated) {
+      my $vinfo = vinfo_resolved_all_mountpoints($_, $droot); # $vinfo is within any mountpoint of filesystem at $droot
+      return $vinfo if($vinfo);
+      push @$filtered_nodes, $_ if($filtered_nodes);
+    }
+  }
+  return undef;
+}
+
+
 sub _push_related_children
 {
   my $node = shift;
@@ -3077,13 +3122,28 @@ sub get_related_subvolume_nodes($)
 
 
 # returns ( parent, first_matching_target_node )
-sub get_best_parent($$;@)
+sub get_best_parent($$$;@)
 {
   my $svol = shift // die;
+  my $snaproot = shift // die;
   my $droot = shift || die;
   my %opts = @_;
-  my $fallback_btrbk_basename = $opts{fallback_btrbk_basename};
-  my $resolve_root = $opts{resolve_root} || $svol->{VINFO_MOUNTPOINT};
+  my $fallback_btrbk_basename = $opts{fallback_btrbk_basename} // 1; # default true, see below
+
+  # honor incremental_resolve option
+  my $source_incremental_resolve = config_key($svol, "incremental_resolve");
+  my $target_incremental_resolve = config_key($droot, "incremental_resolve");
+  my $resolve_sroot = ($source_incremental_resolve eq "mountpoint") ? $snaproot->{VINFO_MOUNTPOINT} : $snaproot;
+  my $resolve_droot = ($source_incremental_resolve eq "mountpoint") ? $droot->{VINFO_MOUNTPOINT} : $droot;
+
+  # NOTE: Using parents from different mount points does NOT work, see
+  # <https://github.com/kdave/btrfs-progs/issues/96>.
+  # btrfs-progs-4.20.2 fails if the parent subvolume is not on same
+  # mountpoint as the source subvolume:
+  #  - btrfs send -p: "ERROR: not on mount point: /path/to/mountpoint"
+  #  - btrfs receive: "ERROR: parent subvol is not reachable from inside the root subvol"
+  my $source_fallback_all_mountpoints = ($source_incremental_resolve eq "_all_accessible");
+  my $target_fallback_all_mountpoints = ($target_incremental_resolve eq "_all_accessible");
 
   TRACE "get_best_parent: resolving best common parent for subvolume: $svol->{PATH}  (droot=$droot->{PRINT})";
   my $all_related_nodes = get_related_subvolume_nodes($svol);
@@ -3092,13 +3152,30 @@ sub get_best_parent($$;@)
   my @candidate;  # candidates for parent, ordered by "best suited"
   foreach (@$all_related_nodes) {
     next if($_->{id} == $svol->{node}{id}); # skip self
-    my $vinfo = vinfo_resolved($_, $resolve_root);
-    push @candidate, $vinfo if($vinfo);
+    my $vinfo = vinfo_resolved($_, $resolve_sroot);
+    if((not $vinfo) && $source_fallback_all_mountpoints) { # related node is not under $resolve_sroot
+      $vinfo = vinfo_resolved_all_mountpoints($_, $svol);
+    }
+    if($vinfo) {
+      push @candidate, $vinfo;
+    } else {
+      DEBUG "Related subvolume is not accessible within $source_incremental_resolve \"$resolve_sroot->{PRINT}\": " . _fs_path($_);
+    }
   }
 
-  if((not scalar @candidate) && $fallback_btrbk_basename && exists($svol->{node}{BTRBK_BASENAME})) {
-    # add subvolumes in same directory matching btrbk file name scheme
-    my $snaproot = vinfo_snapshot_root($svol);
+  # NOTE: get_related_subvolume_nodes() is very sophisticated and
+  # returns all known relations, there is always a chance that
+  # relations get broken.
+  #
+  # Consider parent_uuid chain ($svol readonly)
+  # B->A, C->B, delete B: C has no relation to A.
+  # This is especially true for backups and archives (btrfs receive)
+  #
+  # For snapshots (here: S=$svol readwrite) the scenario is different:
+  # A->S, B->S, C->S, delete B: A still has a relation to C.
+  #
+  # add subvolumes in same directory matching btrbk file name scheme
+  if($fallback_btrbk_basename && exists($svol->{node}{BTRBK_BASENAME})) {
     my $snaproot_btrbk_direct_leaf = vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $svol->{node}{BTRBK_BASENAME});
     my @direct_leaf_older = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @$snaproot_btrbk_direct_leaf;
     my @direct_leaf_newer = grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snaproot_btrbk_direct_leaf;
@@ -3107,17 +3184,33 @@ sub get_best_parent($$;@)
     TRACE "get_best_parent: subvolume has btrbk naming scheme, add " . scalar(@direct_leaf_older) . " older and " . scalar(@direct_leaf_newer) . " newer (by file suffix) candidates with scheme: $snaproot->{PRINT}/$svol->{node}{BTRBK_BASENAME}.*";
   }
 
-  # match receive targets of candidates
-  foreach (@candidate) {
-    my @receive_target_nodes = _receive_target_nodes($droot, $_);
-    if(scalar @receive_target_nodes) {
-      DEBUG "Resolved best common parent for \"$svol->{PRINT}\": \"$_->{PRINT}\", " . join(",", map('"' . _fs_path($_) . '"',@receive_target_nodes));
-      return ($_, $receive_target_nodes[0]);
+  # get correlated receive targets of candidates, return first matching within $resolve_droot
+  my $parent;
+  my $target_node;
+  my @filtered_nodes;
+  my %uniq;
+  foreach my $cand (@candidate) {
+    next if($uniq{$cand->{node}{id}});
+    my $receive_target = get_best_receive_target($resolve_droot, $cand, push_filtered_nodes => \@filtered_nodes, fallback_all_mountpoints => $target_fallback_all_mountpoints);
+    if($receive_target) {
+      TRACE "get_best_parent: common related from root=\"$resolve_droot->{PRINT}\": \"$cand->{PRINT}\", \"$receive_target->{PRINT}\"";
+      $parent = $cand;
+      $target_node = $receive_target->{node};
+      last;
     }
+    $uniq{$cand->{node}{id}} = 1;
+  }
+  if(scalar @filtered_nodes) {
+    WARN "Best common parent for \"$svol->{PRINT}\" is not accessible within target $target_incremental_resolve \"$resolve_droot->{PRINT}\", ignoring: " . join(", ", map('"' . _fs_path($_) . '"',@filtered_nodes));
   }
 
-  DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$resolve_root->{PRINT}/\", target=\"$droot->{PRINT}/\"");
-  return undef;
+  if($parent) {
+    DEBUG "Resolved best common parent: " . $parent->{PRINT};
+    return ($parent, $target_node);
+  } else {
+    DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$resolve_sroot->{PRINT}/\", target=\"$resolve_droot->{PRINT}/\"");
+    return undef;
+  }
 }
 
 
@@ -3887,7 +3980,7 @@ sub macro_archive_target($$$;$)
   my $archive_success = 0;
   foreach my $svol (@archive)
   {
-    my ($parent, $target_parent_node) = get_best_parent($svol, $droot, resolve_root => $sroot, fallback_btrbk_basename => 1);
+    my ($parent, $target_parent_node) = get_best_parent($svol, $sroot, $droot);
     if(macro_send_receive(source => $svol,
                           target => $droot,
                           parent => $parent,  # this is <undef> if no suitable parent found
@@ -6015,7 +6108,7 @@ MAIN:
                 }
 
                 INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
-                my ($parent, $target_parent_node) = get_best_parent($child, $droot, fallback_btrbk_basename => 1);
+                my ($parent, $target_parent_node) = get_best_parent($child, $snaproot, $droot);
                 if(macro_send_receive(source => $child,
                                       target => $droot,
                                       parent => $parent,  # this is <undef> if no suitable parent found

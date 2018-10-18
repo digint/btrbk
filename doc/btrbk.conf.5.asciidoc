@@ -154,7 +154,6 @@ Note that using ``long-iso'' has implications on the scheduling, see
     non-incremental (initial) backups are never created. Defaults to
     ``yes''.
 
-
 === Grouping Options
 
 *group* <group-name>[,<group-name>]...::
@@ -342,6 +341,16 @@ btrfs-progs-btrbk").
 *btrfs_commit_delete* after|each|no::
     If set, make sure the deletion of snapshot and backup subvolumes
     are committed to disk when btrbk terminates. Defaults to ``no''.
+
+*incremental_resolve* mountpoint|directory::
+    Specifies where to search for the best common parent for
+    incremental backups. If set to ``mountpoint'', use parents in the
+    filesystem tree below mount points of source
+    "<volume-directory>/<snapshot-dir>" and target
+    "<target-directory>". If set to ``directory'', use parents
+    strictly below source/target directories. Set this to
+    ``directory'' if you get access problems (when not running btrbk
+    as root). Defaults to ``mountpoint''.
 
 *snapshot_qgroup_destroy* yes|no  _*experimental*_:: {blank}
 *target_qgroup_destroy* yes|no  _*experimental*_:: {blank}
