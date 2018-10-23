@@ -345,8 +345,8 @@ btrfs-progs-btrbk::
 btrfs-progs-sudo::
     btrfs commands are prefixed with "sudo -n" (e.g. "sudo -n btrfs
     subvolume show" instead of "btrfs subvolume show"). Make sure to
-    have appropriate (root) permissions for "btrfs" command groups in
-    /etc/sudoers.
+    have appropriate (root) permissions for the "btrfs" command groups
+    and the "readlink" command in /etc/sudoers.
 --
 +
 For convenience, it is also possible to set *backend_local* or

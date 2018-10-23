@@ -163,7 +163,7 @@ done
 
 allow_cmd "${sudo_prefix}btrfs subvolume show"; # subvolume queries are always allowed
 allow_exact_cmd "${sudo_prefix}btrfs subvolume list ${file_match}"; # subvolume queries are always allowed
-allow_cmd "readlink"                            # used to resolve mountpoints
+allow_cmd "${sudo_prefix}readlink"              # used to resolve mountpoints
 allow_exact_cmd "cat /proc/self/mountinfo"      # used to resolve mountpoints
 allow_exact_cmd "cat /proc/self/mounts"         # legacy, for btrbk < 0.27.0
 

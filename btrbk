@@ -232,6 +232,7 @@ my %backend_cmd_map = (
                            "btrfs receive"            => [ "sudo", "-n", "btrfs", "receive"               ],
                            "btrfs filesystem usage"   => [ "sudo", "-n", "btrfs", "filesystem", "usage"   ],
                            "btrfs qgroup destroy"     => [ "sudo", "-n", "btrfs", "qgroup", "destroy"     ],
+                           "readlink"                 => [ "sudo", "-n", "readlink"                       ],
                          },
 );
 
@@ -1813,7 +1814,7 @@ sub system_realpath($)
 
   my $path = $vol->{PATH} // die;;
   my @quiet = ($loglevel < 3) ? ('-q') : ();
-  my $ret = run_cmd(cmd => [ qw(readlink), '-e', @quiet, { unsafe => $path } ],
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "readlink", '-e', @quiet, { unsafe => $path } ),
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
@@ -2429,7 +2430,6 @@ sub vinfo_cmd($$@)
   }
   else {
     my @ret_cmd = split(/\s/, $cmd);
-    die unless($ret_cmd[0] eq 'btrfs');
     TRACE "vinfo_cmd: no mapping found for backend=$backend cmd=\"$cmd\", assuming btrfs-progs: " . join(' ', @ret_cmd);
     $ret = [ @ret_cmd, @cmd_args ];
   }
