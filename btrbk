@@ -4319,6 +4319,11 @@ sub print_formatted(@)
       }
       print $fh "\n";
     }
+
+    # print additional newline for paragraphs
+    if($args{paragraph}) {
+      print $fh "\n";
+    }
   }
 }
 
@@ -4943,14 +4948,12 @@ MAIN:
       # print scheduling results
       if($print_schedule) {
         my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
-        print_formatted("schedule", \@data, title => "ARCHIVE SCHEDULE");
-        print "\n";
+        print_formatted("schedule", \@data, title => "ARCHIVE SCHEDULE", paragraph => 1);
       }
 
       if($print_schedule && $del_schedule_results) {
         my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$del_schedule_results;
-        print_formatted("schedule", \@data, title => "DELETE SCHEDULE");
-        print "\n";
+        print_formatted("schedule", \@data, title => "DELETE SCHEDULE", paragraph => 1);
       }
 
       # print summary
@@ -6088,12 +6091,10 @@ MAIN:
         my @data_backup   = grep { $_->{topic} eq "backup"   } @data;
 
         if(scalar(@data_snapshot)) {
-          print_formatted("schedule", \@data_snapshot, title => "SNAPSHOT SCHEDULE");
-          print "\n";
+          print_formatted("schedule", \@data_snapshot, title => "SNAPSHOT SCHEDULE", paragraph => 1);
         }
         if(scalar(@data_backup)) {
-          print_formatted("schedule", \@data_backup, title => "BACKUP SCHEDULE");
-          print "\n";
+          print_formatted("schedule", \@data_backup, title => "BACKUP SCHEDULE", paragraph => 1);
         }
       }
 
