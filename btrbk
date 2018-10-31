@@ -4236,7 +4236,6 @@ sub print_formatted(@)
     $format = $default_format;
   }
 
-  print $fh "$title\n" if($title);
   if($format eq "raw")
   {
     # output: key0="value0" key1="value1" ...
@@ -4280,6 +4279,11 @@ sub print_formatted(@)
         $row->{$key} = $val;  # write back the sanitized value
         $maxlen{$key} = length($val) if($maxlen{$key} < length($val));
       }
+    }
+
+    # print title
+    if($title) {
+      print $fh "$title\n";
     }
 
     # print keys (headings)
