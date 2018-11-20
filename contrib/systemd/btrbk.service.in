@@ -4,4 +4,4 @@ Documentation=man:btrbk(1)
 
 [Service]
 Type=oneshot
-ExecStart=@BINDIR@/btrbk run
+ExecStart=${BINDIR}/btrbk run
