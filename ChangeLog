@@ -1,3 +1,14 @@
+btrbk-0.27.1-dev
+
+  * MIGRATION
+    - Update ssh_filter_btrbk.sh on remote hosts if using
+      backend=btrfs-progs-sudo.
+  * Bugfix (regression): call "sudo -n readlink" for
+    backend=btrfs-progs-sudo (close #257).
+  * Bugfix (regression): fix failing "config print" command.
+  * Don't print title and blank lines for --format=raw, syslog and
+    transaction log.
+
 btrbk-0.27.0
 
   * MIGRATION
