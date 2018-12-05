@@ -3278,7 +3278,7 @@ sub config_dump_keys($;@)
     foreach(@valary) {
       if(defined($_)) {
         if($config_options{$key}->{accept_preserve_matrix}) {
-          $_ = format_preserve_matrix($_);
+          $_ = format_preserve_matrix($_, format => "config");
         }
       }
       $_ //= exists($config->{$key}) ? "no" : "<unset>";
@@ -4113,7 +4113,7 @@ sub format_preserve_matrix($@)
       $val = '*' if($val eq 'all');
       $s .= ($s ? ' ' : '') . $val . $_;
     }
-    if($preserve->{d} || $preserve->{w} || $preserve->{m} || $preserve->{y}) {
+    if(($format ne "config") && ($preserve->{d} || $preserve->{w} || $preserve->{m} || $preserve->{y})) {
       $s .= " ($preserve->{dow}, " . sprintf("%02u:00", $preserve->{hod}) . ")";
     }
   }
