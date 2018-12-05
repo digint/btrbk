@@ -1,4 +1,4 @@
-btrbk-0.27.1-dev
+btrbk-0.27.1
 
   * MIGRATION
     - Update ssh_filter_btrbk.sh on remote hosts if using
