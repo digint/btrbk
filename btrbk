@@ -36,7 +36,7 @@ our $VERSION         = '0.27.1';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<https://digint.ch/btrbk/>';
 
-our $BTRFS_PROGS_MIN = '3.18.2';  # required since btrbk-v0.23.0
+our $BTRFS_PROGS_MIN = '4.12';  # required since btrbk-v0.27.0
 
 my  $VERSION_INFO    = "btrbk command line client, version $VERSION";
 
