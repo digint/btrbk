@@ -1847,9 +1847,10 @@ sub system_mkdir($)
 }
 
 
-sub btrfs_mountpoint($)
+sub btrfs_mountpoint
 {
   my $vol = shift // die;
+  my $autofs_retry = shift;
 
   DEBUG "Resolving btrfs mount point for: $vol->{PRINT}";
 
@@ -1891,7 +1892,19 @@ sub btrfs_mountpoint($)
     return undef;
   }
   TRACE "resolved mount point (mount_source=$mountpoint->{mount_source}, subvolid=" . ($mountpoint->{MNTOPS}->{subvolid} // '<undef>') . "): $mountpoint->{mount_point}";
-  unless($mountpoint->{fs_type} eq 'btrfs') {
+
+  # handle autofs
+  if($mountpoint->{fs_type} eq 'autofs') {
+    if($autofs_retry) {
+      DEBUG "non-btrfs autofs mount point for: $vol->{PRINT}";
+      return undef;
+    }
+    DEBUG "autofs mount point found, triggering automount on $mountpoint->{mount_point} for: $vol->{PRINT}";
+    btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mountpoint->{mount_point}, $vol->{CONFIG}));
+    $mountinfo_cache{$host} = undef;
+    return btrfs_mountpoint($vol, 1);
+  }
+  elsif($mountpoint->{fs_type} ne 'btrfs') {
     DEBUG "No btrfs mount point found for: $vol->{PRINT}";
     return undef;
   }

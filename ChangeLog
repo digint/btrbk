@@ -1,6 +1,7 @@
 btrbk-master
 
   * Bump dependency >= btrfs-progs-4.12 (as of btrbk-0.27.0).
+  * Trigger autofs mount while resolving mountpoints (close #259).
 
 btrbk-0.27.1
 
