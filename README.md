@@ -46,7 +46,7 @@ For more information, read the [installation documentation].
 
 ### Prerequisites
 
-  * [btrfs-progs]: Btrfs filesystem utilities >= v3.18.2
+  * [btrfs-progs]: Btrfs filesystem utilities >= v4.12
   * [Perl interpreter]: Probably already installed on your system
   * [OpenSSH]: If you want to transfer backups from/to remote locations
   * [Pipe Viewer]: If you want rate limiting and progress bars
