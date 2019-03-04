@@ -3216,22 +3216,24 @@ sub config_preserve_hash($$;@)
   if($opts{wipe}) {
     return { hod => 0, dow => 'sunday',  min => 'latest', min_q => 'latest' };
   }
-  my $ret = config_key($config, $prefix . "_preserve") // {};
+  my $preserve = config_key($config, $prefix . "_preserve") // {};
+  my %ret = ( %$preserve,  # make a copy (don't pollute config)
+              hod => config_key($config, "preserve_hour_of_day"),
+              dow => config_key($config, "preserve_day_of_week")
+             );
   my $preserve_min = config_key($config, $prefix . "_preserve_min");
   if(defined($preserve_min)) {
-    $ret->{min} = $preserve_min;  # used for raw schedule output
+    $ret{min} = $preserve_min;  # used for raw schedule output
     if(($preserve_min eq 'all') || ($preserve_min eq 'latest')) {
-      $ret->{min_q} = $preserve_min;
+      $ret{min_q} = $preserve_min;
     }
     elsif($preserve_min =~ /^([0-9]+)([hdwmy])$/) {
-      $ret->{min_n} = $1;
-      $ret->{min_q} = $2;
+      $ret{min_n} = $1;
+      $ret{min_q} = $2;
     }
     else { die; }
   }
-  $ret->{hod} = config_key($config, "preserve_hour_of_day");
-  $ret->{dow} = config_key($config, "preserve_day_of_week");
-  return $ret;
+  return \%ret;
 }
 
 
