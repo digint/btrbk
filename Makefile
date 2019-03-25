@@ -1,5 +1,13 @@
-# NOTE: systemd units are hardcoded in "install-systemd" for simplicity
-# NOTE: documentation inside "doc/" folder is processed in "doc/Makefile"
+#
+# Btrbk is a single perl script, and does not require any special
+# installation procedures or libraries. There is no need to run the
+# "all" build target if you don't want to build the man pages (see
+# doc/Makefile).
+#
+# Note: systemd units (file names) are hardcoded in "install-systemd"
+# build target for simplicity.
+#
+
 BIN        = btrbk
 CONFIGS    = btrbk.conf.example
 DOCS       = ChangeLog \
