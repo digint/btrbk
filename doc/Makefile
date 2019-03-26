@@ -10,8 +10,13 @@ DOCDIR     = $(PREFIX)/share/doc/$(PN)
 MAN1DIR    = $(PREFIX)/share/man/man1
 MAN5DIR    = $(PREFIX)/share/man/man5
 
-GZ_MAN1 = $(addsuffix .gz,$(MAN_MAN1))
-GZ_MAN5 = $(addsuffix .gz,$(MAN_MAN5))
+COMPRESS  ?= yes
+
+ifeq ($(COMPRESS), yes)
+  DOCS     := $(addsuffix .gz,$(DOCS))
+  MAN_MAN1 := $(addsuffix .gz,$(MAN_MAN1))
+  MAN_MAN5 := $(addsuffix .gz,$(MAN_MAN5))
+endif
 
 # convert using "asciidoctor": <https://asciidoctor.org>
 # fallback to "a2x" from asciidoc package: <http://asciidoc.org>
@@ -31,27 +36,26 @@ endif
 
 all: man
 man: man1 man5
-man1: $(GZ_MAN1)
-man5: $(GZ_MAN5)
+man1: $(MAN_MAN1)
+man5: $(MAN_MAN5)
 
 install: install-man install-doc
 
 install-man: man
 	install -d -m 755 "$(DESTDIR)$(MAN1DIR)"
 	install -d -m 755 "$(DESTDIR)$(MAN5DIR)"
-	install -p -m 644 $(GZ_MAN1) "$(DESTDIR)$(MAN1DIR)"
-	install -p -m 644 $(GZ_MAN5) "$(DESTDIR)$(MAN5DIR)"
+	install -p -m 644 $(MAN_MAN1) "$(DESTDIR)$(MAN1DIR)"
+	install -p -m 644 $(MAN_MAN5) "$(DESTDIR)$(MAN5DIR)"
 
-install-doc:
+install-doc: $(DOCS)
 	install -d -m 755 "$(DESTDIR)$(DOCDIR)"
 	install -p -m 644 $(DOCS) "$(DESTDIR)$(DOCDIR)"
-	gzip -9f $(addprefix "$(DESTDIR)$(DOCDIR)"/, $(DOCS))
 
 clean:
-	rm -f $(GZ_MAN1) $(GZ_MAN5)
+	rm -f *.md.gz *.[15] *.[15].{gz,html}
 
 %.gz : %
-	gzip -9f $<
+	gzip -9 -n -c $< > $@
 
 %.1 : %.1.asciidoc
 	$(ASCIIDOC_MANPAGE) $<

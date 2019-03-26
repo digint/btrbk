@@ -28,6 +28,12 @@ SYSTEMDDIR = $(PREFIX)/lib/systemd/system
 MAN1DIR    = $(PREFIX)/share/man/man1
 MAN5DIR    = $(PREFIX)/share/man/man5
 
+export COMPRESS ?= yes
+
+ifeq ($(COMPRESS), yes)
+  DOCS := $(addsuffix .gz,$(DOCS))
+endif
+
 replace_vars = sed \
 	-e "s|@PN@|$(PN)|g" \
 	-e "s|@CONFDIR@|$(CONFDIR)|g" \
@@ -72,11 +78,10 @@ install-man: man
 	@echo 'installing man pages...'
 	@$(MAKE) -C doc install-man
 
-install-doc:
+install-doc: $(DOCS)
 	@echo 'installing documentation...'
 	install -d -m 755 "$(DESTDIR)$(DOCDIR)"
 	install -p -m 644 $(DOCS) "$(DESTDIR)$(DOCDIR)"
-	gzip -9f $(addprefix "$(DESTDIR)$(DOCDIR)"/, $(DOCS))
 	@$(MAKE) -C doc install-doc
 
 man:
@@ -84,4 +89,8 @@ man:
 	@$(MAKE) -C doc man
 
 clean:
+	rm -f *.gz
 	@$(MAKE) -C doc clean
+
+%.gz : %
+	gzip -9 -n -c $< > $@
