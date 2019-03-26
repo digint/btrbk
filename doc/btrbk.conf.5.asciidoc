@@ -493,7 +493,7 @@ Additional options for raw targets:
     Compression level for the specified <compress_command>.
 *raw_target_compress_threads* default|<number>::
     Number of threads to use for <compress_command>.
-*raw_target_split* <size>|no:: {zwsp}
+*raw_target_split* <size>|no::
     Split the raw backup file into pieces of size '<size>'.
 *raw_target_block_size* <number>::
     Block size to use for writing the raw backup file. Defaults to
