@@ -36,6 +36,14 @@ global options must be set before any sections are defined.
 Blank lines are ignored. A hash character (#) starts a comment
 extending until end of line.
 
+Whitespace or unicode characters are not allowed for file
+names. Allowed characters are:
+
+    [0-9] [a-z] [A-Z] and "._+-@"
+
+This is for sanity/safety/security reasons, we apologize for the
+inconvenience.
+
 
 SECTIONS
 --------
@@ -72,37 +80,17 @@ btrfs-progs < 4.16.
     declaration already exists (hint: run "btrbk config print" to see
     the resulting configuration).
 
+If a '<url>' is specified, btrbk actions (shell commands) are executed
+remotely via ssh, using the <<_ssh_options,SSH Options>> described
+below. Accepted formats are:
 
-<target-directory>::
-    Run actions locally.
-+
---
-Note that 'whitespace' or 'unicode' characters are NOT allowed
-for file names. Allowed characters are:
-
-    [0-9] [a-z] [A-Z] and "._+-@"
-
-This is for sanity/safety/security reasons, we apologize for the
-inconvenience.
---
-
-<url>::
-    Run actions remotely via ssh.
-    Either:
-+
---
   ssh://<hostname>/<directory>
   <hostname>:<directory>
-
-If a '<url>' is specified, btrbk actions for '<hostname>' (shell
-commands) are executed via ssh, using the "ssh_" options described
-below.
 
 Note that btrbk keeps mountpoint and btrfs-tree information per
 'hostname': specifying different 'ssh_port' for the same host,
 e.g. for several virtual machines listening on same address, will NOT
 work. If you need this, define alias host names for each vm.
---
 
 
 OPTIONS
