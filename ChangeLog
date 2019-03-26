@@ -1,7 +1,9 @@
-btrbk-master
+btrbk-0.27.2
 
   * Bump dependency >= btrfs-progs-4.12 (as of btrbk-0.27.0).
   * Trigger autofs mount while resolving mountpoints (close #259).
+  * Bugfix: fix scheduler when overriding "target_preserve_min" in
+    combination with global "target" section.
 
 btrbk-0.27.1
 
