@@ -306,11 +306,11 @@ sub VERSION_MESSAGE
 sub HELP_MESSAGE
 {
   return if($quiet);
+#80-----------------------------------------------------------------------------
   print STDERR <<"END_HELP";
 usage: btrbk [options] <command> [filter...]
 
 options:
---------------------------------------------------------------------------------
    -h, --help                display this help message
        --version             display version information
    -c, --config=FILE         specify configuration file
@@ -350,6 +350,7 @@ commands:
 
 For additional information, see $PROJECT_HOME
 END_HELP
+#80-----------------------------------------------------------------------------
 }
 
 
