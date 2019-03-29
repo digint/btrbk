@@ -266,6 +266,7 @@ my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id: XX
 
 my $dryrun;
 my $loglevel = 1;
+my $quiet;
 my $do_dumper;
 my $show_progress = 0;
 my $err = "";
@@ -304,6 +305,7 @@ sub VERSION_MESSAGE
 
 sub HELP_MESSAGE
 {
+  return if($quiet);
   print STDERR <<"END_HELP";
 usage: btrbk [options] <command> [filter...]
 
@@ -4457,7 +4459,7 @@ MAIN:
   @tm_now = localtime($start_time);
 
   my @config_override_cmdline;
-  my ($config_cmdline, $quiet, $verbose, $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups, $print_schedule, $lockfile_cmdline);
+  my ($config_cmdline, $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups, $print_schedule, $lockfile_cmdline);
   my $resume_only_DEPRECATED;  # as of btrbk-v0.26.0
   unless(GetOptions(
     'help|h'             => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
