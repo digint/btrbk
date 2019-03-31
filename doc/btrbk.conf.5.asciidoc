@@ -84,7 +84,7 @@ If a '<url>' is specified, btrbk actions (shell commands) are executed
 remotely via ssh, using the <<_ssh_options,SSH Options>> described
 below. Accepted formats are:
 
-  ssh://<hostname>/<directory>
+  ssh://<hostname>[:<port>]/<directory>
   <hostname>:<directory>
 
 Note that btrbk keeps mountpoint and btrfs-tree information per
@@ -235,17 +235,6 @@ Note that using ``long-iso'' has implications on the scheduling, see
     remote user is able to run "btrfs" with root privileges (see
     option 'backend' for details).
 
-*ssh_port* <port>|default::
-    Port to connect to on the remote host. Defaults to ``default''
-    (the port specified in 'ssh_config', which defaults to 22).
-+
---
-Note that btrbk keeps mountpoint and btrfs-tree information per
-'hostname': specifying different 'ssh_port' for the same host,
-e.g. for several virtual machines listening on same address, will NOT
-work. If you need this, define alias host names for each vm.
---
-
 *ssh_compression* yes|no::
     Enables or disables the compression of ssh connections. Defaults
     to ``no''.
@@ -255,6 +244,12 @@ work. If you need this, define alias host names for each vm.
     (comma-separated list of ciphers in order of preference). See the
     "-c cipher_spec" option in ssh(1) for more information. Defaults
     to ``default'' (the ciphers specified in 'ssh_config').
+
+Previous versions btrbk allowed you to set a *ssh_port* option, this
+has been dropped in favor of the `ssh://hostname:port` notation in the
+'volume' and 'target' <<_sections,sections>>. If you want to set a
+global port for all SSH connections to remote hosts, set the ``Port''
+option in ssh_config(5).
 
 
 === Data Stream Options

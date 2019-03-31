@@ -90,7 +90,6 @@ my %config_options = (
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
-  ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   ssh_compression             => { default => undef,     accept => [ "yes", "no" ] },
   ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
   rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgtKMGT]?$/, require_bin => 'pv' },
@@ -132,6 +131,8 @@ my %config_options = (
   archive_exclude             => { default => undef,     accept_file => { wildcards => 1 }, allow_multiple => 1, context => [ "root" ] },
 
   # deprecated options
+  ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1,
+                                   deprecated => { DEFAULT => { warn => 'Please use "ssh://hostname[:port]" notation in the "volume" and "target" configuration lines.' } } },
   btrfs_progs_compat          => { default => undef, accept => [ "yes", "no" ],
                                    deprecated => { DEFAULT => { ABORT => 1, warn => 'This feature has been dropped in btrbk-v0.23.0. Please update to newest btrfs-progs, AT LEAST >= $BTRFS_PROGS_MIN' } } },
   snapshot_preserve_daily     => { default => 'all', accept => [ "all" ], accept_numeric => 1, context => [ "root", "volume", "subvolume" ],
@@ -2353,19 +2354,24 @@ sub vinfo($;$)
   $name = '/' if($name eq "");
 
   my $host = undef;
+  my $port = undef;
   if($url_prefix) {
     $host = $url_prefix;
     die unless($host =~ s/^ssh:\/\///);
     $print = "$host:$path";
+    if($host =~ s/:([1-9][0-9]*)$//) {
+      $port = $1;
+    }
   }
 
   return {
-    HOST       => $host,
+    HOST       => $host,        # hostname|<undef>
+    PORT       => $port,        # port|<undef>
     NAME       => $name,
     PATH       => $path,
     PRINT      => $print,
-    URL        => $url_prefix . $path,
-    URL_PREFIX => $url_prefix,
+    URL        => $url_prefix . $path,  # ssh://hostname[:port]/path
+    URL_PREFIX => $url_prefix,          # ssh://hostname[:port]  (or "" if local)
     CONFIG     => $config,
   }
 }
@@ -2384,6 +2390,7 @@ sub vinfo_child($$;$)
   # For consistency reasons (not required), we dont sanitize PRINT either.
   my $vinfo = {
     HOST         => $parent->{HOST},
+    PORT         => $parent->{PORT},
     NAME         => $name,
     PATH         => "$parent->{PATH}/$rel_path",
     PRINT        => "$parent->{PRINT}/$rel_path",
@@ -2409,13 +2416,22 @@ sub vinfo_rsh($;@)
   my $config = $vinfo->{CONFIG};
   die unless($config);
 
-  my $ssh_port        = config_key($config, "ssh_port");
+  # as of btrbk-0.28.0, ssh port is a property of a "vinfo", set with
+  # "ssh://hostname[:port]" in 'volume' and 'target' sections. Note
+  # that the port number is also used for the MACHINE_ID to
+  # distinguish virtual machines on same host with different ports.
+  my $ssh_port = $vinfo->{PORT};
+  unless($ssh_port) {
+    # PORT defaults to ssh_port (DEPRECATED)
+    $ssh_port = config_key($config, "ssh_port") // "default";
+    $ssh_port = undef if($ssh_port eq "default");
+  }
   my $ssh_user        = config_key($config, "ssh_user");
   my $ssh_identity    = config_key($config, "ssh_identity");
   my $ssh_compression = config_key($config, "ssh_compression");
   my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
   my @ssh_options = ('-q');
-  push(@ssh_options, '-p', $ssh_port) if($ssh_port ne "default");
+  push(@ssh_options, '-p', $ssh_port) if($ssh_port);
   push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
   if($ssh_identity) {
     push(@ssh_options, '-i', $ssh_identity);
@@ -3171,7 +3187,7 @@ sub check_url($;@)
   my $url_prefix = "";
 
   if($url =~ /^ssh:\/\//) {
-    if($url =~ s/^(ssh:\/\/($ip_addr_match|$host_name_match))\//\//) {
+    if($url =~ s/^(ssh:\/\/($ip_addr_match|$host_name_match)(:[1-9][0-9]*)?)\//\//) {
       $url_prefix = $1;
     }
     # if no match, treat it as file and let check_file() print errors

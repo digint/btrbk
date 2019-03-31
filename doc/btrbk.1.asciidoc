@@ -382,7 +382,7 @@ Filter arguments are accepted in form:
     section with given <snapshot-name>.
 
 For convenience, [hostname:] can be specified as either "hostname:" or
-"ssh://hostname/".
+"ssh://hostname[:port]/".
 
 Note that for *run* and *snapshot* commands, a filter matching a
 'target' configuration section also enables snapshot creation of the
