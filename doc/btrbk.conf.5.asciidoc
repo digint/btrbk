@@ -87,10 +87,9 @@ below. Accepted formats are:
   ssh://<hostname>[:<port>]/<directory>
   <hostname>:<directory>
 
-Note that btrbk keeps mountpoint and btrfs-tree information per
-'hostname': specifying different 'ssh_port' for the same host,
-e.g. for several virtual machines listening on same address, will NOT
-work. If you need this, define alias host names for each vm.
+If you are connecting to virtual machines, consider configuring
+several 'volume' sections for a '<hostname>', with distinct '<port>'
+numbers for each machine.
 
 
 OPTIONS

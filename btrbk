@@ -257,8 +257,8 @@ my %raw_info_sort = (
  );
 
 my %raw_url_cache;   # map URL to (fake) btr_tree node
-my %mountinfo_cache; # map HOST to mount points (sorted descending by file length)
-my %mount_source_cache; # map HOST:mount_source (aka device) to btr_tree node
+my %mountinfo_cache; # map MACHINE_ID to mount points (sorted descending by file length)
+my %mount_source_cache; # map URL_PREFIX:mount_source (aka device) to btr_tree node
 my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target)
 
@@ -1219,11 +1219,11 @@ sub btrfs_subvolume_delete($@)
   return () unless(scalar(@$targets));
 
   # NOTE: rsh and backend command is taken from first target
-  my $rsh_host_check = $targets->[0]->{HOST} || "";
+  my $rsh_machine_check = $targets->[0]->{MACHINE_ID};
   my $target_type = $targets->[0]->{node}{TARGET_TYPE} || "";
   foreach (@$targets) {
-    # assert all targets share same HOST
-    die if($rsh_host_check ne ($_->{HOST} || ""));
+    # assert all targets share same MACHINE_ID
+    die if($rsh_machine_check ne $_->{MACHINE_ID});
     # assert all targets share same target type
     die if($target_type && ($_->{node}{TARGET_TYPE} ne $target_type));
   }
@@ -1793,7 +1793,7 @@ sub system_list_mountinfo($)
             \s(?<super_options>\S+)$   # super options:  per super block options
            /x)
     {
-      ERROR "Failed to parse \"$file\" on " . ($vol->{HOST} || "localhost");
+      ERROR "Failed to parse \"$vol->{URL_PREFIX}$file\"";
       DEBUG "Offending line: $_";
       return undef;
     }
@@ -1867,13 +1867,12 @@ sub btrfs_mountpoint
   return undef unless($realpath);
 
   # get all mountpoints
-  my $host = $vol->{HOST} || "localhost";
-  my $mountinfo = $mountinfo_cache{$host};
-  TRACE "mountinfo_cache " . ($mountinfo ? "HIT" : "MISS") . ": $host";
+  my $mountinfo = $mountinfo_cache{$vol->{MACHINE_ID}};
+  TRACE "mountinfo_cache " . ($mountinfo ? "HIT" : "MISS") . ": $vol->{MACHINE_ID}";
   unless($mountinfo) {
     $mountinfo = system_list_mountinfo($vol);
     return undef unless($mountinfo);
-    $mountinfo_cache{$host} = $mountinfo;
+    $mountinfo_cache{$vol->{MACHINE_ID}} = $mountinfo;
   }
 
   # find longest match
@@ -1905,7 +1904,7 @@ sub btrfs_mountpoint
     }
     DEBUG "autofs mount point found, triggering automount on $mountpoint->{mount_point} for: $vol->{PRINT}";
     btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mountpoint->{mount_point}, $vol->{CONFIG}));
-    $mountinfo_cache{$host} = undef;
+    $mountinfo_cache{$vol->{MACHINE_ID}} = undef;
     return btrfs_mountpoint($vol, 1);
   }
   elsif($mountpoint->{fs_type} ne 'btrfs') {
@@ -1924,7 +1923,7 @@ sub btrfs_mountpoint
         next;
       }
       unless($mnt->{mount_point} =~ /^$file_match$/) {
-        INFO "Ignoring non-parseable btrfs mountpoint on $host: \"$mnt->{mount_point}\"";
+        INFO "Ignoring non-parseable btrfs mountpoint on $vol->{MACHINE_ID}: \"$mnt->{mount_point}\"";
         next;
       }
       unless($mnt->{MNTOPS}->{subvolid}) {
@@ -2136,7 +2135,7 @@ sub btr_tree($$$$)
   die unless($vol_root_id >= 5);
 
   # return parsed tree from %mount_source_cache if present
-  my $host_mount_source = ($vol->{HOST} // "localhost") . ':' . $mount_source;
+  my $host_mount_source = $vol->{URL_PREFIX} . $mount_source;  # printed in _fs_path()
   my $cached_tree = $mount_source_cache{$host_mount_source};
   TRACE "mount_source_cache " . ($cached_tree ? "HIT" : "MISS") . ": $host_mount_source";
   if($cached_tree) {
@@ -2152,12 +2151,17 @@ sub btr_tree($$$$)
 
   TRACE "btr_tree: processing subvolume list of: $vol->{PRINT}";
 
-  # return a reference to the cached root if we already know the tree
-  # (making sure every tree is only stored once).
-  # die if duplicate UUID exist on different file systems (no matter
-  # if local or remote).
+  # return a reference to the cached root if we already know the tree,
+  # making sure every tree is only stored once, which is essential
+  # e.g. when injecting nodes. die if duplicate UUID exist on
+  # different file systems (no matter if local or remote).
+  #
   # note: this relies on subvolume UUID's to be "universally unique"
   # (which is why cloning btrfs filesystems using "dd" is a bad idea)
+  #
+  # note: a better way would be to always compare the UUID of
+  # subvolid=5. unfortunately this is not possible for filesystems
+  # created with btrfs-progs < 4.16 (no UUID for subvolid=5).
   foreach(@$node_list) {
     my $node_uuid = $_->{uuid};
     next unless($node_uuid);
@@ -2166,7 +2170,9 @@ sub btr_tree($$$$)
       TRACE "uuid_cache HIT: $node_uuid";
       $vol_root = $uuid_cache{$node_uuid}->{TREE_ROOT}->{ID_HASH}->{$vol_root_id};
       die "Duplicate UUID on different file systems"  unless($vol_root);
+      INFO "Assuming same filesystem: \"$vol_root->{TREE_ROOT}->{host_mount_source}\", \"$host_mount_source\"";
       TRACE "btr_tree: returning already parsed tree at id=$vol_root->{id}";
+      $mount_source_cache{$host_mount_source} = $vol_root->{TREE_ROOT};
       return $vol_root;
     }
     last; # check only first UUID (for performance)
@@ -2202,7 +2208,12 @@ sub btr_tree($$$$)
   $tree_root->{UUID_HASH} = \%uuid_hash;
   $tree_root->{RECEIVED_UUID_HASH} = \%received_uuid_hash;
   $tree_root->{GEN_MAX} = $gen_max;
-  $tree_root->{host_mount_source} = $host_mount_source; # unique identifier, e.g. "localhost:/dev/sda1"
+
+  # NOTE: host_mount_source is NOT dependent on MACHINE_ID:
+  # if we return already present tree (see above), the value of
+  # host_mount_source will still point to the mount_source of the
+  # first machine.
+  $tree_root->{host_mount_source} = $host_mount_source; # unique identifier, e.g. "LOCAL:/dev/sda1" or "ssh://hostname[:port]/dev/sda1"
 
   $vol_root = $id{$vol_root_id};
   unless($vol_root) {
@@ -2358,9 +2369,11 @@ sub vinfo($;$)
   if($url_prefix) {
     $host = $url_prefix;
     die unless($host =~ s/^ssh:\/\///);
-    $print = "$host:$path";
     if($host =~ s/:([1-9][0-9]*)$//) {
       $port = $1;
+      $print = "$host\[$port\]:$path";  # hostname[port]:/path
+    } else {
+      $print = "$host:$path";           # hostname:/path
     }
   }
 
@@ -2370,8 +2383,9 @@ sub vinfo($;$)
     NAME       => $name,
     PATH       => $path,
     PRINT      => $print,
-    URL        => $url_prefix . $path,  # ssh://hostname[:port]/path
-    URL_PREFIX => $url_prefix,          # ssh://hostname[:port]  (or "" if local)
+    URL        => $url_prefix . $path,     # ssh://hostname[:port]/path
+    URL_PREFIX => $url_prefix,             # ssh://hostname[:port]  (or "" if local)
+    MACHINE_ID => $url_prefix || "LOCAL:", # unique: "LOCAL:" or hostname and port
     CONFIG     => $config,
   }
 }
@@ -2396,6 +2410,7 @@ sub vinfo_child($$;$)
     PRINT        => "$parent->{PRINT}/$rel_path",
     URL          => "$parent->{URL}/$rel_path",
     URL_PREFIX   => $parent->{URL_PREFIX},
+    MACHINE_ID   => $parent->{MACHINE_ID},
     SUBVOL_PATH  => $rel_path,
     SUBVOL_DIR   => $subvol_dir,  # SUBVOL_PATH=SUBVOL_DIR/NAME
     CONFIG       => $config // $parent->{CONFIG},
@@ -2580,7 +2595,7 @@ sub vinfo_init_raw_root($;@)
     # create fake btr_tree
     $tree_root = { id => 5,
                    is_root => 1,
-                   host_mount_source => 'raw_tree@' . $droot->{URL}, # for completeness (this is never used)
+                   host_mount_source => $droot->{URL} . '@raw_tree', # for completeness (this is never used)
                    GEN_MAX => 1,
                    SUBTREE => [],
                    UUID_HASH => {},
