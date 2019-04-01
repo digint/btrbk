@@ -4243,15 +4243,21 @@ sub print_formatted(@)
   my %args = @_;
   my $title = $args{title};
   my $format = $args{output_format} || $output_format || $default_format;
-  my $keys = $table_formats{$format_key}->{$format};
+  my $key_defs = $table_formats{$format_key}->{$format};
   my $ralign = $table_formats{$format_key}->{RALIGN} // {};
   my $fh = $args{outfile} // *STDOUT;
   my $table_spacing = 2;
 
-  unless($keys) {
+  unless($key_defs) {
     WARN "Unsupported output format \"$format\", defaulting to \"$default_format\" format.";
-    $keys = $table_formats{$format_key}->{$default_format} || die;
+    $key_defs = $table_formats{$format_key}->{$default_format} || die;
     $format = $default_format;
+  }
+  my @keys;
+  my %print_row;
+  foreach (@$key_defs) {
+    $print_row{$_} = 1 unless(s/^-//);  # strip leading "-"
+    push @keys, $_;
   }
 
   if($format eq "raw")
@@ -4259,17 +4265,17 @@ sub print_formatted(@)
     # output: key0="value0" key1="value1" ...
     foreach my $row (@$data) {
       print $fh "format=\"$format_key\" ";
-      print $fh join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @$keys) . "\n";
+      print $fh join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @keys) . "\n";
     }
   }
   elsif(($format eq "tlog") || ($format eq "syslog"))
   {
     # output: value0 value1, ...
     unless($args{no_header}) {
-      print $fh join(' ', @$keys) . "\n";
+      print $fh join(' ', @keys) . "\n";
     }
     foreach my $row (@$data) {
-      my $line = join(' ', map { ((defined($row->{$_}) && ($_ eq "message")) ? '# ' : '') . ($row->{$_} // "-") } @$keys);
+      my $line = join(' ', map { ((defined($row->{$_}) && ($_ eq "message")) ? '# ' : '') . ($row->{$_} // "-") } @keys);
       if($format eq "syslog") { # dirty hack, ignore outfile on syslog format
         syslog($line);
      } else {
@@ -4283,15 +4289,16 @@ sub print_formatted(@)
     # NOTE: this is destructive on data!
     my %maxlen;
     my @sane_data;
-    foreach my $key (@$keys) {
+    foreach my $key (@keys) {
       $maxlen{$key} = length($key); # initialize with size of key
     }
     foreach my $row (@$data) {
-      foreach my $key (@$keys) {
+      foreach my $key (@keys) {
         my $val = $row->{$key};
         if(ref $val eq "ARRAY") {
           $val = join(',', @{$val});
         }
+        $print_row{$key} = 1 if(defined($val));
         $val //= "-";
         $val = "-" if($val eq "");
         $row->{$key} = $val;  # write back the sanitized value
@@ -4307,7 +4314,8 @@ sub print_formatted(@)
     # print keys (headings)
     unless($args{no_header}) {
       my $fill = 0;
-      foreach (@$keys) {
+      foreach (@keys) {
+        next unless($print_row{$_});
         print $fh ' ' x $fill;
         $fill = $maxlen{$_} - length($_);
         if($ralign->{$_}) {
@@ -4318,13 +4326,24 @@ sub print_formatted(@)
         $fill += $table_spacing;
       }
       print $fh "\n";
-      print $fh join(' ' x $table_spacing, map { '-' x ($maxlen{$_}) } @$keys) . "\n";
+
+      $fill = 0;
+      foreach (@keys) {
+        next unless($print_row{$_});
+        print $fh ' ' x $fill;
+        print $fh '-' x $maxlen{$_};
+        $fill = $table_spacing;
+      }
+      # alternatively (all above in one line ;)
+      #print $fh join(' ' x $table_spacing, map { '-' x ($maxlen{$_}) } @keys) . "\n";
+      print $fh "\n";
     }
 
     # print values
     foreach my $row (@$data) {
       my $fill = 0;
-      foreach (@$keys) {
+      foreach (@keys) {
+        next unless($print_row{$_});
         my $val = $row->{$_};
         print $fh ' ' x $fill;
         $fill = $maxlen{$_} - length($val);
