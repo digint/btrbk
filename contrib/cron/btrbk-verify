@@ -313,6 +313,19 @@ eval_btrbk_resolved_line()
         # basic input validation, set prefixed variable (eval)
         local var_assignment=$(echo "$line" | grep -Eo "${vv}"'="[^"]*"')
         if [[ $? -ne 0 ]] || [[ -z "$var_assignment" ]]; then
+            if [[ $vv == "target_type" ]]; then
+                # hack for btrbk <= 0.27.2 bug: missing "target_type" in $table_formats{resolved}
+                # hardcode send-receive type, this results in rsync failing on raw targets with:
+                # rsync: ERROR: cannot stat destination "xxx.btrfs.xz.gpg/": Not a directory (20)
+                eval "${prefix}target_type=\"send-receive\"" || return 1
+                continue
+            fi
+            if [[ $vv == "target_rsh" ]] && [[ -z "$R_target_host" ]]; then
+                # hack for btrbk <= 0.27.2 bug: missing "target_rsh" in $table_formats{resolved}
+                # note that target_rsh is not needed if target_host is not set.
+                # variable has already been reset above, continue
+                continue
+            fi
             log_line "btrbk-verify: missing required variable \"${vv}\" in btrbk --format=raw line"
             return 1
         fi
