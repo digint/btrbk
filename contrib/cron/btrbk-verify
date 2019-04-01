@@ -1,0 +1,420 @@
+#!/bin/bash
+#
+# NAME
+#
+#   btrbk-verify - check latest btrbk snapshot/backup pairs
+#
+#
+# SYNOPSIS
+#
+#   btrbk-verify [options] <command> [filter...]
+#
+#
+# DESCRIPTION
+#
+#   Compare btrbk backups. Reads all files and attributes, and
+#   compares checksums of source and target. Uses rsync(1) as backend,
+#   in dry-run mode with all preserve options enabled.
+#
+#   Resolves snapshot/backup pairs by evaluating the output of
+#   "btrbk list latest [filter...]". The filter argument is passed
+#   directly to btrbk, see btrbk(1) FILTER STATEMENTS.
+#
+#   Restrictions:
+#    - ".d..t...... ./" lines are ignored by default:
+#      Root folder timestamp always differ.
+#    - "cd+++++++++ .*" lines are ignored by default:
+#      Nested subvolumes appear as new empty directories.
+#    - btrbk raw targets are skipped
+#    - rsync needs root in most cases (see --ssh-* options)
+#
+#   NOTE: Depending on your setup (hardware, btrfs mount options),
+#   btrbk-verify may eat all your CPU power and use high bandwidth!
+#   Consider nice(1), ionice(1).
+
+#   Incomplete resource eater list:
+#    - rsync: checksums, heavy disk I/O
+#    - btrfs: decompression, encryption
+#    - ssh: compression, encryption
+#
+#
+# EXAMPLES
+#
+#   btrbk-verify latest /mnt/btr_pool
+#
+#     Verify latest backups from targets configured in
+#     /etc/btrbk/btrbk.conf, matching the "/mnt/btr_pool" filter.
+#
+#   btrbk-verify all
+#
+#     Verify ALL backups from targets in /etc/btrbk/btrbk.conf.
+#     NOTE: This really re-checksums ALL files FOR EACH BACKUP,
+#     even if they were not touched between backups!
+#
+#   btrbk-verify latest -n -v -v
+#
+#     Print detailed log as well as command executed by this script,
+#     without actually executing rsync commands (-n, --dry-run).
+#
+#   btrbk-verify --ssh-agent --ssh-user root --ssh-identity /etc/btrbk/ssh/id_ed25519
+#
+#     Use "ssh -i /etc/btrbk/ssh/id_ed25519 -l root" for rsync rsh
+#     (override settings from btrbk.conf), start an ssh-agent(1) for
+#     this session and verify all latest snapshot / backups.
+#
+#
+# SEE ALSO
+#
+#   btrbk(1), btrbk.conf(5), rsync(1), nice(1), ionice(1)
+#
+#
+# AUTHOR
+#
+#   Axel Burri <axel@tty0.ch>
+#
+
+set -u
+set -e
+set -o pipefail
+
+btrbk_version_min='0.28.0'
+
+# defaults: ignore subvol dirs and root folder timestamp change
+ignore_nested_subvolume_dir=1
+ignore_root_folder_timestamp=1
+ssh_identity=
+ssh_user=
+ssh_start_agent=
+
+verbose=0
+stats_enabled=
+dryrun=
+
+print_usage()
+{
+#80-----------------------------------------------------------------------------
+    cat 1>&2 <<EOF
+usage: btrbk-verify [options] <command> [btrbk-list-options...] [filter...]
+
+options:
+   -h, --help            display this help message
+   -c, --config FILE     specify btrbk configuration file
+   -n, --dry-run         perform a trial run without verifying subvolumes
+   -v, --verbose         be verbose (set twice for debug loglevel)
+   --stats               print rsync stats to stderr (--info=stats2)
+   --strict              treat all rsync diffs as errors
+   --ignore-acls         ignore acls when verifying subvolumes
+   --ignore-xattrs       ignore xattrs when verifying subvolumes
+   --ssh-identity FILE   override ssh_identity from btrbk.conf(5) with FILE,
+                         and clear all other ssh_* options (use with --ssh-user)
+   --ssh-user USER       override ssh_user from btrbk.conf(5) with USER
+                         (only in conjunction with --ssh-identity)
+   --ssh-agent           start ssh-agent(1) and add identity
+
+commands:
+   latest    verify most recent snapshots and backups (btrbk list latest)
+   all       verify all snapshots and backups (btrbk list backups)
+
+For additional information, see <https://digint.ch/btrbk/>
+EOF
+#80-----------------------------------------------------------------------------
+    exit ${1:-0}
+}
+
+list_subcommand=
+btrbk_args=()
+rsync_args=(-n --itemize-changes --checksum -a --delete --numeric-ids --hard-links --acls --xattrs --devices --specials)
+
+while [[ "$#" -ge 1 ]]; do
+    key="$1"
+    case $key in
+      latest)
+          [[ -n "$list_subcommand" ]] && print_usage 2;
+          list_subcommand="latest"
+          ;;
+      all)
+          [[ -n "$list_subcommand" ]] && print_usage 2;
+          list_subcommand="backups"
+          ;;
+      -n|--dry-run)
+          dryrun=1
+          ;;
+      --stats)
+          # enable rsync stats2 (transfer statistics)
+          rsync_args+=(--info=stats2)
+          stats_enabled=1
+          ;;
+      --strict)
+          # treat all rsync diffs as errors:
+          #  - empty directories (nested subvolumes)
+          #  - root folder timestamp mismatch
+          ignore_nested_subvolume_dir=
+          ignore_root_folder_timestamp=
+          ;;
+      --ignore-*)  # --ignore-acls, --ignore-xattrs, --ignore-device, ...
+          # remove "--xxx" flag from rsync_args for --ignore-xxx
+          rsync_args=(${rsync_args[@]/"--"${key#"--ignore-"}})
+          ;;
+      --ssh-identity)
+          # use different ssh identity (-i option) for rsync rsh.
+          # if set, ssh_user defaults to root.
+          # NOTE: this overrides all btrbk ssh_* options
+          ssh_identity="$2"
+          shift
+          ;;
+      --ssh-user)
+          # use different ssh user (-l option) for rsync rsh
+          # NOTE: this overrides all btrbk ssh_* options
+          ssh_user="$2"
+          shift
+          ;;
+      --ssh-agent)
+          ssh_start_agent=1
+          ;;
+      -v|--verbose)
+          verbose=$((verbose+1))
+          btrbk_args+=("-v")
+          ;;
+      -h|--help)
+          print_usage 0
+          ;;
+      *)
+          # all other args are passed to btrbk (filter, -c,--config=FILE)
+          btrbk_args+=("$key")
+          ;;
+    esac
+    shift
+done
+
+log_line()
+{
+    echo "$@" 1>&2
+}
+log_stats ()  { [[ -n "$stats_enabled" ]] && log_line "$@" ; return 0; }
+log_verbose() { [[ $verbose -ge 1 ]] && log_line "$@" ; return 0; }
+log_debug()   { [[ $verbose -ge 2 ]] && log_line "$@" ; return 0; }
+log_cmd()
+{
+    local prefix=""
+    [[ -n "$dryrun" ]] && prefix="(dryrun) "
+    log_debug "### ${prefix}$@"
+}
+
+tlog()
+{
+    # same output as btrbk transaction log
+    local status=$1
+    local comment=${2:-}
+    [[ -n "$dryrun" ]] && [[ "$status" == "starting" ]] && status="dryrun_starting"
+    local line="$(date --iso-8601=seconds) verify-rsync ${status} ${target} ${source} - -"
+    [[ -n "$comment" ]] && line="$line # $comment";
+    tlog_text+="$line\n"
+    log_debug "$line"
+}
+tlog_print()
+{
+    # tlog goes to stdout
+    echo -e "\nTRANSACTION LOG\n---------------\n${tlog_text:-}"
+}
+
+# parse "rsync -i,--itemize-changes" output.
+# prints ndiffs to stdout, and detailed log messages to stderr
+count_rsync_diffs()
+{
+    local nn=0
+    local rsync_line_match='^(...........) (.*)$'
+    local dump_stats_mode=
+
+    # unset IFS: no word splitting, trimming (read literal line)
+    while IFS= read -r rsync_line; do
+        local postfix_txt=""
+        if [[ -n "$dump_stats_mode" ]]; then
+            # dump_stats_mode enabled, echo to stderr
+            log_stats "${rsync_line}"
+        elif [[ "$rsync_line" == "" ]]; then
+            # empty line denotes start of --info=stats, enable dump_stats_mode
+            dump_stats_mode=1
+            log_stats "--- BEGIN rsync stats2 dump ---"
+        elif [[ "$rsync_line" =~ $rsync_line_match ]]; then
+            rl_flags="${BASH_REMATCH[1]}"
+            rl_path="${BASH_REMATCH[2]}"
+            if [[ -n "$ignore_root_folder_timestamp" ]] && [[ "$rsync_line" == ".d..t...... ./" ]]; then
+                # ignore timestamp on root folder, for some reason this does not match
+                postfix_txt="   # IGNORE reason=ignore_root_folder_timestamp"
+            elif [[ -n "$ignore_nested_subvolume_dir" ]] && [[ "$rl_flags" == "cd+++++++++" ]]; then
+                # nested subvolumes appear as new empty directories ("cd+++++++++") in rsync (btrfs bug?)
+                postfix_txt="   # IGNORE reason=ignore_nested_subvolume_dir"
+            else
+                nn=$((nn+1))
+                postfix_txt="   # FAIL ndiffs=$nn"
+            fi
+            log_verbose "[rsync] ${rsync_line}${postfix_txt}"
+        else
+            nn=$((nn+1))
+            log_line "btrbk-verify: ERROR: failed to parse rsync line: ${rsync_line}"
+        fi
+    done
+    [[ -n "$dump_stats_mode" ]] && log_stats "--- END rsync stats2 dump ---"
+    echo $nn
+    return 0
+}
+
+rsync_rsh()
+{
+    # btrbk v0.27.0 sets source_rsh="ssh [flags...] ssh_user@ssh_host"
+    # this returns "ssh [flags...] -l ssh_user"
+    local rsh=$1
+    local rsh_match="(.*) ([a-z0-9_-]+)@([a-zA-Z0-9.-]+)$"
+
+    if [[ -z "$rsh" ]]; then
+        echo
+    elif [[ -n "$ssh_identity" ]]; then
+        # override btrbk.conf from command line arguments
+        log_debug "Overriding all ssh_* options from btrbk.conf"
+        echo "ssh -q -i $ssh_identity -l $ssh_user"
+    elif [[ $rsh =~ $rsh_match ]]; then
+        echo "${BASH_REMATCH[1]} -l ${BASH_REMATCH[2]}"
+    else
+        log_line "btrbk-verify: ERROR: failed to parse source_rsh: $rsh"
+        exit 1
+    fi
+}
+
+kill_ssh_agent()
+{
+    echo "Stopping SSH agent"
+    eval `ssh-agent -k`
+}
+
+start_ssh_agent()
+{
+    if [[ -z "$ssh_identity" ]]; then
+        log_line "btrbk-verify: ERROR: no SSH identity specified for agent"
+        print_usage 2
+    fi
+    echo "Starting SSH agent"
+    eval `ssh-agent -s`
+    ssh_agent_running=1
+    trap 'exit_trap_action' EXIT
+    ssh-add "$ssh_identity"
+}
+
+
+eval_btrbk_resolved_line()
+{
+    local line=$1
+    local prefix=$2
+    local required_keys=$3
+    # reset all variables first
+    for vv in $required_keys; do
+        eval "${prefix}${vv}="
+    done
+    for vv in $required_keys; do
+        # basic input validation, set prefixed variable (eval)
+        local var_assignment=$(echo "$line" | grep -Eo "${vv}"'="[^"]*"')
+        if [[ $? -ne 0 ]] || [[ -z "$var_assignment" ]]; then
+            log_line "btrbk-verify: missing required variable \"${vv}\" in btrbk --format=raw line"
+            return 1
+        fi
+        eval "${prefix}${var_assignment}" || return 1
+    done
+}
+
+exit_trap_action()
+{
+    [[ -n "${ssh_agent_running:-}" ]] && kill_ssh_agent
+    [[ $verbose -gt 0 ]] && tlog_print
+}
+
+# restrictions from rsync_rsh():
+[[ -z "$ssh_identity" ]] && [[ -n "$ssh_user" ]] && print_usage 2
+[[ -n "$ssh_identity" ]] && [[ -z "$ssh_user" ]] && print_usage 2
+
+# start ssh-agent(1)
+[[ -n "$ssh_start_agent" ]] && start_ssh_agent
+
+# run "btrbk list"
+[[ -z "$list_subcommand" ]] && print_usage 2
+log_verbose "Resolving btrbk $list_subcommand"
+btrbk_cmd=("btrbk" "list" "$list_subcommand" "--format=raw" "-q" "${btrbk_args[@]}")
+log_debug "### ${btrbk_cmd[@]}"
+btrbk_list=$("${btrbk_cmd[@]}")
+btrbk_list_exitstatus=$?
+if [[ $btrbk_list_exitstatus -ne 0 ]]; then
+    log_line "btrbk-verify: ERROR: Command execution failed (status=$btrbk_list_exitstatus): ${btrbk_cmd[@]}"
+    exit 1
+fi
+log_debug "--- BEGIN btrbk list $list_subcommand ---"
+log_debug "$btrbk_list"
+log_debug "--- END btrbk list $list_subcommand ---"
+
+tlog_text=""
+exitstatus=0
+# trap on EXIT (includes all signals)
+trap 'exit_trap_action' EXIT
+
+while read -r btrbk_list_line; do
+    # set R_xxx variables from format=raw line (table format "resolved")
+    log_debug "Evaluating [btrbk list] line: $btrbk_list_line"
+    [[ -z "$btrbk_list_line" ]] && continue
+    if ! eval_btrbk_resolved_line "$btrbk_list_line" \
+         "R_" "snapshot_path target_path source_host target_host target_type source_rsh target_rsh"
+    then
+        log_line "btrbk-verify: WARNING: Skipping task (parse error). Make sure to have >=btrbk-${btrbk_version_min} installed!"
+        continue
+    fi
+
+    source="${R_snapshot_path}"
+    target="${R_target_path}"
+    [[ -n "$R_source_host" ]] && source="${R_source_host}:${source}"
+    [[ -n "$R_target_host" ]] && target="${R_target_host}:${target}"
+
+    if [[ -z "$R_snapshot_path" ]]; then
+        log_line "WARNING: Skipping task (missing snapshot): target=$target"
+    elif [[ -z "$R_target_path" ]]; then
+        log_line "Skipping task (no target): source=$source"
+    elif [[ "$R_target_type" != "send-receive" ]]; then
+        log_line "Skipping task (target_type=$R_target_type): source=$source, target=$target"
+    elif [[ -n "$R_source_rsh" ]] && [[ -n "$R_target_rsh" ]]; then
+        log_line "WARNING: Skipping task (SSH for both source and target is not supported): target=$target"
+    else
+        log_line "Comparing [rsync] $source $target"
+
+        # rsync rsh is either source_rsh or target_rsh or empty
+        eff_rsh="$R_source_rsh"
+        [[ -z "$eff_rsh" ]] && eff_rsh="$R_target_rsh"
+
+        rsync_cmd=("rsync" "${rsync_args[@]}")
+        [[ -n "$eff_rsh" ]] && rsync_cmd+=(-e "$(rsync_rsh "$eff_rsh")")
+        rsync_cmd+=("${source}/" "${target}/")
+        log_cmd "${rsync_cmd[@]}"
+        [[ -n "$dryrun" ]] && rsync_cmd=("cat" "/dev/null")
+
+        #rsync_cmd=("echo" '........... SHOULD/FAIL/');   # simulate failure
+        #rsync_cmd=("echo" 'cd+++++++++ SHOULD/IGNORE/'); # simulate ignored
+
+        # execute rsync
+        tlog "starting"
+        set +e
+        ndiffs=$("${rsync_cmd[@]}" | count_rsync_diffs)
+        rsync_exitstatus=$?
+        set -e
+
+        if [[ $rsync_exitstatus -ne 0 ]] || [[ -z "$ndiffs" ]]; then
+            log_line "btrbk-verify: ERROR: Command execution failed (status=$rsync_exitstatus): ${rsync_cmd[@]}"
+            tlog "ERROR"
+            exitstatus=10
+        elif [[ $ndiffs -gt 0 ]]; then
+            log_line "VERIFY FAIL (ndiffs=$ndiffs): ${source} ${target}"
+            tlog "fail" "ndiffs=$ndiffs"
+            exitstatus=10
+        else
+            log_verbose "Compare success (ndiffs=$ndiffs)"
+            tlog "success"
+        fi
+    fi
+done <<< "$btrbk_list"
+#done < <(echo "$btrbk_list")  # more posix'ish
+
+# NOTE: this triggers exit_trap_action()
+exit $exitstatus
