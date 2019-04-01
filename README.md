@@ -250,6 +250,44 @@ monthlies are received from 192.168.0.42. The source filesystem is
 never altered because of `snapshot_preserve_min all`.
 
 
+Example: virtual machine setup
+------------------------------
+
+Common virtual machine setups have multiple volume sections with same
+host, but distinct port numbers for each machine.
+
+/etc/btrbk/btrbk.conf:
+
+    # This propagates to all subvolume sections:
+    target send-receive /mnt/btr_backup/
+
+    volume ssh://localhost:2201/mnt/btr_pool
+      group vm
+      subvolume home
+        snapshot_name vm01-home
+      subvolume data
+        snapshot_name vm01-data
+
+    volume ssh://localhost:2202/mnt/btr_pool
+      group vm
+      subvolume home
+        snapshot_name vm02-home
+
+    volume ssh://localhost:2203/mnt/btr_pool
+      [...]
+
+This will create `/mnt/btr_backup/vm[NN]-home`, `vm[NN]-data`, ...
+
+Note that btrbk holds a single reference to every btrfs filesystem
+tree, regarding UUID's as "globally unique". If the configured
+subvolumes point to the same filesystem on different machines (ports),
+you will see log lines like this when running `btrbk -v`:
+
+```
+Assuming same filesystem: "ssh://localhost:2201/dev/sda1", "ssh://localhost:2202/dev/sda1"
+```
+
+
 Example: backup from non-btrfs source
 -------------------------------------
 
