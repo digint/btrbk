@@ -186,8 +186,8 @@ my %table_formats = (
                  },
 
   resolved    => { table => [ qw(      source_host source_subvol snapshot_subvol status target_host target_subvol ) ],
-                   long  => [ qw( type source_host source_subvol snapshot_subvol status target_host target_subvol ) ],
-                   raw   => [ qw( type source_host source_path snapshot_path snapshot_name status target_host target_path source_rsh ) ],
+                   long  => [ qw( type source_host source_subvol snapshot_subvol status target_host target_subvol target_type ) ],
+                   raw   => [ qw( type source_host source_path snapshot_path snapshot_name status target_host target_path target_type source_rsh target_rsh ) ],
                  },
 
   schedule    => { table => [ qw( action host subvol scheme reason ) ],
@@ -5544,6 +5544,7 @@ MAIN:
               foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
                 push @data, { %$snapshot_data,
                               type => "received",
+                              target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
                               vinfo_prefixed_keys("target", $_),
                             };
                 $found = 1;
@@ -5599,6 +5600,7 @@ MAIN:
                 $stats_correlated++;
                 my $up_to_date = ($parent_snapshot->{node}{cgen} == $svol->{node}{gen});
                 push @data, { type => "received",
+                              target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
                               vinfo_prefixed_keys("target", $target_vol),
                               vinfo_prefixed_keys("snapshot", $parent_snapshot),
                               vinfo_prefixed_keys("source", $svol),
@@ -5611,6 +5613,7 @@ MAIN:
                 if(vinfo_is_btrbk_snapshot($target_vol, $snapshot_name)) {
                   if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
                   push @data, { type => "received",
+                                target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
                                 # suppress "orphaned" status here (snapshot column is empty anyways)
                                 # status => ($incomplete_backup ? "incomplete" : "orphaned"),
                                 status => ($incomplete_backup ? "incomplete" : undef),
@@ -5654,6 +5657,7 @@ MAIN:
               if(scalar(@receive_targets)) {
                 foreach(@receive_targets) {
                   push @data, { type => "latest_common",
+                                target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
                                 status => ($child->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
                                 vinfo_prefixed_keys("source", $svol),
                                 vinfo_prefixed_keys("snapshot", $child),
