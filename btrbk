@@ -2923,18 +2923,18 @@ sub get_snapshot_children($$;$)
 }
 
 
-sub _receive_target_nodes($$)
+sub _correlated_nodes($$)
 {
   my $droot = shift || die;
   my $src_vol = shift || die;
   my @ret;
 
   if($src_vol->{node}{is_root}) {
-    DEBUG "Skip search for targets: source subvolume is btrfs root: $src_vol->{PRINT}";
+    DEBUG "Skip search for correlated targets: source subvolume is btrfs root: $src_vol->{PRINT}";
     return @ret;
   }
   unless($src_vol->{node}{readonly}) {
-    DEBUG "Skip search for targets: source subvolume is not read-only: $src_vol->{PRINT}";
+    DEBUG "Skip search for correlated targets: source subvolume is not read-only: $src_vol->{PRINT}";
     return @ret;
   }
 
@@ -2942,7 +2942,7 @@ sub _receive_target_nodes($$)
   my $uuid = $src_vol->{node}{uuid};
   my $received_uuid = $src_vol->{node}{received_uuid};
   $received_uuid = undef if($received_uuid eq '-');
-  TRACE "receive_target_nodes: src_vol=\"$src_vol->{PRINT}\", droot=\"$droot->{PRINT}\"";
+  TRACE "correlated_nodes: src_vol=\"$src_vol->{PRINT}\", droot=\"$droot->{PRINT}\"";
 
   my $received_uuid_hash = $droot->{node}{TREE_ROOT}{RECEIVED_UUID_HASH};
   my $uuid_hash = $droot->{node}{TREE_ROOT}{UUID_HASH};
@@ -2956,7 +2956,7 @@ sub _receive_target_nodes($$)
   }
 
   @ret = grep($_->{readonly}, @match);
-  TRACE "receive_target_nodes: " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
+  TRACE "correlated_nodes: " . scalar(@ret) . " receive targets in \"$droot->{PRINT}/\" for: $src_vol->{PRINT}";
   return @ret;
 }
 
@@ -2969,8 +2969,8 @@ sub get_receive_targets($$;@)
   my %opts = @_;
   my @ret;
 
-  my @match = _receive_target_nodes($droot, $src_vol);
-  foreach (@match) {
+  my @correlated = _correlated_nodes($droot, $src_vol);
+  foreach (@correlated) {
     my $vinfo = vinfo_resolved($_, $droot); # returns undef if not below $droot
     if(exists($_->{BTRBK_RAW})) {
       TRACE "get_receive_targets: found raw receive target: " . _fs_path($_);
@@ -2996,14 +2996,14 @@ sub get_receive_targets($$;@)
 
 
 # returns best correlated receive target within droot (independent of btrbk name)
-sub get_best_receive_target($$;@)
+sub get_best_correlated_target($$;@)
 {
   my $droot = shift || die;
   my $src_vol = shift || die;
   my %opts = @_;
   my $filtered_nodes = $opts{push_filtered_nodes};
 
-  my @correlated = _receive_target_nodes($droot, $src_vol); # all matching src_vol, from droot->TREE_ROOT
+  my @correlated = _correlated_nodes($droot, $src_vol); # all matching src_vol, from droot->TREE_ROOT
   foreach (@correlated) {
     my $vinfo = vinfo_resolved($_, $droot); # $vinfo is within $resolve_droot
     return $vinfo if($vinfo);
@@ -3146,11 +3146,11 @@ sub get_best_parent($$$;@)
   my %uniq;
   foreach my $cand (@candidate) {
     next if($uniq{$cand->{node}{id}});
-    my $receive_target = get_best_receive_target($resolve_droot, $cand, push_filtered_nodes => \@filtered_nodes, fallback_all_mountpoints => $target_fallback_all_mountpoints);
-    if($receive_target) {
-      TRACE "get_best_parent: common related from root=\"$resolve_droot->{PRINT}\": \"$cand->{PRINT}\", \"$receive_target->{PRINT}\"";
+    my $correlated_target = get_best_correlated_target($resolve_droot, $cand, push_filtered_nodes => \@filtered_nodes, fallback_all_mountpoints => $target_fallback_all_mountpoints);
+    if($correlated_target) {
+      TRACE "get_best_parent: common related from root=\"$resolve_droot->{PRINT}\": \"$cand->{PRINT}\", \"$correlated_target->{PRINT}\"";
       $parent = $cand;
-      $target_node = $receive_target->{node};
+      $target_node = $correlated_target->{node};
       last;
     }
     $uniq{$cand->{node}{id}} = 1;
@@ -3809,7 +3809,7 @@ sub macro_send_receive(@)
       # NOTE: this is not necessarily the correct parent_uuid (on
       # receive, btrfs-progs picks the uuid of the first (lowest id)
       # matching possible parent), whereas the target_parent is the
-      # first from _receive_target_nodes().
+      # first from _correlated_nodes().
       #
       # NOTE: the parent_uuid of an injected receive target is not used
       # anywhere in btrbk at the time of writing
@@ -6018,7 +6018,7 @@ MAIN:
             foreach my $child (@snapshot_children)
             {
               if(get_receive_targets($droot, $child, exact => 1, warn => 1)){
-                DEBUG "Found receive target of: $child->{PRINT}";
+                DEBUG "Found correlated target of: $child->{PRINT}";
                 next;
               }
 
