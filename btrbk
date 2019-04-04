@@ -3084,6 +3084,7 @@ sub get_best_parent($$$;@)
   my $droot = shift || die;
   my %opts = @_;
   my $fallback_btrbk_basename = $opts{fallback_btrbk_basename} // 1; # default true, see below
+  my $clone_src = $opts{clone_src};
 
   # honor incremental_resolve option
   my $source_incremental_resolve = config_key($svol, "incremental_resolve");
@@ -3140,8 +3141,7 @@ sub get_best_parent($$$;@)
   }
 
   # get correlated receive targets of candidates, return first matching within $resolve_droot
-  my $parent;
-  my $target_node;
+  my @resolved;
   my @filtered_nodes;
   my %uniq;
   foreach my $cand (@candidate) {
@@ -3149,9 +3149,8 @@ sub get_best_parent($$$;@)
     my $correlated_target = get_best_correlated_target($resolve_droot, $cand, push_filtered_nodes => \@filtered_nodes, fallback_all_mountpoints => $target_fallback_all_mountpoints);
     if($correlated_target) {
       TRACE "get_best_parent: common related from root=\"$resolve_droot->{PRINT}\": \"$cand->{PRINT}\", \"$correlated_target->{PRINT}\"";
-      $parent = $cand;
-      $target_node = $correlated_target->{node};
-      last;
+      push @resolved, [ $cand, $correlated_target ];
+      last unless($clone_src);
     }
     $uniq{$cand->{node}{id}} = 1;
   }
@@ -3159,9 +3158,11 @@ sub get_best_parent($$$;@)
     WARN "Best common parent for \"$svol->{PRINT}\" is not accessible within target $target_incremental_resolve \"$resolve_droot->{PRINT}\", ignoring: " . join(", ", map('"' . _fs_path($_) . '"',@filtered_nodes));
   }
 
-  if($parent) {
-    DEBUG "Resolved best common parent: " . $parent->{PRINT};
-    return ($parent, $target_node);
+  if(scalar @resolved) {
+    DEBUG "Resolved best common parent (" . (scalar @resolved) . " total): " . $resolved[0][0]->{PRINT};
+    my $parent = shift @resolved;
+    $$clone_src = \@resolved if($clone_src);
+    return ($parent->[0], $parent->[1]->{node});
   } else {
     DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$resolve_sroot->{PRINT}/\", target=\"$resolve_droot->{PRINT}/\"");
     return undef;
