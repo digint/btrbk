@@ -1,3 +1,21 @@
+btrbk-master
+
+  * MIGRATION
+    - Replace "ssh_port" options with "ssh://hostname[:port]" notation
+      on "volume" or "target" declarations.
+  * Fix table format "resolved" (btrbk list snapshots|backups").
+  * Add btrbk-verify: tool for automated backup integrity check based
+    on rsync (close #256).
+  * Use "ssh://hostname[:port]" notation instead of ambiguous
+    "ssh_port" option (now deprecated).
+  * Bugfix: correctly handle multiple volume sections with same host,
+    but distinct port numbers (virtual machines setups, close #233).
+  * Remove selected rows ("*host", "*port") from table output if all
+    values are empty.
+  * Consider all parent/child relations (close #255).
+  * Add "incremental_resolve" configuration option.
+  * Add "incremental_clones" configuration option.
+
 btrbk-0.27.2
 
   * Bump dependency >= btrfs-progs-4.12 (as of btrbk-0.27.0).
