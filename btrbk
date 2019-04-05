@@ -4587,7 +4587,7 @@ MAIN:
     'wipe'               => \$wipe_snapshots,
     'resume-only|r'      => \$resume_only_DEPRECATED,
     'quiet|q'            => \$quiet,
-    'verbose|v'          => sub { $loglevel = 2; },
+    'verbose|v'          => sub { $loglevel = ($loglevel =~ /^[0-9]+$/) ? $loglevel+1 : 2; },
     'loglevel|l=s'       => \$loglevel,
     'progress'           => \$show_progress,
     'table|t'            => sub { $output_format = "table" },
