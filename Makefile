@@ -14,6 +14,7 @@ DOCS       = ChangeLog \
              README.md
 SCRIPTS    = ssh_filter_btrbk.sh \
              contrib/cron/btrbk-mail \
+             contrib/cron/btrbk-verify \
              contrib/migration/raw_suffix2sidecar \
              contrib/crypt/kdf_pbkdf2.py
 
