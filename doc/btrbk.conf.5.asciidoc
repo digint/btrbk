@@ -342,6 +342,15 @@ btrfs-progs-btrbk").
     If set, make sure the deletion of snapshot and backup subvolumes
     are committed to disk when btrbk terminates. Defaults to ``no''.
 
+*incremental_clones* <number>::
+    Maximum number of clone sources allowed for incremental send. If
+    set, btrbk adds "-c <clone-src>" to the btrfs-send(8) command for
+    all present snapshot/backup pairs (correlated subvolumes matching
+    matching 'received_uuid', printed by "btrbk stats"). Set this to a
+    high number if you want to make sure that no common data is missed
+    on incremental backups, in expense of btrfs-send
+    performance. Defaults to 0.
+
 *incremental_resolve* mountpoint|directory::
     Specifies where to search for the best common parent for
     incremental backups. If set to ``mountpoint'', use parents in the

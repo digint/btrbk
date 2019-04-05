@@ -79,6 +79,7 @@ my %config_options = (
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "root", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
+  incremental_clones          => { default => 0,         accept_numeric => 1 },
   incremental_resolve         => { default => "mountpoint", accept => [ "mountpoint", "directory", "_all_accessible" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   preserve_hour_of_day        => { default => 0,         accept => [ (0..23) ]  },
@@ -1372,15 +1373,21 @@ sub btrfs_qgroup_destroy($@)
 }
 
 
-sub btrfs_send_receive($$$$)
+sub btrfs_send_receive($$;$$$)
 {
   my $snapshot = shift || die;
   my $target = shift || die;
   my $parent = shift;
+  my $clone_src = shift // [];  # arrayref of [ vinfo, correlated_target_node ]
   my $ret_vol_received = shift;
   my $snapshot_path = $snapshot->{PATH} // die;
   my $target_path = $target->{PATH} // die;
   my $parent_path = $parent ? $parent->{PATH} : undef;
+  my @clone_src_path;
+  my $incremental_clones = config_key($target, "incremental_clones");
+  if(my $cnt = $incremental_clones) {
+    @clone_src_path = map { --$cnt < 0 ? ( ) : $_->[0]{PATH} } @$clone_src;
+  }
 
   my $vol_received = vinfo_child($target, $snapshot->{NAME});
   $$ret_vol_received = $vol_received if(ref $ret_vol_received);
@@ -1390,10 +1397,12 @@ sub btrfs_send_receive($$$$)
   INFO "[send/receive] source: $snapshot->{PRINT}";
   INFO "[send/receive] parent: $parent->{PRINT}" if($parent);
   INFO "[send/receive] target: $vol_received->{PRINT}";
+  INFO "[send/receive] using " . (scalar @clone_src_path) . " clone sources" if($incremental_clones);
 
   my @send_options;
   my @receive_options;
   push(@send_options, '-p', { unsafe => $parent_path} ) if($parent_path);
+  push(@send_options, '-c', { unsafe => $_ } ) foreach(@clone_src_path);
   # push(@send_options, '-v') if($loglevel >= 3);
   # push(@receive_options, '-v') if($loglevel >= 3);
 
@@ -3736,6 +3745,7 @@ sub macro_send_receive(@)
   my $source = $info{source} || die;
   my $target = $info{target} || die;
   my $parent = $info{parent};
+  my $clone_src = $info{clone_src};  # arrayref of [ vinfo, correlated_target_node ]
   my $config_target = $target->{CONFIG};
   die unless($config_target->{CONTEXT} eq "target");
   my $target_type = $config_target->{target_type} || die;
@@ -3770,6 +3780,7 @@ sub macro_send_receive(@)
   else {
     INFO "Creating full backup...";
     $parent = undef;
+    $clone_src = undef;
     delete $info{parent};
   }
 
@@ -3778,7 +3789,7 @@ sub macro_send_receive(@)
   my $raw_info;
   if($target_type eq "send-receive")
   {
-    $ret = btrfs_send_receive($source, $target, $parent, \$vol_received);
+    $ret = btrfs_send_receive($source, $target, $parent, $clone_src, \$vol_received);
     ABORTED($config_target, "Failed to send/receive subvolume") unless($ret);
   }
   elsif($target_type eq "raw")
@@ -3936,10 +3947,12 @@ sub macro_archive_target($$$;$)
   my $archive_success = 0;
   foreach my $svol (@archive)
   {
-    my ($parent, $target_parent_node) = get_best_parent($svol, $sroot, $droot);
+    my $clone_src;
+    my ($parent, $target_parent_node) = get_best_parent($svol, $sroot, $droot, clone_src => \$clone_src);
     if(macro_send_receive(source => $svol,
                           target => $droot,
                           parent => $parent,  # this is <undef> if no suitable parent found
+                          clone_src => $clone_src,
                           target_parent_node => $target_parent_node,
                          ))
     {
@@ -6064,10 +6077,12 @@ MAIN:
                 }
 
                 INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
-                my ($parent, $target_parent_node) = get_best_parent($child, $snaproot, $droot);
+                my $clone_src;
+                my ($parent, $target_parent_node) = get_best_parent($child, $snaproot, $droot, clone_src => \$clone_src);
                 if(macro_send_receive(source => $child,
                                       target => $droot,
                                       parent => $parent,  # this is <undef> if no suitable parent found
+                                      clone_src => $clone_src,
                                       target_parent_node => $target_parent_node,
                                      ))
                 {
