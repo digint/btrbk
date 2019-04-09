@@ -3107,6 +3107,7 @@ sub get_best_parent($$$;@)
   my $ret_clone_src          = $opts{clone_src};
   my $ret_clone_src_extra    = $opts{clone_src_extra};
   my $ret_target_parent_node = $opts{target_parent_node};
+  my $strict_related         = $opts{strict_related};
 
   TRACE "get_best_parent: resolving best common parent for subvolume: $svol->{PRINT}  (droot=$droot->{PRINT})";
 
@@ -3227,6 +3228,12 @@ sub get_best_parent($$$;@)
   # assemble results
   unless(scalar @parent) {
     DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$resolve_sroot->{PRINT}/\", target=\"$resolve_droot->{PRINT}/\"");
+    return undef;
+  }
+  if($strict_related && (not scalar(@c_related))) {
+    # all parents come from c_snapdir (btrbk_direct_leaf), no relations by parent_uuid found
+    WARN "No related common parent found (by parent_uuid relationship) for: $svol->{PRINT}";
+    WARN "Hint: setting option \"incremental\" to \"yes\" (instead of \"strict\") will use parent: " . join(", ", map { $_->[0]{PRINT} } @parent);
     return undef;
   }
 
@@ -4023,6 +4030,7 @@ sub macro_archive_target($$$;$)
   {
     my ($clone_src, $clone_src_extra, $target_parent_node);
     my $parent = get_best_parent($svol, $sroot, $droot,
+                                 strict_related     => 0,
                                  clone_src          => \$clone_src,
                                  clone_src_extra    => \$clone_src_extra,
                                  target_parent_node => \$target_parent_node);
@@ -6157,6 +6165,7 @@ MAIN:
                 INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
                 my ($clone_src, $clone_src_extra, $target_parent_node);
                 my $parent = get_best_parent($child, $snaproot, $droot,
+                                             strict_related     => ((config_key($droot, "incremental") // "") eq "strict"),
                                              clone_src          => \$clone_src,
                                              clone_src_extra    => \$clone_src_extra,
                                              target_parent_node => \$target_parent_node);

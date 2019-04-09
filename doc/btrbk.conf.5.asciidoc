@@ -150,9 +150,20 @@ Note that using ``long-iso'' has implications on the scheduling, see
     snapshot creation). Defaults to ``always''.
 
 *incremental* yes|no|strict::
+
     If set, incremental backups are created. If set to ``strict'',
-    non-incremental (initial) backups are never created. Defaults to
-    ``yes''.
+    non-incremental (initial) backups are never created, and
+    incremental backups are restricted to 'related parents' (by
+    parent-uuid relationship). Defaults to ``yes''.
++
+--
+Note that even if the parent-uuid chain is broken, snapshots and
+backups can still share data (which is especially true for backups
+created with 'incremental' option enabled), and are perfectly suitable
+as parents for incremental send-receive operations. But as btrbk can
+not be certain about this, such operations are disallowed in
+"incremental strict" mode.
+--
 
 === Grouping Options
 
