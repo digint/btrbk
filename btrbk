@@ -3031,57 +3031,78 @@ sub get_best_correlated_target($$;@)
 
 sub _push_related_children
 {
-  my $node = shift;
+  my $node = shift; # can be undef, siblings are considered related even if parent is gone
+  my $uuid = shift;
+  my $parent_uuid_hash = shift;
   my $related = shift;
   my $prune = shift;
-  my $distance = shift // 0;
-  my $cgen_ref = shift;
+  my $distance = shift;
 
   if($distance >= 256) {
     WARN "Maximum distance reached, aborting related subvolume search";
     return;
   }
-  return if(defined($prune) && ($node->{id} == $prune->{id}));
-
-  my $children = $node->{TREE_ROOT}{PARENT_UUID_HASH}->{$node->{uuid}} // [];
-  my @readonly = grep { $_->{readonly} } @$children;
-  TRACE "related_nodes: add " . scalar(@readonly) . " readonly children of uuid=$node->{uuid} (distance=$distance)" if(scalar(@readonly));
-
-  # sort by absolute cgen delta, favor older
-  push @$related, sort { (abs($cgen_ref - $a->{cgen}) <=> abs($cgen_ref - $b->{cgen})) ||
-                         ($a->{cgen} <=> $b->{cgen})
-                       } @readonly;
-
-  # recurse into all child subvolumes
-  foreach(@$children) {
-    _push_related_children($_, $related, $prune, $distance + 1, $cgen_ref);
+  if($node) {
+    if($distance == 0) {
+      # hacky, we want to skip ourself, and $node=$vol->{node} if distance=0
+      TRACE "related_nodes: d=$distance uuid=$uuid : related self: " . _fs_path($node);
+    } elsif($node->{readonly}) {
+      TRACE "related_nodes: d=$distance uuid=$uuid : push related readonly: " . _fs_path($node);
+      push @$related, $node;
+    } else {
+      TRACE "related_nodes: d=$distance uuid=$uuid : related not readonly: " . _fs_path($node);
+    }
+  } else {
+    TRACE "related_nodes: d=$distance uuid=$uuid : missing (deleted)";
   }
+
+  # recurse into all child subvolumes (even if parent is missing -> siblings)
+  my $children = $parent_uuid_hash->{$uuid} // [];
+  foreach(@$children) {
+    if(defined($prune) && ($_->{id} == $prune->{id})) {
+      TRACE "related_nodes: d=$distance uuid=$uuid : pruning processed uuid=$_->{uuid}";
+      next;
+    }
+    TRACE "related_nodes: d=$distance uuid=$uuid : processing child uuid=$_->{uuid}";
+    _push_related_children($_, $_->{uuid}, $parent_uuid_hash, $related, $prune, $distance + 1);
+  }
+  TRACE "related_nodes: d=$distance uuid=$uuid : processed " . (scalar @$children) . " children";
 }
 
 
-# returns subvolume nodes related to $vol (by parent_uuid relationship),
-# sorted by parent/child distance and cgen delta.
+# returns all related readonly nodes (by parent_uuid relationship),
+# sort by absolute cgen delta, favor older
 sub get_related_subvolume_nodes($)
 {
   my $vol = shift // die;
-  my $cgen_ref = $vol->{node}{readonly} ? $vol->{node}{cgen} : $vol->{node}{gen};
   TRACE "related_nodes: resolving related subvolumes of: $vol->{PATH}";
 
   # iterate parent chain
   my @related_nodes;
   my $uuid_hash = $vol->{node}{TREE_ROOT}{UUID_HASH};
-  my $parent_it = $vol->{node};
-  my $last_parent;
+  my $parent_uuid_hash = $vol->{node}{TREE_ROOT}{PARENT_UUID_HASH};
+  my $node = $vol->{node};
+  my $uuid = $node->{uuid};
+  my $last_node;
   my $distance = 0;
-  while($parent_it && ($distance <= 256)) {
-    _push_related_children($parent_it, \@related_nodes, $last_parent, $distance + 1, $cgen_ref);
-    $last_parent = $parent_it;
-    $parent_it = $uuid_hash->{$parent_it->{parent_uuid}};
+  while($distance < 256) {
+    _push_related_children($node, $uuid, $parent_uuid_hash, \@related_nodes, $last_node, $distance);
+    last unless $node;
+    $uuid = $node->{parent_uuid};
+    if($uuid eq "-") {
+      TRACE "related_nodes: d=$distance uuid=$node->{uuid} : no parent_uuid";
+      last;
+    }
+    $last_node = $node;
+    $node = $uuid_hash->{$uuid};
+    TRACE "related_nodes: d=$distance uuid=$last_node->{uuid} : processing parent uuid=$uuid";
     $distance++;
-    TRACE "related_nodes: found parent uuid=$parent_it->{uuid} (distance=$distance)" if($parent_it);
   }
+  WARN "Maximum distance reached, related subvolume search aborted" if($distance >= 256);
   TRACE "related_nodes: found total=" . scalar(@related_nodes) . " related readonly subvolumes";
-  return \@related_nodes;
+  my @sorted = sort { (abs($cgen_ref - $a->{cgen}) <=> abs($cgen_ref - $b->{cgen})) ||
+                      ($a->{cgen} <=> $b->{cgen}) } @related_nodes;
+  return \@sorted;
 }
 
 
@@ -3116,7 +3137,6 @@ sub get_best_parent($$$;@)
   # filter candidates
   my @candidate;  # candidates for parent, ordered by "best suited"
   foreach (@$all_related_nodes) {
-    next if($_->{id} == $svol->{node}{id}); # skip self
     my $vinfo = vinfo_resolved($_, $resolve_sroot);
     if((not $vinfo) && $source_fallback_all_mountpoints) { # related node is not under $resolve_sroot
       $vinfo = vinfo_resolved_all_mountpoints($_, $svol);
