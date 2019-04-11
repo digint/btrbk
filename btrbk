@@ -2752,10 +2752,11 @@ sub vinfo_subvol_list($;@)
 
 
 # returns vinfo_child if $node is in tree below $vol, or undef
-sub vinfo_resolved($$)
+sub vinfo_resolved($$;@)
 {
   my $node = shift || die;
   my $vol = shift || die;  # root vinfo node
+  my %opts = @_;
   my $top_id = $vol->{node}{id};
   my @path;
   my $nn = $node;
@@ -2767,6 +2768,10 @@ sub vinfo_resolved($$)
   my $jpath = join('/', @path);
   if($vol->{NODE_SUBDIR}) {
     return undef unless($jpath =~ s/^\Q$vol->{NODE_SUBDIR}\E\///);
+  }
+  if(defined($opts{btrbk_direct_leaf})) {
+    return undef if($jpath =~ /\//);
+    return undef unless(exists($node->{BTRBK_BASENAME}) && ($node->{BTRBK_BASENAME} eq $opts{btrbk_direct_leaf}))
   }
   my $vinfo = vinfo_child($vol, $jpath);
   $vinfo->{node} = $node;
