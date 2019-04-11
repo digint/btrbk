@@ -2915,7 +2915,7 @@ sub vinfo_subsection($$;$)
 }
 
 
-sub get_snapshot_children($$;$)
+sub get_related_snapshots($$;$)
 {
   my $snaproot = shift || die;
   my $svol = shift // die;
@@ -2923,7 +2923,7 @@ sub get_snapshot_children($$;$)
   my @ret = map( { vinfo_resolved($_, $snaproot, btrbk_direct_leaf => $btrbk_basename) // () }
                  @{get_related_readonly_nodes($svol)} );
 
-  if($loglevel >= 4) { TRACE "get_snapshot_children: found: $_->{PRINT}" foreach(@ret); }
+  if($loglevel >= 4) { TRACE "get_related_snapshots: found: $_->{PRINT}" foreach(@ret); }
   DEBUG "Found " . scalar(@ret) . " related snapshots of \"$svol->{PRINT}\" in: $snaproot->{PRINT}" . (defined($btrbk_basename) ? "/$btrbk_basename.*" : "");
   return @ret;
 }
@@ -3258,14 +3258,14 @@ sub get_best_parent($$$;@)
 }
 
 
-sub get_latest_snapshot_child($$;$)
+sub get_latest_related_snapshot($$;$)
 {
   my $sroot = shift || die;
   my $svol = shift // die;
   my $btrbk_basename = shift;
   my $latest = undef;
   my $gen = -1;
-  foreach (get_snapshot_children($sroot, $svol, $btrbk_basename)) {
+  foreach (get_related_snapshots($sroot, $svol, $btrbk_basename)) {
     if($_->{node}{cgen} > $gen) {
       $latest = $_;
       $gen = $_->{node}{cgen};
@@ -5732,7 +5732,7 @@ MAIN:
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snapshot_name = config_key($svol, "snapshot_name") // die;
           # note: we list all snapshot children within $sroot here, not only the ones matching btrbk naming
-          foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_snapshot_children($sroot, $svol)) {
+          foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_related_snapshots($sroot, $svol)) {
             my $snapshot_data = { type => "snapshot",
                                   status => ($snapshot->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
                                   vinfo_prefixed_keys("source", $svol),
@@ -5764,16 +5764,16 @@ MAIN:
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snapshot_name = config_key($svol, "snapshot_name") // die;
           # note: we list all snapshot children within $sroot here, not only the ones matching btrbk naming
-          my @snapshot_children = get_snapshot_children($sroot, $svol);
+          my @related_snapshots = get_related_snapshots($sroot, $svol);
           my $stats_snapshot_uptodate = "";
-          foreach my $snapshot (@snapshot_children) {
+          foreach my $snapshot (@related_snapshots) {
             if($snapshot->{node}{cgen} == $svol->{node}{gen}) {
               $stats_snapshot_uptodate = " (up-to-date)";
               last;
             }
           }
-          push @stats_data, [ $svol->{PRINT}, sprintf("%4u snapshots$stats_snapshot_uptodate", scalar(@snapshot_children)) ];
-          $stats_snapshots_total += scalar(@snapshot_children);  # NOTE: this adds ALL snaphot children under $sroot (not only the ones created by btrbk!)
+          push @stats_data, [ $svol->{PRINT}, sprintf("%4u snapshots$stats_snapshot_uptodate", scalar(@related_snapshots)) ];
+          $stats_snapshots_total += scalar(@related_snapshots);  # NOTE: this adds ALL related snaphots under $sroot (not only the ones created by btrbk!)
 
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             my $stats_correlated = 0;
@@ -5783,7 +5783,7 @@ MAIN:
             foreach my $target_vol (@{vinfo_subvol_list($droot, sort => 'path')}) {
               my $parent_snapshot;
               my $incomplete_backup;
-              foreach (@snapshot_children) {
+              foreach (@related_snapshots) {
                 if($target_vol->{node}{received_uuid} eq '-') {
                   # incomplete received (garbled) subvolumes have no received_uuid (as of btrfs-progs v4.3.1).
                   # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
@@ -5849,18 +5849,18 @@ MAIN:
           my $found = 0;
           my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-          my @snapshot_children = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
-                                       get_snapshot_children($snaproot, $svol, $snapshot_basename));
+          my @related_snapshots = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
+                                       get_related_snapshots($snaproot, $svol, $snapshot_basename));
           foreach my $droot (vinfo_subsection($svol, 'target')) {
-            foreach my $child (@snapshot_children) {
-              my @receive_targets = get_receive_targets($droot, $child, exact => 1);
+            foreach my $snapshot (@related_snapshots) {
+              my @receive_targets = get_receive_targets($droot, $snapshot, exact => 1);
               if(scalar(@receive_targets)) {
                 foreach(@receive_targets) {
                   push @data, { type => "latest_common",
                                 target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
-                                status => ($child->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
+                                status => ($snapshot->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
                                 vinfo_prefixed_keys("source", $svol),
-                                vinfo_prefixed_keys("snapshot", $child),
+                                vinfo_prefixed_keys("snapshot", $snapshot),
                                 vinfo_prefixed_keys("target", $_),
                               };
                 }
@@ -5870,7 +5870,7 @@ MAIN:
             }
           }
           if(!$found) {
-            my $latest_snapshot = $snapshot_children[0];
+            my $latest_snapshot = $related_snapshots[0];
             push @data, { type => "latest_snapshot",
                           status => ($latest_snapshot && ($latest_snapshot->{node}{cgen} == $svol->{node}{gen})) ? "up-to-date" : undef,
                           vinfo_prefixed_keys("source", $svol),
@@ -6027,7 +6027,7 @@ MAIN:
           }
           elsif($snapshot_create eq "onchange") {
             # check if latest (btrbk only!) snapshot is up-to-date with source subvolume (by generation)
-            my $latest = get_latest_snapshot_child($snaproot, $svol, $snapshot_basename);
+            my $latest = get_latest_related_snapshot($snaproot, $svol, $snapshot_basename);
             if($latest) {
               if($latest->{node}{cgen} == $svol->{node}{gen}) {
                 INFO "Snapshot creation skipped: snapshot_create=onchange, snapshot is up-to-date: $latest->{PRINT}";
@@ -6109,26 +6109,26 @@ MAIN:
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-          my @snapshot_children = sort({ cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
-                                       get_snapshot_children($snaproot, $svol, $snapshot_basename));
+          my @related_snapshots = sort({ cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
+                                       get_related_snapshots($snaproot, $svol, $snapshot_basename));
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in \"$droot->{PRINT}/\"";
             my @schedule;
             my $resume_total = 0;
             my $resume_success = 0;
 
-            foreach my $child (@snapshot_children)
+            foreach my $snapshot (@related_snapshots)
             {
-              if(get_receive_targets($droot, $child, exact => 1, warn => 1)){
-                DEBUG "Found correlated target of: $child->{PRINT}";
+              if(get_receive_targets($droot, $snapshot, exact => 1, warn => 1)){
+                DEBUG "Found correlated target of: $snapshot->{PRINT}";
                 next;
               }
 
-              DEBUG "Adding backup candidate: $child->{PRINT}";
-              push(@schedule, { value      => $child,
-                                btrbk_date => $child->{node}{BTRBK_DATE},
+              DEBUG "Adding backup candidate: $snapshot->{PRINT}";
+              push(@schedule, { value      => $snapshot,
+                                btrbk_date => $snapshot->{node}{BTRBK_DATE},
                                 # not enforcing resuming of latest snapshot anymore (since v0.23.0)
-                                # preserve   => $child->{node}{FORCE_PRESERVE},
+                                # preserve   => $snapshot->{node}{FORCE_PRESERVE},
                               });
             }
 
@@ -6149,29 +6149,29 @@ MAIN:
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
               $resume_total = scalar @resume;
 
-              foreach my $child (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @resume)
+              foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @resume)
               {
                 # Continue gracefully (skip instead of abort) on existing (possibly garbled) target
-                my $err_vol = vinfo_subvol($droot, $child->{NAME});
+                my $err_vol = vinfo_subvol($droot, $snapshot->{NAME});
                 if($err_vol) {
                   my $status_msg = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
-                  WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$child->{PRINT}\"";
+                  WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$snapshot->{PRINT}\"";
                   WARN $status_msg;
-                  WARN "Skipping backup of: $child->{PRINT}";
+                  WARN "Skipping backup of: $snapshot->{PRINT}";
                   $droot->{SUBVOL_RECEIVED} //= [];
                   push(@{$droot->{SUBVOL_RECEIVED}}, { ERROR => $status_msg, received_subvolume => $err_vol });
                   $droot->{CONFIG}->{UNRECOVERABLE} = $status_msg;
                   next;
                 }
 
-                INFO "Creating subvolume backup (send-receive) for: $child->{PRINT}";
+                INFO "Creating subvolume backup (send-receive) for: $snapshot->{PRINT}";
                 my ($clone_src, $clone_src_extra, $target_parent_node);
-                my $parent = get_best_parent($child, $snaproot, $droot,
+                my $parent = get_best_parent($snapshot, $snaproot, $droot,
                                              strict_related     => ((config_key($droot, "incremental") // "") eq "strict"),
                                              clone_src          => \$clone_src,
                                              clone_src_extra    => \$clone_src_extra,
                                              target_parent_node => \$target_parent_node);
-                if(macro_send_receive(source => $child,
+                if(macro_send_receive(source => $snapshot,
                                       target => $droot,
                                       parent => $parent,  # this is <undef> if no suitable parent found
                                       clone_src          => $clone_src,
@@ -6215,8 +6215,8 @@ MAIN:
           my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my $target_aborted = 0;
-          my @snapshot_children = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
-                                       get_snapshot_children($snaproot, $svol, $snapshot_basename));
+          my @related_snapshots = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
+                                       get_related_snapshots($snaproot, $svol, $snapshot_basename));
 
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
             if(ABORTED($droot)) {
@@ -6230,11 +6230,11 @@ MAIN:
 
             # preserve latest common snapshot/backup (for incremental targets)
             if(config_key($droot, "incremental")) {
-              foreach my $child (@snapshot_children) {
-                my @receive_targets = get_receive_targets($droot, $child, exact => 1);
+              foreach my $snapshot (@related_snapshots) {
+                my @receive_targets = get_receive_targets($droot, $snapshot, exact => 1);
                 if(scalar(@receive_targets)) {
-                  DEBUG "Force preserve for latest common snapshot: $child->{PRINT}";
-                  $child->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
+                  DEBUG "Force preserve for latest common snapshot: $snapshot->{PRINT}";
+                  $snapshot->{node}{FORCE_PRESERVE} = 'preserve forced: latest common snapshot';
                   foreach(@receive_targets) {
                     DEBUG "Force preserve for latest common target: $_->{PRINT}";
                     $_->{node}{FORCE_PRESERVE} = 'preserve forced: latest common target';
