@@ -2920,14 +2920,11 @@ sub get_snapshot_children($$;$)
   my $snaproot = shift || die;
   my $svol = shift // die;
   my $btrbk_basename = shift; # if set, also filter by direct_leaf
-  my @ret;
+  my @ret = map( { vinfo_resolved($_, $snaproot, btrbk_direct_leaf => $btrbk_basename) // () }
+                 @{get_related_readonly_nodes($svol)} );
 
-  foreach (@{vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $btrbk_basename)}) {
-    next unless($_->{node}{parent_uuid} eq $svol->{node}{uuid});
-    TRACE "get_snapshot_children: found: $_->{PRINT}";
-    push(@ret, $_);
-  }
-  DEBUG "Found " . scalar(@ret) . " snapshot children of \"$svol->{PRINT}\" in: $snaproot->{PRINT}" . (defined($btrbk_basename) ? "/$btrbk_basename.*" : "");
+  if($loglevel >= 4) { TRACE "get_snapshot_children: found: $_->{PRINT}" foreach(@ret); }
+  DEBUG "Found " . scalar(@ret) . " related snapshots of \"$svol->{PRINT}\" in: $snaproot->{PRINT}" . (defined($btrbk_basename) ? "/$btrbk_basename.*" : "");
   return @ret;
 }
 
