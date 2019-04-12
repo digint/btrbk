@@ -6015,6 +6015,7 @@ MAIN:
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
+          DEBUG "Evaluating snapshot creation for: $svol->{PRINT}";
 
           # check if we need to create a snapshot
           my $snapshot_create = config_key($svol, "snapshot_create");
