@@ -566,6 +566,6 @@ License
 =======
 
 btrbk is free software, available under the [GNU General Public
-License, Version 3][GPLv3].
+License, Version 3 or later][GPL-3.0-or-later].
 
-  [GPLv3]: https://www.gnu.org/licenses/gpl.html
+  [GPL-3.0-or-later]: https://www.gnu.org/licenses/gpl.html
