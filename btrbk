@@ -3531,7 +3531,17 @@ sub append_config_option($$$$;@)
     return undef;
   }
 
-  if(grep(/^\Q$value\E$/, @{$opt->{accept}})) {
+  if($value eq "") {
+    if(grep(/^yes$/, @{$opt->{accept}})) {
+      $value = "yes";
+      TRACE "option \"$key\" has no value, accepted map to \"yes\"";
+    }
+    else {
+      ERROR "Unsupported empty value for option \"$key\" $error_statement";
+      return undef;
+    }
+  }
+  elsif(grep(/^\Q$value\E$/, @{$opt->{accept}})) {
     TRACE "option \"$key=$value\" found in accept list";
   }
   elsif($opt->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
@@ -3813,10 +3823,10 @@ sub parse_config(@)
     s/\s*$//;        # remove trailing whitespace
     next if /^\s*$/; # ignore empty lines
     TRACE "config: parsing line $. with context=$cur->{CONTEXT}: \"$_\"";
-    if(/^(\s*)([a-zA-Z_]+)\s+(.*)$/)
+    if(/^(\s*)([a-zA-Z_]+)(\s+(.*))?$/)
     {
       # NOTE: we do not perform checks on indentation!
-      my ($indent, $key, $value) = (length($1), lc($2), $3);
+      my ($indent, $key, $value) = (length($1), lc($2), $4 // "");
       $cur = parse_config_line($file, $root, $cur, $key, $value);
       unless(defined($cur)) {
         # error, bail out
