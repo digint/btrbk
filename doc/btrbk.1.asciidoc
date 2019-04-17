@@ -362,27 +362,42 @@ FILTER STATEMENTS
 Filter arguments are accepted in form:
 
 <group-name>::
-    Matches the 'group' configuration option of a 'volume',
-    'subvolume' or 'target' section (including all underlying
-    sections).
+    Matches the 'group' configuration option of 'volume', 'subvolume'
+    or 'target' sections.
 
-[hostname:]<volume-directory>::
-    Matches all subvolumes and targets of a 'volume' configuration
-    section.
+<hostname>[:<port>]::
+    Matches the 'hostname' portion from '<url>' of 'volume' or
+    'target' sections.
 
-[hostname:]<volume-directory>/<subvolume-name>::
-    Matches the specified subvolume and all targets of a 'subvolume'
-    configuration section.
+<directory>|<url>::
+    Matches 'volume', 'subvolume' or 'target' sections by either
+    relative or absolute path (if starting with "/" or "ssh://" or
+    "<hostname>:/"), accepting wildcard character "*". Relative paths
+    are matched against the end of the pathname. Either:
++
+--
+<volume-directory>::
+    Matches 'volume' sections.
 
-[hostname:]<target-directory>::
-    Matches all targets of a 'target' configuration section.
+<volume-directory>/<subvolume-name>::
+    Matches 'subvolume' sections.
 
-[hostname:]<target-directory>/<snapshot-name>::
-    Matches a single target of a 'target' section within a 'subvolume'
-    section with given <snapshot-name>.
+<volume-directory>/<snapshot-dir>/<snapshot-name>::
+    Matches 'subvolume' sections defining snapshots with the
+    configured 'snapshot_dir' and 'snapshot_name'.
 
-For convenience, [hostname:] can be specified as either "hostname:" or
-"ssh://hostname[:port]/".
+<target-directory>::
+    Matches 'target' sections.
+
+<target-directory>/<snapshot-name>::
+    Matches 'target' sections within 'subvolume' sections defining
+    snapshots with the configured 'snapshot_name'.
+
+Accepted formats for '<url>' are:
+
+  ssh://<hostname>[:<port>]/<directory>
+  <hostname>:<directory>
+--
 
 Note that for *run* and *snapshot* commands, a filter matching a
 'target' configuration section also enables snapshot creation of the
