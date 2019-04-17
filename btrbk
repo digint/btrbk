@@ -121,6 +121,7 @@ my %config_options = (
   kdf_keygen                  => { default => "once",    accept => [ "once", "each" ] },
 
   group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, allow_multiple => 1, split => qr/\s*,\s*/ },
+  noauto                      => { default => undef,     accept => [ "yes", "no" ] },
 
   backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
   backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
@@ -5376,9 +5377,9 @@ MAIN:
 
 
   #
-  # filter subvolumes matching command line arguments
+  # filter subvolumes matching command line arguments, handle noauto option
   #
-  if(($action_run || $action_clean || $action_resolve || $action_usage || $action_list || $action_config_print) && scalar(@filter_args))
+  if(scalar @filter_args)
   {
     my %match;
     foreach my $sroot (vinfo_subsection($config, 'volume', 1)) {
@@ -5451,6 +5452,34 @@ MAIN:
       exit 2;
     }
     $config->{CMDLINE_FILTER_LIST} = [ values %match ];
+  }
+  elsif(not $action_config_print)
+  {
+    # no filter_args present, abort "noauto" contexts
+    if(config_key($config, "noauto")) {
+      WARN "Option \"noauto\" is set in root context, and no filter argument present, exiting";
+      exit 0;
+    }
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
+      if(config_key($sroot, "noauto")) {
+        ABORTED($sroot, "skip_noauto", 'option "noauto" is set');
+        DEBUG "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
+        next;
+      }
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+        if(config_key($svol, "noauto")) {
+          ABORTED($svol, "skip_noauto", 'option "noauto" is set');
+          DEBUG "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
+          next;
+        }
+        foreach my $droot (vinfo_subsection($svol, 'target')) {
+          if(config_key($droot, "noauto")) {
+            ABORTED($droot, "skip_noauto", 'option "noauto" is set');
+            DEBUG "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
+          }
+        }
+      }
+    }
   }
 
 
