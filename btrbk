@@ -2940,6 +2940,80 @@ sub vinfo_subsection($$;$)
 }
 
 
+# allow (absolute) path / url with wildcards
+# allow group (exact match)
+# allow host[:port] (exact match)
+sub vinfo_filter_statement($) {
+  my $filter = shift;
+  my %ret = ( unparsed => $filter );
+
+  my ($url_prefix, $path) = check_url($filter, accept_wildcards => 1);
+  unless($path) {
+    # allow relative path with wildcards
+    $url_prefix = "";
+    $path = check_file($filter, { relative => 1, wildcards => 1 }, sanitize => 1);
+  }
+  if($path) {
+    # support "*some*file*", "*/*"
+    my $regex = join('[^\/]*', map(quotemeta($_), split(/\*+/, $url_prefix . $path, -1)));
+    if($path =~ /^\//) {
+      $ret{url_regex} = qr/^$regex$/;    # absolute path, match full string
+    } else {
+      $ret{url_regex} = qr/\/$regex$/;   # match end of string
+    }
+  }
+
+  $ret{group_eq} = $filter if($filter =~ /^$group_match$/);
+  $ret{host_port_eq} = $filter if($filter =~ /^($ip_addr_match|$host_name_match)(:[1-9][0-9]*)?$/);
+
+  TRACE 'vinfo_filter_statement: filter="' . $filter . '" url_regex="' . ($ret{url_regex} // "<undef>") . '" group_eq="' . ($ret{group_eq} // "<undef>") . '" host_port_eq="' . ($ret{host_port_eq} // "<undef>") . '"';
+  return undef unless(exists($ret{url_regex}) || exists($ret{group_eq}) || exists($ret{host_port_eq}));
+  return \%ret;
+}
+
+
+sub vinfo_match($$;@)
+{
+  my $filter = shift;
+  my $vinfo = shift;
+  my %opts = @_;
+  my $flag_matched = $opts{flag_matched};
+  my $url = join("", check_url($vinfo->{URL})); # sanitize URL (can contain "//", see vinfo_child)
+  my $count = 0;
+  foreach my $ff (@$filter) {
+    if(defined($ff->{group_eq}) && (grep { $ff->{group_eq} eq $_ } @{$vinfo->{CONFIG}{group}})) {
+      TRACE "filter \"$ff->{unparsed}\" equals $vinfo->{CONFIG}{CONTEXT} group: $vinfo->{PRINT}";
+      return $ff unless($flag_matched);
+      #push @{$ff->{$flag_matched}}, 'group=' . $ff->{group_eq};
+      $ff->{$flag_matched} = 1;
+      $count++;
+    }
+    if(defined($ff->{url_regex}) && ($url =~ /$ff->{url_regex}/)) {
+      TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} url: $vinfo->{PRINT}";
+      return $ff unless($flag_matched);
+      #push @{$ff->{$flag_matched}}, $vinfo->{CONFIG}{CONTEXT} . '=' . $vinfo->{PRINT};
+      $ff->{$flag_matched} = 1;
+      $count++;
+    }
+    if(defined($ff->{host_port_eq})) {
+      if(my $host = $vinfo->{HOST}) {
+        if($ff->{host_port_eq} =~ /:/) {
+          $host .= ":" . ($vinfo->{PORT} // "");
+        }
+        if($host eq $ff->{host_port_eq}) {
+          TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} host: $vinfo->{PRINT}";
+          return $ff unless($flag_matched);
+          #push @{$ff->{$flag_matched}}, $vinfo->{CONFIG}{CONTEXT} . '=' . $vinfo->{PRINT};
+          $ff->{$flag_matched} = 1;
+          $count++;
+        }
+      }
+    }
+  }
+  return $count;
+}
+
+
 sub get_related_snapshots($$;$)
 {
   my $snaproot = shift || die;
@@ -3376,7 +3450,7 @@ sub check_url($;@)
     $url_prefix = "ssh://" . $1;
   }
 
-  return ( $url_prefix, check_file($url, { absolute => 1 }, sanitize => 1, %opts) );
+  return ( $url_prefix, check_file($url, { absolute => 1, wildcards => $opts{accept_wildcards} }, sanitize => 1, %opts) );
 }
 
 
@@ -4412,14 +4486,9 @@ sub print_header(@)
     print "    Dryrun: YES\n";
   }
   if($config && $config->{CMDLINE_FILTER_LIST}) {
-    my @list = sort @{$config->{CMDLINE_FILTER_LIST}};
-    my @sorted = ( grep(/^group/,     @list),
-                   grep(/^volume/,    @list),
-                   grep(/^subvolume/, @list),
-                   grep(/^target/,    @list) );
-    die unless(scalar(@list) == scalar(@sorted));
+    my @list = @{$config->{CMDLINE_FILTER_LIST}};
     print "    Filter: ";
-    print join("\n            ", @sorted);
+    print join("\n            ", @list);
     print "\n";
   }
   if($args{info}) {
@@ -4854,31 +4923,24 @@ MAIN:
   }
 
   # input validation
-  foreach (@filter_args) {
-    if(/^($group_match)$/) {  # matches group
-      $_ = $1; # untaint argument
-      next;
-    }
-    else {
-      my ($url_prefix, $path) = check_url($_);
-      if(defined($path)) {
-        $_ = $url_prefix . $path;
-        next;
-      }
-    }
-    ERROR "Bad argument: not a subvolume/group declaration: $_";
-    HELP_MESSAGE(0);
-    exit 2;
-  }
   foreach (@subvol_args) {
     my ($url_prefix, $path) = check_url($_);
-    if(defined($path)) {
-      $_ = $url_prefix . $path;
-      next;
+    unless(defined($path)) {
+      ERROR "Bad argument: not a subvolume declaration: $_";
+      HELP_MESSAGE(0);
+      exit 2;
     }
-    ERROR "Bad argument: not a subvolume declaration: $_";
-    HELP_MESSAGE(0);
-    exit 2;
+    $_ = $url_prefix . $path;
+  }
+  my @filter_vf;
+  foreach (@filter_args) {
+    my $vf = vinfo_filter_statement($_);
+    unless($vf) {
+      ERROR "Bad argument: invalid filter statement: $_";
+      HELP_MESSAGE(0);
+      exit 2;
+    }
+    push @filter_vf, $vf;
   }
   foreach(@config_override_cmdline) {
     if(/(.*?)=(.*)/) {
@@ -5379,56 +5441,31 @@ MAIN:
   #
   # filter subvolumes matching command line arguments, handle noauto option
   #
-  if(scalar @filter_args)
+  if(scalar @filter_vf)
   {
-    my %match;
     foreach my $sroot (vinfo_subsection($config, 'volume', 1)) {
-      my $vol_match = join("", check_url($sroot->{URL})); # sanitize URL (can contain "//", see vinfo_child)
       my $found_vol = 0;
-      foreach my $filter (@filter_args) {
-        if(($vol_match eq $filter) ||
-           (map { ($filter eq $_) || () } @{$sroot->{CONFIG}->{group}})) {
-          TRACE "filter argument \"$filter\" matches volume: $sroot->{PRINT}";
-          $match{$filter} = ($vol_match eq $filter) ? "volume=$sroot->{PRINT}" : "group=$filter";
-          $found_vol = 1;
-          # last; # need to cycle through all filter_args for correct %match
-        }
+      if(vinfo_match(\@filter_vf, $sroot, flag_matched => '_matched')) {
+        next;
       }
-      next if($found_vol);
-
-      my @filter_subvol;
       foreach my $svol (vinfo_subsection($sroot, 'subvolume', 1)) {
-        my $subvol_match = join("", check_url($svol->{URL})); # sanitize URL (can contain "//", see vinfo_child)
         my $found_subvol = 0;
-        foreach my $filter (@filter_args) {
-          if(($subvol_match eq $filter) ||
-             (map { ($filter eq $_) || () } @{$svol->{CONFIG}->{group}})) {
-            TRACE "filter argument \"$filter\" matches subvolume: $svol->{PRINT}";
-            $match{$filter} = ($subvol_match eq $filter) ? "subvolume=$svol->{PRINT}" : "group=$filter";
+        my $snaproot = vinfo_snapshot_root($svol);
+        my $snapshot_name = config_key($svol, "snapshot_name") // die;
+        if(vinfo_match(\@filter_vf, $svol, flag_matched => '_matched') ||
+           vinfo_match(\@filter_vf, vinfo_child($snaproot, $snapshot_name), flag_matched => '_matched'))
+        {
+          $found_vol = 1;
+          next;
+        }
+        foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
+          if(vinfo_match(\@filter_vf, $droot, flag_matched => '_matched') ||
+             vinfo_match(\@filter_vf, vinfo_child($droot, $snapshot_name), flag_matched => '_matched'))
+          {
             $found_subvol = 1;
             $found_vol = 1;
-            # last; # need to cycle through all filter_args for correct %match
           }
-        }
-        next if($found_subvol);
-
-        my $snapshot_name = config_key($svol, "snapshot_name") // die;
-        foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
-          my $target_url = $droot->{URL};
-          my $found_target = 0;
-          foreach my $filter (@filter_args) {
-            if(($filter eq $target_url) ||
-               ($filter eq "$target_url/$snapshot_name") ||
-               (map { ($filter eq $_) || () } @{$droot->{CONFIG}->{group}})) {
-              TRACE "filter argument \"$filter\" matches target: $target_url";
-              $match{$filter} = ($target_url eq $filter) ? "target=$droot->{PRINT}" : "group=$filter";
-              $found_target = 1;
-              $found_subvol = 1;
-              $found_vol = 1;
-              # last; # need to cycle through all filter_args for correct %match
-            }
-          }
-          unless($found_target) {
+          else {
             ABORTED($droot, "skip_cmdline_filter", "No match on filter command line argument");
             DEBUG "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
           }
@@ -5444,14 +5481,14 @@ MAIN:
       }
     }
     # make sure all args have a match
-    my @nomatch = map { $match{$_} ? () : $_ } @filter_args;
+    my @nomatch = map { $_->{_matched} ? () : $_->{unparsed} } @filter_vf;
     if(@nomatch) {
       foreach(@nomatch) {
-        ERROR "Command line argument does not match any volume, subvolume, target or group declaration: $_";
+        ERROR "Filter argument \"$_\" does not match any volume, subvolume, target or group declaration";
       }
       exit 2;
     }
-    $config->{CMDLINE_FILTER_LIST} = [ values %match ];
+    $config->{CMDLINE_FILTER_LIST} = [ map { $_->{unparsed} } @filter_vf ];
   }
   elsif(not $action_config_print)
   {
