@@ -164,6 +164,11 @@ not be certain about this, such operations are disallowed in
 "incremental strict" mode.
 --
 
+*noauto* yes|no::
+    If set, the context is skipped by all btrbk actions unless
+    explicitely enabled by a matching btrbk '<filter>' command line
+    argument (e.g. "btrbk run myfilter").
+
 
 === Grouping Options
 
