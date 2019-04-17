@@ -17,7 +17,7 @@ SYNOPSIS
 
 [verse]
 btrbk [-h|--help] [--version]
-      [-c|--config <file>] [-n|--dry-run]
+      [-c|--config <file>] [-n|--dry-run] [--exclude <filter>]
       [-p|--preserve] [--preserve-snapshots] [--preserve-backups]
       [-v|--verbose] [-q|--quiet] [-l|--loglevel <level>]
       [-t|--table] [--format <output-format>]
@@ -81,6 +81,10 @@ OPTIONS
     the *run*, *snapshot*, *resume*, *prune*, *archive* and *clean*
     commands. Use in conjunction with '-l debug' to see the btrfs
     commands that would be executed.
+
+--exclude <filter>::
+    Exclude configured sections matching '<filter>'. See
+    <<_filter_statements,FILTER STATEMENTS>> below
 
 -p, --preserve::
     Preserve all snapshots and backups. Skips deletion of any

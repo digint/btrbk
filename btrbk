@@ -318,6 +318,7 @@ options:
        --version             display version information
    -c, --config=FILE         specify configuration file
    -n, --dry-run             perform a trial run with no changes made
+       --exclude=FILTER      exclude configured sections
    -p, --preserve            preserve all (do not delete anything)
        --preserve-snapshots  preserve snapshots (do not delete snapshots)
        --preserve-backups    preserve backups (do not delete backups)
