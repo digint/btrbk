@@ -21,9 +21,9 @@ btrbk [-h|--help] [--version]
       [-p|--preserve] [--preserve-snapshots] [--preserve-backups]
       [-v|--verbose] [-q|--quiet] [-l|--loglevel <level>]
       [-t|--table] [--format <output-format>]
-      [--progress] [-S|--print-schedule]
-      [--override <config_option>=<value>]
+      [-S|--print-schedule] [--progress]
       [--lockfile <file>]
+      [--override <config_option>=<value>]
       <command> [<args>]
 
 
@@ -72,15 +72,15 @@ OPTIONS
 --version::
     Prints the btrbk version.
 
+-c, --config <file>::
+    Read the configuration from <file>.
+
 -n, --dry-run::
     Don't run anything that would alter the filesystem, just show the
     snapshots and backup subvolumes that would be created/deleted by
     the *run*, *snapshot*, *resume*, *prune*, *archive* and *clean*
     commands. Use in conjunction with '-l debug' to see the btrfs
     commands that would be executed.
-
--c, --config <file>::
-    Read the configuration from <file>.
 
 -p, --preserve::
     Preserve all snapshots and backups. Skips deletion of any
@@ -122,13 +122,13 @@ OPTIONS
     output format for *run*, *snapshot*, *resume*, *prune*, *archive*
     and *list* commands. Useful for further exporting/scripting.
 
---progress::
-    Show progress bar on send-receive operation.
-
 -S, --print-schedule::
     Print detailed scheduler information on *run*, *snapshot*,
     *resume*, *prune* and *archive* commands. Use the '--format'
     command line option to switch between different output formats.
+
+--progress::
+    Show progress bar on send-receive operation.
 
 --lockfile <file>::
     Create lockfile <file> on startup; checks lockfile before running
