@@ -4721,33 +4721,29 @@ MAIN:
   }
   my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive);
   my @filter_args;
-  my $args_allow_group = 1;
+  my @subvol_args;
   my $args_expected_min = 0;
   my $args_expected_max = 9999;
   if(($command eq "run") || ($command eq "dryrun")) {
     $action_run = 1;
     $dryrun = 1 if($command eq "dryrun");
-    $args_allow_group = 1;
     @filter_args = @ARGV;
   }
   elsif($command eq "snapshot") {
     $action_run = 1;
     $skip_backups = "snapshot";
     $preserve_backups = "snapshot";
-    $args_allow_group = 1;
     @filter_args = @ARGV;
   }
   elsif($command eq "resume") {
     $action_run = 1;
     $skip_snapshots = "resume";
-    $args_allow_group = 1;
     @filter_args = @ARGV;
   }
   elsif($command eq "prune") {
     $action_run = 1;
     $skip_snapshots = "prune";
     $skip_backups = "prune";
-    $args_allow_group = 1;
     @filter_args = @ARGV;
   }
   elsif ($command eq "clean") {
@@ -4757,8 +4753,7 @@ MAIN:
   elsif ($command eq "archive") {
     $action_archive = 1;
     $args_expected_min = $args_expected_max = 2;
-    $args_allow_group = 0;
-    @filter_args = @ARGV;
+    @subvol_args = @ARGV;
   }
   elsif ($command eq "usage") {
     $action_usage = 1;
@@ -4767,14 +4762,12 @@ MAIN:
   elsif ($command eq "diff") {
     $action_diff = 1;
     $args_expected_min = $args_expected_max = 2;
-    $args_allow_group = 0;
-    @filter_args = @ARGV;
+    @subvol_args = @ARGV;
   }
   elsif ($command eq "origin") {
     $action_origin = 1;
     $args_expected_min = $args_expected_max = 1;
-    $args_allow_group = 0;
-    @filter_args = @ARGV;
+    @subvol_args = @ARGV;
   }
   elsif($command eq "list") {
     my $subcommand = shift @ARGV // "";
@@ -4829,7 +4822,7 @@ MAIN:
 
   # input validation
   foreach (@filter_args) {
-    if($args_allow_group && /^($group_match)$/) {  # matches group
+    if(/^($group_match)$/) {  # matches group
       $_ = $1; # untaint argument
       next;
     }
@@ -4840,7 +4833,17 @@ MAIN:
         next;
       }
     }
-    ERROR "Bad argument: not a subvolume" . ($args_allow_group ? "/group" : "") . " declaration: $_";
+    ERROR "Bad argument: not a subvolume/group declaration: $_";
+    HELP_MESSAGE(0);
+    exit 2;
+  }
+  foreach (@subvol_args) {
+    my ($url_prefix, $path) = check_url($_);
+    if(defined($path)) {
+      $_ = $url_prefix . $path;
+      next;
+    }
+    ERROR "Bad argument: not a subvolume declaration: $_";
     HELP_MESSAGE(0);
     exit 2;
   }
@@ -4878,8 +4881,8 @@ MAIN:
     #
     # print snapshot diff
     #
-    my $src_url    = $filter_args[0] || die;
-    my $target_url = $filter_args[1] || die;
+    my $src_url    = $subvol_args[0] || die;
+    my $target_url = $subvol_args[1] || die;
     my $default_config = init_config();
     # NOTE: ssh://{src,target} uses default config
 
@@ -5000,8 +5003,8 @@ MAIN:
     init_transaction_log(config_key($config, "transaction_log"),
                          config_key($config, "transaction_syslog"));
 
-    my $src_url    = $filter_args[0] || die;
-    my $archive_url = $filter_args[1] || die;
+    my $src_url     = $subvol_args[0] || die;
+    my $archive_url = $subvol_args[1] || die;
 
     # FIXME: add command line options for preserve logic
     $config->{SUBSECTION} = [];  # clear configured subsections, we build them dynamically
@@ -5681,7 +5684,7 @@ MAIN:
     #
     # print origin information
     #
-    my $url = $filter_args[0] || die;
+    my $url = $subvol_args[0] || die;
     my $vol = vinfo($url, $config);
     unless(vinfo_init_root($vol)) {
       ERROR "Failed to fetch subvolume detail for: $url" . ($err ? ": $err" : "");
