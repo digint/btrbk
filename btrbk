@@ -4764,6 +4764,7 @@ MAIN:
   @tm_now = localtime($start_time);
 
   my @config_override_cmdline;
+  my @exclude_cmdline;
   my ($config_cmdline, $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups, $print_schedule, $lockfile_cmdline);
   my $resume_only_DEPRECATED;  # as of btrbk-v0.26.0
   unless(GetOptions(
@@ -4771,6 +4772,7 @@ MAIN:
     'version'            => sub { VERSION_MESSAGE(); exit 0; },
     'config|c=s'         => \$config_cmdline,
     'dry-run|n'          => \$dryrun,
+    'exclude=s'          => \@exclude_cmdline,
     'preserve|p'         => sub { $preserve_snapshots = "preserve", $preserve_backups = "preserve" },
     'preserve-snapshots' => sub { $preserve_snapshots = "preserve-snapshots" },
     'preserve-backups'   => sub { $preserve_backups = "preserve-backups" },
@@ -4941,6 +4943,16 @@ MAIN:
       exit 2;
     }
     push @filter_vf, $vf;
+  }
+  my @exclude_vf;
+  foreach (@exclude_cmdline) {
+    my $vf = vinfo_filter_statement($_);
+    unless($vf) {
+      ERROR "Bad argument: invalid filter statement: --exclude='$_'";
+      HELP_MESSAGE(0);
+      exit 2;
+    }
+    push @exclude_vf, $vf;
   }
   foreach(@config_override_cmdline) {
     if(/(.*?)=(.*)/) {
@@ -5181,15 +5193,9 @@ MAIN:
       }
     }
 
-    # translate archive_exclude globs to regex
-    my $exclude_list = config_key($config, 'archive_exclude') // [];
-    my @exclude_match;
-    foreach my $exclude (@$exclude_list) {
-      $exclude = '/' . $exclude unless($exclude =~ /^\//); # add leading slash
-      # support "*some*file*", "*/*"
-      push(@exclude_match, join('[^\/]*', map(quotemeta($_), split(/\*+/, $exclude, -1))));
-      TRACE "translated exclude globs \"$exclude\" to regex \"$exclude_match[-1]\"";
-    }
+    # translate archive_exclude globs, add to exclude args
+    my $archive_exclude = config_key($config, 'archive_exclude') // [];
+    push @exclude_vf, map(vinfo_filter_statement($_), (@$archive_exclude));
 
     # create archives
     my $schedule_results = [];
@@ -5202,14 +5208,14 @@ MAIN:
       }
       my $snapshot_name = config_key($sroot, "snapshot_name") // die;
 
-      # skip on archive_exclude
-      foreach(@exclude_match) {
-        if(($sroot->{PATH} =~ /$_$/) || ("$sroot->{PATH}/$snapshot_name" =~ /$_$/)) {
-          INFO "Skip archiving subvolumes (archive_exclude): $sroot->{PRINT}/${snapshot_name}.*";
-          ABORTED($sroot, "skip_archive_exclude", "Match on archive_exclude=$_");
-        }
+      # skip on archive_exclude and --exclude option
+      if(vinfo_match(\@exclude_vf, $sroot) ||
+         vinfo_match(\@exclude_vf, vinfo_child($sroot, $snapshot_name)))
+      {
+        ABORTED($sroot, "skip_archive_exclude", "Match on archive_exclude");
+        INFO "Skipping archive subvolumes \"$sroot->{PRINT}/${snapshot_name}.*\": " . ABORTED_TEXT($sroot);
+        next;
       }
-      next if(IS_ABORTED($sroot));
 
       foreach my $droot (vinfo_subsection($sroot, 'target')) {
         INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
@@ -5311,7 +5317,7 @@ MAIN:
           }
         }
 
-        my @cmdline_options;
+        my @cmdline_options = map { "exclude: $_" } @exclude_cmdline;
         push @cmdline_options, "preserve: Preserved all archives" if($preserve_backups);
 
         print_header(title => "Archive Summary",
@@ -5519,6 +5525,43 @@ MAIN:
     }
   }
 
+  if(scalar @exclude_vf)
+  {
+    # handle --exclude command line option
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
+      if(my $ff = vinfo_match(\@exclude_vf, $sroot)) {
+        ABORTED($sroot, "skip_cmdline_exclude", "command line argument \"--exclude=$ff->{unparsed}\"");
+        DEBUG "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
+        next;
+      }
+      my $all_svol_aborted = 1;
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+        my $snaproot = vinfo_snapshot_root($svol);
+        my $snapshot_name = config_key($svol, "snapshot_name") // die;
+        if(my $ff = (vinfo_match(\@exclude_vf, $svol) ||
+                     vinfo_match(\@exclude_vf, vinfo_child($snaproot, $snapshot_name))))
+        {
+          ABORTED($svol, "skip_cmdline_exclude", "command line argument \"--exclude=$ff->{unparsed}\"");
+          DEBUG "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
+          next;
+        }
+        $all_svol_aborted = 0;
+        foreach my $droot (vinfo_subsection($svol, 'target')) {
+          if(my $ff = (vinfo_match(\@exclude_vf, $droot) ||
+                       vinfo_match(\@exclude_vf, vinfo_child($droot, $snapshot_name))))
+          {
+            ABORTED($droot, "skip_cmdline_exclude", "command line argument \"--exclude=$ff->{unparsed}\"");
+            DEBUG "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
+            next;
+          }
+        }
+      }
+      if($all_svol_aborted) {
+        ABORTED($sroot, "skip_cmdline_exclude", "All subvolumes excluded");
+        DEBUG "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
+      }
+    }
+  }
 
   if($action_usage)
   {
@@ -5582,6 +5625,7 @@ MAIN:
 
     print_header(title => "Configuration Dump",
                  config => $config,
+                 options => [ map { "exclude: $_" } @exclude_cmdline ],
                  time => $start_time,
                 );
 
@@ -6491,7 +6535,7 @@ MAIN:
           }
         }
 
-        my @cmdline_options;
+        my @cmdline_options = map { "exclude: $_" } @exclude_cmdline;
         push @cmdline_options, "$skip_snapshots: No snapshots created" if($skip_snapshots);
         push @cmdline_options, "$skip_backups: No backups created" if($skip_backups);
         push @cmdline_options, "$preserve_snapshots: Preserved all snapshots" if($preserve_snapshots);
