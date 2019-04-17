@@ -273,7 +273,6 @@ my $quiet;
 my $do_dumper;
 my $show_progress = 0;
 my $err = "";
-my $abrt = "";  # last ABORTED() message
 my $output_format;
 my $lockfile;
 my $tlog_fh;
@@ -381,25 +380,50 @@ sub SUBVOL_LIST {
 }
 
 
-sub ABORTED($;$)
+sub ABORTED($$;$)
 {
   my $config = shift;
-  $abrt = shift;
+  my $abrt_key = shift // die;
+  my $abrt = shift;
   $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
-  return $config->{ABORTED} unless(defined($abrt));
-
-  unless(($abrt eq "USER_SKIP") || ($abrt eq "ARCHIVE_EXCLUDE_SKIP")) {
+  unless(defined($abrt)) {
+    # no key (only text) set: switch arguments, use default key
+    $abrt = $abrt_key;
+    $abrt_key = "abort_" . $config->{CONTEXT};
+  }
+  unless($abrt_key =~ /^skip_/) {
+    # keys starting with "skip_" are not actions
     $abrt =~ s/\n/\\\\/g;
     $abrt =~ s/\r//g;
-    action("abort_" . ($config->{CONTEXT} || "undef"),
+    action($abrt_key,
            status => "ABORT",
            vinfo_prefixed_keys("target", vinfo($config->{url}, $config)),
            message => $abrt,
           );
   }
-  $abrt = 1 unless($abrt);  # make sure $abrt is always a true value
-  $config->{ABORTED} = $abrt;
+  $config->{ABORTED} = { key => $abrt_key, text => $abrt };
 }
+
+sub IS_ABORTED($;$)
+{
+  my $config = shift;
+  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
+  return undef unless(defined($config->{ABORTED}));
+  my $abrt_key = $config->{ABORTED}->{key};
+  return undef unless(defined($abrt_key));
+  my $filter_prefix = shift;
+  return ($abrt_key =~ /^$filter_prefix/) if($filter_prefix);
+  return $abrt_key;
+}
+
+sub ABORTED_TEXT($)
+{
+  my $config = shift;
+  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
+  return "" unless(defined($config->{ABORTED}));
+  return $config->{ABORTED}->{text} // "";
+}
+
 
 sub eval_quiet(&)
 {
@@ -3835,7 +3859,7 @@ sub macro_send_receive(@)
   if(my $err_vol = vinfo_subvol($target, $source->{NAME})) {
     ABORTED($config_target, "Target subvolume \"$err_vol->{PRINT}\" already exists");
     $config_target->{UNRECOVERABLE} = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
-    ERROR $config_target->{ABORTED} . ", aborting send/receive of: $source->{PRINT}";
+    ERROR ABORTED_TEXT($config_target) . ", aborting send/receive of: $source->{PRINT}";
     ERROR $config_target->{UNRECOVERABLE};
     $info{ERROR} = 1;
     return undef;
@@ -4005,7 +4029,7 @@ sub macro_archive_target($$$;$)
 
   if($has_unexpected_location) {
     ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
-    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": $abrt";
+    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": " . ABORTED_TEXT($droot);
     return undef;
   }
 
@@ -4628,9 +4652,7 @@ sub exit_status
 {
   my $config = shift;
   foreach my $subsection (@{$config->{SUBSECTION}}) {
-    return 10 if($subsection->{ABORTED} &&
-                 ($subsection->{ABORTED} ne "USER_SKIP") &&
-                 ($subsection->{ABORTED} ne "ARCHIVE_EXCLUDE_SKIP"));
+    return 10 if(IS_ABORTED($subsection, "abort_"));
     return 10 if(exit_status($subsection));
   }
   return 0;
@@ -5052,7 +5074,7 @@ MAIN:
       vinfo_assign_config($sroot);
       unless(vinfo_init_root($sroot, resolve_subdir => 1)) {
         ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-        WARN "Skipping archive source \"$sroot->{PRINT}\": $abrt";
+        WARN "Skipping archive source \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
         next;
       }
 
@@ -5062,7 +5084,7 @@ MAIN:
         DEBUG("Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
         unless(system_mkdir($droot)) {
           ABORTED($droot, "Failed to create directory: $droot->{PRINT}/");
-          WARN "Skipping archive target \"$droot->{PRINT}\": $abrt";
+          WARN "Skipping archive target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
           next;
         }
         $droot->{SUBDIR_CREATED} = 1;
@@ -5075,7 +5097,7 @@ MAIN:
           # after directory is created, try to init again
           unless(vinfo_init_root($droot, resolve_subdir => 1)) {
             ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-            WARN "Skipping archive target \"$droot->{PRINT}\": $abrt";
+            WARN "Skipping archive target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
             next;
           }
         }
@@ -5111,19 +5133,19 @@ MAIN:
       foreach(@exclude_match) {
         if(($sroot->{PATH} =~ /$_$/) || ("$sroot->{PATH}/$snapshot_name" =~ /$_$/)) {
           INFO "Skip archiving subvolumes (archive_exclude): $sroot->{PRINT}/${snapshot_name}.*";
-          ABORTED($sroot, "ARCHIVE_EXCLUDE_SKIP");
+          ABORTED($sroot, "skip_archive_exclude", "Match on archive_exclude=$_");
         }
       }
-      next if(ABORTED($sroot));
+      next if(IS_ABORTED($sroot));
 
       foreach my $droot (vinfo_subsection($sroot, 'target')) {
         INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
         macro_archive_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
-        if(ABORTED($droot)) {
+        if(IS_ABORTED($droot)) {
           # also abort $sroot
           $aborted = "At least one target aborted earlier";
           ABORTED($sroot, $aborted);
-          WARN "Skipping archiving of \"$sroot->{PRINT}/\": $abrt";
+          WARN "Skipping archiving of \"$sroot->{PRINT}/\": " . ABORTED_TEXT($sroot);
           last;
         }
       }
@@ -5200,14 +5222,11 @@ MAIN:
             foreach(@{$droot->{SUBVOL_DELETED} // []}) {
               push @subvol_out, "--- $_->{PRINT}";
             }
-            if((ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) ||
-               (ABORTED($sroot) && (ABORTED($sroot) ne "USER_SKIP"))) {
-              if(ABORTED($sroot) && (ABORTED($sroot) eq "ARCHIVE_EXCLUDE_SKIP")) {
-                push @subvol_out, "<archive_exclude>";
-              }
-              else {
-                push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . (ABORTED($droot) || ABORTED($sroot));
-              }
+            if(IS_ABORTED($droot, "abort_") || IS_ABORTED($sroot, "abort_")) {
+              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . (ABORTED_TEXT($droot) || ABORTED_TEXT($sroot));
+            }
+            elsif(IS_ABORTED($sroot, "skip_archive_exclude")) {
+              push @subvol_out, "<archive_exclude>";
             }
             if($droot->{CONFIG}->{UNRECOVERABLE}) {
               push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});
@@ -5268,7 +5287,7 @@ MAIN:
     my $sroot = vinfo($config_vol->{url}, $config_vol);
     unless(vinfo_init_root($sroot)) {
       ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-      WARN "Skipping volume \"$sroot->{PRINT}\": $abrt";
+      WARN "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
       next;
     }
 
@@ -5399,18 +5418,18 @@ MAIN:
             }
           }
           unless($found_target) {
-            DEBUG "No match on filter command line argument, skipping target: $droot->{PRINT}";
-            ABORTED($droot, "USER_SKIP");
+            ABORTED($droot, "skip_cmdline_filter", "No match on filter command line argument");
+            DEBUG "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
           }
         }
         unless($found_subvol) {
-          DEBUG "No match on filter command line argument, skipping subvolume: $svol->{PRINT}";
-          ABORTED($svol, "USER_SKIP");
+          ABORTED($svol, "skip_cmdline_filter", "No match on filter command line argument");
+          DEBUG "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
         }
       }
       unless($found_vol) {
-        DEBUG "No match on filter command line argument, skipping volume: $sroot->{PRINT}";
-        ABORTED($sroot, "USER_SKIP");
+        ABORTED($sroot, "skip_cmdline_filter", "No match on filter command line argument");
+        DEBUG "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
       }
     }
     # make sure all args have a match
@@ -5564,29 +5583,29 @@ MAIN:
     DEBUG "Initializing volume section: $sroot->{PRINT}";
     unless(vinfo_init_root($sroot)) {
       ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-      WARN "Skipping volume \"$sroot->{PRINT}\": $abrt";
+      WARN "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
       next;
     }
     foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
       DEBUG "Initializing subvolume section: $svol->{PRINT}";
       unless(vinfo_init_root($svol)) {
         ABORTED($svol, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-        WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
         next;
       }
       if((not $svol->{node}{uuid}) || ($svol->{node}{uuid} eq '-')) {
         ABORTED($svol, "subvolume has no UUID");
-        ERROR "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        ERROR "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
         next;
       }
       if($svol->{node}{readonly}) {
         ABORTED($svol, "subvolume is readonly");
-        WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
         next;
       }
       if($svol->{node}{received_uuid} ne '-') {
         ABORTED($svol, "\"Received UUID\" is set");
-        WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
         next;
       }
       if(_is_child_of($sroot->{node}, $svol->{node}{uuid}) ||
@@ -5595,19 +5614,19 @@ MAIN:
         DEBUG "Found \"$svol->{PRINT}\" (id=$svol->{node}{id}) in btrfs tree of: $sroot->{PRINT}";
       } else {
         ABORTED($svol, "Not a child subvolume of: $sroot->{PRINT}");
-        WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
         next;
       }
 
       my $snaproot = vinfo_snapshot_root($svol);
       unless(vinfo_init_root($snaproot)) {
         ABORTED($svol, "Failed to fetch subvolume detail for snapshot_dir" . ($err ? ": $err" : ""));
-        WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
         next;
       }
       unless(_is_same_fs_tree($snaproot->{node}, $svol->{node})) {
         ABORTED($svol, "Snapshot path is not on same filesystem");
-        WARN "Skipping subvolume \"$svol->{PRINT}\": $abrt";
+        WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
         next;
       }
     }
@@ -5629,7 +5648,7 @@ MAIN:
           {
             unless(vinfo_init_root($droot, resolve_subdir => 1)) {
               ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
-              WARN "Skipping target \"$droot->{PRINT}\": $abrt";
+              WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
               next;
             }
           }
@@ -5637,14 +5656,14 @@ MAIN:
           {
             unless(vinfo_init_raw_root($droot)) {
               ABORTED($droot, "Failed to fetch raw target metadata" . ($err ? ": $err" : ""));
-              WARN "Skipping target \"$droot->{PRINT}\": $abrt";
+              WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
               next;
             }
           }
 
           if($config_override{FAILSAFE_PRESERVE}) {
             ABORTED($droot, $config_override{FAILSAFE_PRESERVE});
-            WARN  "Skipping target \"$droot->{PRINT}\": $abrt";
+            WARN  "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
           }
         }
       }
@@ -5951,7 +5970,7 @@ MAIN:
 
           if(scalar(@delete_success) != scalar(@delete)) {
             ABORTED($droot, "Failed to delete incomplete target subvolume");
-            push @out, "!!! Target \"$droot->{PRINT}\" aborted: $abrt";
+            push @out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED_TEXT($droot);
           }
           push(@out, "<no_action>") unless(scalar(@delete));
           push(@out, "");
@@ -6063,7 +6082,7 @@ MAIN:
           my @unconfirmed_target_name;
           my @lookup = map { $_->{SUBVOL_PATH} } @{vinfo_subvol_list($snaproot)};
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
-            if(ABORTED($droot)) {
+            if(IS_ABORTED($droot)) {
               push(@unconfirmed_target_name, $droot);
               next;
             }
@@ -6096,7 +6115,7 @@ MAIN:
           }
           else {
             ABORTED($svol, "Failed to create snapshot: $svol->{PRINT} -> $snapshot->{PRINT}");
-            WARN "Skipping subvolume section: $abrt";
+            WARN "Skipping subvolume section: " . ABORTED_TEXT($svol);
           }
         }
       }
@@ -6223,8 +6242,8 @@ MAIN:
                                        get_related_snapshots($snaproot, $svol, $snapshot_basename));
 
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
-            if(ABORTED($droot)) {
-              if(ABORTED($droot) eq "USER_SKIP") {
+            if(IS_ABORTED($droot)) {
+              if(IS_ABORTED($droot, "skip_cmdline_")) {
                 $target_aborted ||= -1;
               } else {
                 $target_aborted = 1;
@@ -6365,30 +6384,33 @@ MAIN:
                 push @subvol_out, "--- $_->{PRINT}";
               }
 
-              if(ABORTED($droot) && (ABORTED($droot) ne "USER_SKIP")) {
-                push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED($droot);
+              if(IS_ABORTED($droot, "abort_")) {
+                push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED_TEXT($droot);
               }
 
               if($droot->{CONFIG}->{UNRECOVERABLE}) {
                 push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});
               }
             }
-            if(ABORTED($sroot) && (ABORTED($sroot) ne "USER_SKIP")) {
-              # repeat volume errors in subvolume context
-              push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: " . ABORTED($sroot);
-            }
-            if(ABORTED($svol) && (ABORTED($svol) ne "USER_SKIP")) {
-              push @subvol_out, "!!! Aborted: " . ABORTED($svol);
+
+            unless(IS_ABORTED($svol, "skip_")) {
+              if(IS_ABORTED($sroot, "abort_")) {
+                # repeat volume errors in subvolume context
+                push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: " . ABORTED_TEXT($sroot);
+              }
+              if(IS_ABORTED($svol, "abort_")) {
+                # don't print "<no_action>" on skip_cmdline or skip_noauto
+                push @subvol_out, "!!! Aborted: " . ABORTED_TEXT($svol);
+              }
+
+              # print "<no_action>" for subvolume, unless aborted by "skip_"
+              unless(@subvol_out) {
+                @subvol_out = "<no_action>";
+              }
             }
 
             if(@subvol_out) {
               push @out, "$svol->{PRINT}", @subvol_out, "";
-            }
-            elsif(ABORTED($svol) && (ABORTED($svol) eq "USER_SKIP")) {
-              # don't print "<no_action>" on USER_SKIP
-            }
-            else {
-              push @out, "$svol->{PRINT}", "<no_action>", "";
             }
           }
         }
