@@ -3941,7 +3941,6 @@ sub macro_send_receive(@)
   my @clone_src = @{ $info{clone_src} // [] }; # copy array
   my $clone_src_extra = $info{clone_src_extra} // [];
   my $config_target = $target->{CONFIG};
-  die unless($config_target->{CONTEXT} eq "target");
   my $target_type = $config_target->{target_type} || die;
   my $incremental = config_key($config_target, "incremental");
 
@@ -5153,7 +5152,7 @@ MAIN:
                            url           => $sroot_url,     # ABORTED() needs this
                            snapshot_name => $snapshot_name,
                          };
-      my $config_droot = { CONTEXT       => "target",
+      my $config_droot = { CONTEXT       => "archive_target",
                            PARENT        => $config_sroot,
                            target_type   => "send-receive", # macro_send_receive checks this
                            url           => $droot_url,     # ABORTED() needs this
@@ -5223,7 +5222,7 @@ MAIN:
         next;
       }
 
-      foreach my $droot (vinfo_subsection($sroot, 'target')) {
+      foreach my $droot (vinfo_subsection($sroot, 'archive_target')) {
         INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
         macro_archive_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
         if(IS_ABORTED($droot)) {
@@ -5246,7 +5245,7 @@ MAIN:
       $del_schedule_results = [];
       foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
         my $snapshot_name = config_key($sroot, "snapshot_name") // die;
-        foreach my $droot (vinfo_subsection($sroot, 'target')) {
+        foreach my $droot (vinfo_subsection($sroot, 'archive_target')) {
           INFO "Cleaning archive: $droot->{PRINT}/${snapshot_name}.*";
           macro_delete($droot, "", $snapshot_name, $droot,
                        { preserve     => config_preserve_hash($droot, "archive"),
@@ -5293,7 +5292,7 @@ MAIN:
         my @unrecoverable;
         my @out;
         foreach my $sroot (vinfo_subsection($config, 'archive_source', 1)) {
-          foreach my $droot (vinfo_subsection($sroot, 'target', 1)) {
+          foreach my $droot (vinfo_subsection($sroot, 'archive_target', 1)) {
             my @subvol_out;
             if($droot->{SUBDIR_CREATED}) {
               push @subvol_out, "++. $droot->{PRINT}/";
