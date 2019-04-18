@@ -474,7 +474,7 @@ sub init_transaction_log($$)
       WARN "Syslog disabled: $@";
     }
   }
-  action("startup", status => "v$VERSION", message => "$VERSION_INFO");
+  action("DEFERRED", %$_) foreach (@transaction_log);
 }
 
 sub close_transaction_log()
@@ -493,13 +493,15 @@ sub action($@)
 {
   my $type = shift // die;
   my $h = { @_ };
-  my $time = $h->{time} // time;
-  $h->{type} = $type;
-  $h->{time} = $time;
-  $h->{localtime} = timestamp($time, 'debug-iso');
+  unless($type eq "DEFERRED") {
+    my $time = $h->{time} // time;
+    $h->{type} = $type;
+    $h->{time} = $time;
+    $h->{localtime} = timestamp($time, 'debug-iso');
+    push @transaction_log, $h;
+  }
   print_formatted("transaction", [ $h ], output_format => "tlog", no_header => 1, outfile => $tlog_fh) if($tlog_fh);
   print_formatted("transaction", [ $h ], output_format => "syslog", no_header => 1) if($syslog_enabled);  # dirty hack, this calls syslog()
-  push @transaction_log, $h;
   return $h;
 }
 
@@ -4985,6 +4987,7 @@ MAIN:
 
 
   INFO "$VERSION_INFO  (" . localtime($start_time) . ")";
+  action("startup", status => "v$VERSION", message => $VERSION_INFO, time => $start_time);
 
   if($action_diff)
   {
