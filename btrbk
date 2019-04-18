@@ -4159,7 +4159,7 @@ sub macro_archive_target($$$;$)
       $archive_success++;
     }
     else {
-      ERROR("Error while cloning, aborting");
+      ERROR("Error while archiving subvolumes, aborting");
       last;
     }
   }
