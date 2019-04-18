@@ -5182,6 +5182,7 @@ MAIN:
           # we need to fake this directory on dryrun
           $droot->{node} = $archive_root->{node};
           $droot->{NODE_SUBDIR} = $subvol_dir;
+          $droot->{VINFO_MOUNTPOINT} = $archive_root->{VINFO_MOUNTPOINT};
         }
         else {
           # after directory is created, try to init again
