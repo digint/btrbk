@@ -1874,13 +1874,11 @@ sub system_mkdir($)
   my $vol = shift // die;
   my $path = $vol->{PATH} // die;;
   INFO "Creating directory: $vol->{PRINT}/";
+  start_transaction("mkdir", vinfo_prefixed_keys("target", $vol));
   my $ret = run_cmd(cmd => [ qw(mkdir), '-p', { unsafe => $path } ],
                     rsh => vinfo_rsh($vol),
                    );
-  action("mkdir",
-         vinfo_prefixed_keys("target", $vol),
-         status => ($dryrun ? "DRYRUN" : (defined($ret) ? "success" : "ERROR")),
-        );
+  end_transaction("mkdir", defined($ret));
   return undef unless(defined($ret));
   return 1;
 }
