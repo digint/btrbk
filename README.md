@@ -262,14 +262,14 @@ host, but distinct port numbers for each machine.
     target send-receive /mnt/btr_backup/
 
     volume ssh://localhost:2201/mnt/btr_pool
-      group vm
+      group vm vm01
       subvolume home
         snapshot_name vm01-home
       subvolume data
         snapshot_name vm01-data
 
     volume ssh://localhost:2202/mnt/btr_pool
-      group vm
+      group vm vm02
       subvolume home
         snapshot_name vm02-home
 
