@@ -120,7 +120,7 @@ my %config_options = (
   kdf_keysize                 => { default => "32",      accept_numeric => 1 },
   kdf_keygen                  => { default => "once",    accept => [ "once", "each" ] },
 
-  group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*,\s*$group_match)*$/, allow_multiple => 1, split => qr/\s*,\s*/ },
+  group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*[,\s]\s*$group_match)*$/, allow_multiple => 1, split => qr/\s*[,\s]\s*/ },
   noauto                      => { default => undef,     accept => [ "yes", "no" ] },
 
   backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },

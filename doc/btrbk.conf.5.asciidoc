@@ -172,9 +172,9 @@ not be certain about this, such operations are disallowed in
 
 === Grouping Options
 
-*group* <group-name>[,<group-name>]...::
-    Add the current section (volume, subvolume or target) to a
-    user-defined group, which can be used as filter for most btrbk
+*group* <group-name> [<group-name>]...::
+    Add the current section (volume, subvolume or target) to
+    user-defined groups, which can be used as filter for most btrbk
     commands. This option can be set multiple times within the same
     context.
 
