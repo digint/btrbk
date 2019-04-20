@@ -148,6 +148,10 @@ attached, simply add the following line to the config:
 
     snapshot_create            ondemand
 
+For a quick additional snapshot of your home, run:
+
+    # btrbk snapshot home
+
 
 Example: host-initiated backup on fileserver
 --------------------------------------------
