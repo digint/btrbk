@@ -114,13 +114,13 @@ Retention policy:
 
 /etc/btrbk/btrbk-mylaptop.conf:
 
-    snapshot_preserve_min       2d
-    snapshot_preserve          14d
+    snapshot_preserve_min   2d
+    snapshot_preserve      14d
 
-    target_preserve_min        no
-    target_preserve            20d 10w *m
+    target_preserve_min    no
+    target_preserve        20d 10w *m
 
-    snapshot_dir               btrbk_snapshots
+    snapshot_dir           btrbk_snapshots
 
     volume /mnt/btr_pool
       target /mnt/btr_backup/mylaptop
@@ -145,7 +145,7 @@ Retention policy:
 If you want the snapshots to be created only if the backup disk is
 attached, simply add the following line to the config:
 
-    snapshot_create            ondemand
+    snapshot_create ondemand
 
 For a quick additional snapshot of your home, run:
 
@@ -159,7 +159,7 @@ Let's say you have a fileserver at "myserver.mydomain.com" where you
 want to create backups of your laptop disk, the config would look like
 this:
 
-    ssh_identity               /etc/btrbk/ssh/id_rsa
+    ssh_identity /etc/btrbk/ssh/id_rsa
 
     volume /mnt/btr_pool
       subvolume rootfs
@@ -177,7 +177,7 @@ Example: fileserver-initiated backups from several hosts
 If you're a sysadmin and want to trigger backups directly from your
 fileserver, the config would be something like:
 
-    ssh_identity               /etc/btrbk/ssh/id_rsa
+    ssh_identity /etc/btrbk/ssh/id_rsa
 
     volume ssh://alpha.mydomain.com/mnt/btr_pool
       target /mnt/btr_backup/alpha
@@ -237,12 +237,11 @@ to only fetch the snapshots.
     target_preserve            0d 10w *m
 
     volume ssh://192.168.0.42/mnt/btr_pool
+      target /mnt/btr_backup/my-laptop
       subvolume home
         snapshot_dir           btrbk_snapshots
         snapshot_preserve_min  all
         snapshot_create        no
-
-        target /mnt/btr_backup/my-laptop.com
 
 If the server runs btrbk with this config, 10 weeklies and all
 monthlies are received from 192.168.0.42. The source filesystem is
@@ -299,8 +298,7 @@ In your daily cron script, prior to running btrbk, sync your source to
 
     rsync -a --inplace --delete -e ssh myhost.mydomain.com:/data/ /mnt/btr_backup/myhost_sync/
 
-Then run btrbk, with myhost_sync configured *without any targets* as
-follows:
+Then run btrbk, with myhost_sync configured *without any targets*:
 
     volume /mnt/btr_backup
       subvolume myhost_sync
