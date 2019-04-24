@@ -20,6 +20,10 @@ endif
 ASCIIDOCTOR_MANPAGE = asciidoctor -d manpage -b manpage
 ASCIIDOCTOR_HTML    = asciidoctor -b html5 -d article
 
+# reproducible builds: reference date is ":date:" attribute from asciidoc source
+date_attr = $(shell sed -rn 's/:date:\s*//p' $(1))
+source_date_epoch = $(shell date +%s -u -d $(call date_attr,$(1)))
+
 
 all: man
 man: man1 man5
@@ -45,10 +49,10 @@ clean:
 	gzip -9 -n -c $< > $@
 
 %.1 : %.1.asciidoc
-	$(ASCIIDOCTOR_MANPAGE) -o $@ $<
+	SOURCE_DATE_EPOCH=$(call source_date_epoch,$<) $(ASCIIDOCTOR_MANPAGE) -o $@ $<
 
 %.5 : %.5.asciidoc
-	$(ASCIIDOCTOR_MANPAGE) -o $@ $<
+	SOURCE_DATE_EPOCH=$(call source_date_epoch,$<) $(ASCIIDOCTOR_MANPAGE) -o $@ $<
 
 %.html : %.asciidoc
-	$(ASCIIDOCTOR_HTML) -o $@ $<
+	SOURCE_DATE_EPOCH=$(call source_date_epoch,$<) $(ASCIIDOCTOR_HTML) -o $@ $<
