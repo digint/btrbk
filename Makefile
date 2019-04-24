@@ -29,8 +29,6 @@ SYSTEMDDIR = $(PREFIX)/lib/systemd/system
 MAN1DIR    = $(PREFIX)/share/man/man1
 MAN5DIR    = $(PREFIX)/share/man/man5
 
-export COMPRESS ?= yes
-
 ifeq ($(COMPRESS), yes)
   DOCS := $(addsuffix .gz,$(DOCS))
 endif

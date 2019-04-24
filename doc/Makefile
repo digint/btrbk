@@ -10,8 +10,6 @@ DOCDIR     = $(PREFIX)/share/doc/$(PN)
 MAN1DIR    = $(PREFIX)/share/man/man1
 MAN5DIR    = $(PREFIX)/share/man/man5
 
-COMPRESS  ?= yes
-
 ifeq ($(COMPRESS), yes)
   DOCS     := $(addsuffix .gz,$(DOCS))
   MAN_MAN1 := $(addsuffix .gz,$(MAN_MAN1))
