@@ -339,7 +339,7 @@ commands:
    snapshot              run snapshot operations only
    resume                run backup operations, and delete snapshots
    prune                 only delete snapshots and backups
-   archive <src> <dst>   recursively copy all subvolumes (experimental)
+   archive <src> <dst>   recursively copy all subvolumes
    clean                 delete incomplete (garbled) backups
    stats                 print snapshot/backup statistics
    list <subcommand>     available subcommands are:

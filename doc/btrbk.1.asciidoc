@@ -236,14 +236,13 @@ as it is still required in order to determine the latest
 snapshot/backup pair (which is always preserved, regardless of the
 retention policy).
 
-*archive* <source> <target> _*experimental*_::
+*archive* <source> <target>::
     Recursively copy all subvolumes created by btrbk from <source> to
     <target> directory, optionally rescheduled using
     'archive_preserve_*' configuration options. Also creates directory
-    tree on <target> (see bugs below). Useful for creating extra
-    archive copies (clones) from your backup disks. Note that you can
-    continue using btrbk after swapping your backup disk with the
-    archive disk.
+    tree on <target>. Useful for creating extra archive copies
+    (clones) from your backup disks. Note that you can continue using
+    btrbk after swapping your backup disk with the archive disk.
 +
 If you want to use nested subvolumes on the target filesystem, you
 need to create them by hand (e.g. by running "btrfs subvolume create
