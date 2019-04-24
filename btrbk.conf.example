@@ -67,7 +67,6 @@ snapshot_dir               _btrbk_snap
 # Specify SSH private key for "ssh://" volumes / targets:
 #ssh_identity               /etc/btrbk/ssh/id_ed25519
 #ssh_user                   root
-#ssh_port                   default
 #ssh_compression            no
 #ssh_cipher_spec            default
 
@@ -94,14 +93,14 @@ snapshot_dir               _btrbk_snap
 #                       (usually the mount-point of a btrfs filesystem
 #                       mounted with subvolid=5 option)
 #
-# Subvolume section: "subvolume <subvolume-name>
+# Subvolume section: "subvolume <subvolume-name>"
 #
 #   <subvolume-name>    Subvolume to be backuped, relative to
 #                       <volume-directory> in volume section.
 #
 # Target section: "target <type> <volume-directory>"
 #
-#   <type>              Backup type, currently only "send-receive".
+#   <type>              (optional) type, defaults to "send-receive".
 #   <volume-directory>  Directory of a btrfs volume (or subvolume)
 #                       receiving the backups.
 #
@@ -130,13 +129,13 @@ volume /mnt/btr_pool
   # no action if external disk is not attached
   snapshot_create  ondemand
 
-  subvolume  root_gentoo
-    target send-receive      /mnt/btr_backup/_btrbk
+  # propagates to all subvolume sections:
+  target /mnt/btr_backup/_btrbk
 
+  subvolume  root_gentoo
   subvolume  kvm
     # use different retention policy for kvm backups
-    target_preserve          7d 4w
-    target send-receive      /mnt/btr_backup/_btrbk
+    target_preserve     7d 4w
 
 
 # Backup to external disk as well as some remote host
@@ -144,23 +143,23 @@ volume /mnt/btr_data
   subvolume  home
     # always create snapshot, even if targets are unreachable
     snapshot_create  always
-    target send-receive      /mnt/btr_backup/_btrbk
-    target send-receive      ssh://backup.my-remote-host.com/mnt/btr_backup
+    target /mnt/btr_backup/_btrbk
+    target ssh://backup.my-remote-host.com/mnt/btr_backup
 
 
 # Backup from remote host, with different naming
 volume ssh://my-remote-host.com/mnt/btr_pool
   subvolume data_0
-    snapshot_dir             snapshots/btrbk
-    snapshot_name            data_main
-    target send-receive      /mnt/btr_backup/_btrbk/my-remote-host.com
+    snapshot_dir   snapshots/btrbk
+    snapshot_name  data_main
+    target /mnt/btr_backup/_btrbk/my-remote-host.com
 
 
 # Resume backups from remote host which runs its own btrbk instance
 # creating snapshots for "home" in "/mnt/btr_pool/btrbk_snapshots".
 volume ssh://my-remote-host.com/mnt/btr_pool
+  snapshot_dir           btrbk_snapshots
+  snapshot_create        no
+  snapshot_preserve_min  all
   subvolume home
-    snapshot_dir             btrbk_snapshots
-    snapshot_preserve_min    all
-    snapshot_create          no
-    target send-receive      /mnt/btr_backup/_btrbk/my-remote-host.com
+    target /mnt/btr_backup/_btrbk/my-remote-host.com

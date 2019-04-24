@@ -123,11 +123,10 @@ Retention policy:
     snapshot_dir               btrbk_snapshots
 
     volume /mnt/btr_pool
+      target /mnt/btr_backup/mylaptop
       subvolume rootfs
-        target send-receive    /mnt/btr_backup/mylaptop
-
       subvolume home
-        target send-receive    /mnt/btr_backup/mylaptop
+      [...]
 
 
 /etc/cron.daily/btrbk:
@@ -164,8 +163,8 @@ this:
 
     volume /mnt/btr_pool
       subvolume rootfs
-        target send-receive    /mnt/btr_backup/mylaptop
-        target send-receive    ssh://myserver.mydomain.com/mnt/btr_backup/mylaptop
+        target /mnt/btr_backup/mylaptop
+        target ssh://myserver.mydomain.com/mnt/btr_backup/mylaptop
 
 In addition to the backups on your local usb-disk mounted at
 `/mnt/btr_backup/mylaptop`, incremental backups would also be pushed
@@ -181,18 +180,14 @@ fileserver, the config would be something like:
     ssh_identity               /etc/btrbk/ssh/id_rsa
 
     volume ssh://alpha.mydomain.com/mnt/btr_pool
+      target /mnt/btr_backup/alpha
       subvolume rootfs
-        target send-receive    /mnt/btr_backup/alpha
-
       subvolume home
-        target send-receive    /mnt/btr_backup/alpha
 
     volume ssh://beta.mydomain.com/mnt/btr_pool
+      target /mnt/btr_backup/beta
       subvolume rootfs
-        target send-receive    /mnt/btr_backup/beta
-
       subvolume dbdata
-        target send-receive    /mnt/btr_backup/beta
 
 This will pull backups from alpha/beta.mydomain.com and locally
 create:
@@ -247,7 +242,7 @@ to only fetch the snapshots.
         snapshot_preserve_min  all
         snapshot_create        no
 
-        target send-receive  /mnt/btr_backup/my-laptop.com
+        target /mnt/btr_backup/my-laptop.com
 
 If the server runs btrbk with this config, 10 weeklies and all
 monthlies are received from 192.168.0.42. The source filesystem is
@@ -263,7 +258,7 @@ host, but distinct port numbers for each machine.
 /etc/btrbk/btrbk.conf:
 
     # This propagates to all subvolume sections:
-    target send-receive /mnt/btr_backup/
+    target /mnt/btr_backup/
 
     volume ssh://localhost:2201/mnt/btr_pool
       group vm vm01
