@@ -19,19 +19,8 @@ ifeq ($(COMPRESS), yes)
 endif
 
 # convert using "asciidoctor": <https://asciidoctor.org>
-# fallback to "a2x" from asciidoc package: <http://asciidoc.org>
-ifneq (, $(shell command -v asciidoctor 2> /dev/null))
-  ASCIIDOC_MANPAGE = asciidoctor -d manpage -b manpage
-  ASCIIDOC_HTML    = asciidoctor -b html5 -d article
-else ifneq (, $(shell command -v a2x 2> /dev/null))
-  # NOTE: using -L (--no-xmllint), as xmllint is a separate package on many distros.
-  ASCIIDOC_MANPAGE = a2x -L -d manpage -f manpage
-  ASCIIDOC_HTML    = asciidoc -b html -d article
-else
-  ASCIIDOC_ERR = $(error "please install either asciidoc or asciidoctor")
-  ASCIIDOC_MANPAGE = $(ASCIIDOC_ERR)
-  ASCIIDOC_HTML    = $(ASCIIDOC_ERR)
-endif
+ASCIIDOCTOR_MANPAGE = asciidoctor -d manpage -b manpage
+ASCIIDOCTOR_HTML    = asciidoctor -b html5 -d article
 
 
 all: man
@@ -58,10 +47,10 @@ clean:
 	gzip -9 -n -c $< > $@
 
 %.1 : %.1.asciidoc
-	$(ASCIIDOC_MANPAGE) $<
+	$(ASCIIDOCTOR_MANPAGE) -o $@ $<
 
 %.5 : %.5.asciidoc
-	$(ASCIIDOC_MANPAGE) $<
+	$(ASCIIDOCTOR_MANPAGE) -o $@ $<
 
 %.html : %.asciidoc
-	$(ASCIIDOC_HTML) -o $@ $<
+	$(ASCIIDOCTOR_HTML) -o $@ $<
