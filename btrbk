@@ -2580,10 +2580,9 @@ sub add_btrbk_filename_info($;$)
 }
 
 
-sub vinfo_init_root($;@)
+sub vinfo_init_root($)
 {
   my $vol = shift || die;
-  my %opts = @_;
 
   # resolve btrfs tree from mount point
   my ($mnt_path, $real_path, $subvolid, $mount_source, $mountpoints) = btrfs_mountpoint($vol);
@@ -5129,12 +5128,12 @@ MAIN:
     $config->{SUBSECTION} = [];  # clear configured subsections, we build them dynamically
 
     my $src_root = vinfo($src_url, $config);
-    unless(vinfo_init_root($src_root, resolve_subdir => 1)) {
+    unless(vinfo_init_root($src_root)) {
       ERROR "Failed to fetch subvolume detail for '$src_root->{PRINT}'" . ($err ? ": $err" : "");
       exit 1;
     }
     my $archive_root = vinfo($archive_url, $config);
-    unless(vinfo_init_root($archive_root, resolve_subdir => 1)) {
+    unless(vinfo_init_root($archive_root)) {
       ERROR "Failed to fetch subvolume detail for '$archive_root->{PRINT}'" . ($err ? ": $err" : "");
       exit 1;
     }
@@ -5169,7 +5168,7 @@ MAIN:
 
       my $sroot = vinfo($sroot_url, $config_sroot);
       vinfo_assign_config($sroot);
-      unless(vinfo_init_root($sroot, resolve_subdir => 1)) {
+      unless(vinfo_init_root($sroot)) {
         ABORTED($sroot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
         WARN "Skipping archive source \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
         next;
@@ -5177,7 +5176,7 @@ MAIN:
 
       my $droot = vinfo($droot_url, $config_droot);
       vinfo_assign_config($droot);
-      unless(vinfo_init_root($droot, resolve_subdir => 1)) {
+      unless(vinfo_init_root($droot)) {
         DEBUG("Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
         unless(system_mkdir($droot)) {
           ABORTED($droot, "Failed to create directory: $droot->{PRINT}/");
@@ -5193,7 +5192,7 @@ MAIN:
         }
         else {
           # after directory is created, try to init again
-          unless(vinfo_init_root($droot, resolve_subdir => 1)) {
+          unless(vinfo_init_root($droot)) {
             ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
             WARN "Skipping archive target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
             next;
@@ -5779,7 +5778,7 @@ MAIN:
           my $target_type = $droot->{CONFIG}->{target_type} || die;
           if($target_type eq "send-receive")
           {
-            unless(vinfo_init_root($droot, resolve_subdir => 1)) {
+            unless(vinfo_init_root($droot)) {
               ABORTED($droot, "Failed to fetch subvolume detail" . ($err ? ": $err" : ""));
               WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
               next;
