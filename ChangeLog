@@ -1,9 +1,11 @@
-btrbk-master
+btrbk-0.28.0
 
   * MIGRATION
     - Replace "ssh_port" options with "ssh://hostname[:port]" notation
       on "volume" or "target" declarations.
-  * Fix table format "resolved" (btrbk list snapshots|backups").
+    - Check filter statements in your scripts ("btrbk run <filter>"),
+      especially when using groups having the same name as subvolumes.
+  * Fix table format "resolved" (btrbk list snapshots|backups).
   * Add btrbk-verify: tool for automated backup integrity check based
     on rsync (close #256).
   * Use "ssh://hostname[:port]" notation instead of ambiguous
@@ -13,8 +15,15 @@ btrbk-master
   * Remove selected rows ("*host", "*port") from table output if all
     values are empty.
   * Consider all parent/child relations (close #255).
+  * Disallow unrelated parents for btrfs-send if incremental=strict.
+  * Add clone sources to btrfs-send if necessary.
   * Add "incremental_resolve" configuration option.
   * Add "incremental_clones" configuration option.
+  * Add "noauto" configuration option.
+  * Add "--exclude" command line option.
+  * Make target_type optional, defaults to "send-receive".
+  * Use more sophisticated filter arguments.
+  * Allow whitespace separated "group" option.
 
 btrbk-0.27.2
 
