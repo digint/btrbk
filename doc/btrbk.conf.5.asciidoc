@@ -292,8 +292,14 @@ option in ssh_config(5).
     operations, but also increases system load. A suffix of "k", "m",
     "g", or "%" can be added to '<size>' to denote kilobytes (*1024),
     megabytes, gigabytes, or a percentage of total physical
-    memory. Defaults to ``no''. If enabled, make sure that the
-    "mbuffer" command is available on the target host.
+    memory. Defaults to ``no''.
++
+--
+If enabled, make sure that the "mbuffer" command is available on the
+target host. Note that versions of mbuffer < 20180505 suffered from
+nasty bugs (infinite loops, hangs); if your main concern is a stable
+backup process, leave this option disabled.
+--
 
 *rate_limit* <rate>|no::
     Limit the transfer to a maximum of '<rate>' bytes per second. A
