@@ -3788,9 +3788,11 @@ sub parse_config_line($$$$$)
       $cur = $cur->{PARENT} || die;
       TRACE "config: context changed to: $cur->{CONTEXT}";
     }
-    if($value =~ /^(\S+)\s+(\S+)$/)
+    if($value =~ /^((?<target_type>\S+)\s+)?(?<url>\S+)$/)
     {
-      my ($target_type, $url) = ($1, $2);
+      # as of btrbk-0.28.0, target_type is optional and defaults to "send-receive"
+      my $target_type = $+{target_type} // "send-receive";
+      my $url = $+{url};
       unless(grep(/^\Q$target_type\E$/, @config_target_types)) {
         ERROR "Unknown target type \"$target_type\" in \"$file\" line $.";
         return undef;

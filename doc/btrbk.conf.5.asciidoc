@@ -70,15 +70,16 @@ valid UUID, which is not the case for file systems created with
 btrfs-progs < 4.16.
 --
 
-*target* <type> <target-directory>|<url>::
+*target* [send-receive|raw] <target-directory>|<url>::
     Target type and directory where the backup subvolumes are to be
-    created. See the <<_target_types,TARGET TYPES>> section for
-    supported '<type>'. Multiple 'target' sections are allowed within
-    'subvolume' sections. A 'target' section defined in the global
-    context or in a 'volume' section is propagated (multiplied) to all
-    underlying 'subvolume' sections, unless a target with the same
-    declaration already exists (hint: run "btrbk config print" to see
-    the resulting configuration).
+    created. The optional target type defaults to (standard)
+    ``send-receive'', see <<_target_types,TARGET TYPES>> below for
+    details. Multiple 'target' sections are allowed within 'subvolume'
+    sections. A 'target' section defined in the global context or in a
+    'volume' section is propagated (multiplied) to all underlying
+    'subvolume' sections, unless a target with the same declaration
+    already exists (hint: run "btrbk config print" to see the
+    resulting configuration).
 
 If a '<url>' is specified, btrbk actions (shell commands) are executed
 remotely via ssh, using the <<_ssh_options,SSH Options>> described
