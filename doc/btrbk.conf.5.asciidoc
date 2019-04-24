@@ -71,15 +71,16 @@ btrfs-progs < 4.16.
 --
 
 *target* [send-receive|raw] <target-directory>|<url>::
-    Target type and directory where the backup subvolumes are to be
-    created. The optional target type defaults to (standard)
-    ``send-receive'', see <<_target_types,TARGET TYPES>> below for
-    details. Multiple 'target' sections are allowed within 'subvolume'
-    sections. A 'target' section defined in the global context or in a
-    'volume' section is propagated (multiplied) to all underlying
-    'subvolume' sections, unless a target with the same declaration
-    already exists (hint: run "btrbk config print" to see the
-    resulting configuration).
+    Target directory where the backup subvolumes are to be
+    created. The optional target type defaults to ``send-receive'',
+    see <<_target_types,TARGET TYPES>> below for details.
++
+--
+Multiple 'target' sections are allowed, in any context: a 'target'
+defined in 'volume' or global context will be used for all underlying
+'subvolume' sections (hint: run "btrbk list" or "btrbk config print"
+to see the resulting configuration).
+--
 
 If a '<url>' is specified, btrbk actions (shell commands) are executed
 remotely via ssh, using the <<_ssh_options,SSH Options>> described
