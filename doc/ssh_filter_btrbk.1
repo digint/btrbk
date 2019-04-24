@@ -1,0 +1,208 @@
+'\" t
+.\"     Title: ssh_filter_btrbk
+.\"    Author: [see the "AUTHOR(S)" section]
+.\" Generator: Asciidoctor 1.5.7.1
+.\"      Date: 2019-04-24
+.\"    Manual: Btrbk Manual
+.\"    Source: Btrbk 0.28.0
+.\"  Language: English
+.\"
+.TH "SSH_FILTER_BTRBK" "1" "2019-04-24" "Btrbk 0.28.0" "Btrbk Manual"
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.ss \n[.ss] 0
+.nh
+.ad l
+.de URL
+\fI\\$2\fP <\\$1>\\$3
+..
+.als MTO URL
+.if \n[.g] \{\
+.  mso www.tmac
+.  am URL
+.    ad l
+.  .
+.  am MTO
+.    ad l
+.  .
+.  LINKSTYLE blue R < >
+.\}
+.SH "NAME"
+ssh_filter_btrbk \- ssh command filter script for btrbk
+.SH "SYNOPSIS"
+.sp
+.nf
+ssh_filter_btrbk.sh [\-s|\-\-source] [\-t|\-\-target] [\-d|\-\-delete]
+    [\-i|\-\-info] [\-\-snapshot] [\-\-send] [\-\-receive]
+    [\-p|\-\-restrict\-path <path>] [\-l|\-\-log] [\-\-sudo]
+.fi
+.br
+.SH "DESCRIPTION"
+.sp
+\fBssh_filter_btrbk.sh\fP restricts SSH commands to commands used by
+\fIbtrbk\fP. It examines the SSH_ORIGINAL_COMMAND environment variable
+(set by sshd) and executes it only if it contains commands used by
+\fIbtrbk\fP.
+.sp
+The accepted commands are specified by the "\-\-source", "\-\-target",
+"\-\-delete" and "\-\-info" options.
+.sp
+The following commands are always allowed:
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+"btrfs subvolume show"
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+"btrfs subvolume list"
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+"readlink"
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+"cat /proc/self/mountinfo"
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+pipes through "gzip", "pigz", "bzip2", "pbzip2", "xz", "lzop",
+"lz4" (stream_compress)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+pipes through "mbuffer" (stream_buffer)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+pipes through "pv \-L" (rate_limit)
+.RE
+.sp
+Example line in /root/.ssh/authorized_keys on a backup target host:
+.sp
+.if n .RS 4
+.nf
+command="ssh_filter_btrbk.sh \-\-target \-\-delete \-\-restrict\-path /mnt/btr_backup" ssh\-rsa AAAAB3NzaC1...hwumXFRQBL btrbk@mydomain.com
+.fi
+.if n .RE
+.SH "OPTIONS"
+.sp
+\-s, \-\-source
+.RS 4
+Allow commands for backup source: "btrfs subvolume snapshot",
+"btrfs send". Equivalent to "\-\-snapshot \-\-send".
+.RE
+.sp
+\-t, \-\-target
+.RS 4
+Allow commands for backup target: "btrfs receive".
+.RE
+.sp
+\-d, \-\-delete
+.RS 4
+Allow commands for subvolume deletion: "btrfs subvolume
+delete". This is used for backup source if
+\fIsnapshot_preserve_daily\fP is not set to \(lqall\(rq, and for backup
+targets if \fItarget_preserve_daily\fP is not set to \(lqall\(rq.
+.RE
+.sp
+\-i, \-\-info
+.RS 4
+Allow informative commands: "btrfs subvolume find\-new", "btrfs
+filesystem usage". This is used by btrbk \fIinfo\fP and \fIdiff\fP
+commands.
+.RE
+.sp
+\-\-snapshot
+.RS 4
+Allow btrfs snapshot command: "btrfs subvolume snapshot".
+.RE
+.sp
+\-\-send
+.RS 4
+Allow btrfs send command: "btrfs send".
+.RE
+.sp
+\-\-receive
+.RS 4
+Allow btrfs receive command: "btrfs receive".
+.RE
+.sp
+\-p, \-\-restrict\-path <path>
+.RS 4
+Restrict btrfs commands to <path>.
+.RE
+.sp
+\-l, \-\-log
+.RS 4
+Log ACCEPT and REJECT messages to the system log.
+.RE
+.sp
+\-\-sudo
+.RS 4
+Allow btrfs commands to be called via sudo. Enable this if you
+have "backend btrfs\-progs\-sudo" in your btrbk configuration file.
+.RE
+.SH "AVAILABILITY"
+.sp
+Please refer to the btrbk project page \fB\c
+.URL "https://digint.ch/btrbk/" "" "\fP"
+for further details.
+.SH "SEE ALSO"
+.sp
+\fBbtrbk\fP(1),
+\fBbtrbk.conf\fP(5),
+\fBbtrfs\fP(8)
+.SH "AUTHOR"
+.sp
+Axel Burri <\c
+.MTO "axel\(attty0.ch" "" ">"
