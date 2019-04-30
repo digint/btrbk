@@ -3599,7 +3599,7 @@ sub append_config_option($$$$;@)
     return undef;
   }
 
-  if($opt->{context} && !grep(/^$context$/, @{$opt->{context}})) {
+  if($opt->{context} && !grep(/^$context$/, @{$opt->{context}}) && ($context ne "OVERRIDE")) {
     ERROR "Option \"$key\" is only allowed in " . join(" or ", map("\"$_\"", @{$opt->{context}})) . " context $error_statement";
     return undef;
   }
@@ -4963,7 +4963,7 @@ MAIN:
       my $key = $1;
       my $value = $2;
       DEBUG "config_override: \"$key=$value\"";
-      unless(append_config_option(\%config_override, $key, $value, "root", error_statement => "in option \"--override\"")) {
+      unless(append_config_option(\%config_override, $key, $value, "OVERRIDE", error_statement => "in option \"--override\"")) {
         HELP_MESSAGE(0);
         exit 2;
       }
