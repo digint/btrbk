@@ -3139,7 +3139,7 @@ sub get_related_readonly_nodes($;@)
   my $parent_uuid_hash = $vol->{node}{TREE_ROOT}{PARENT_UUID_HASH};
   my $node = $vol->{node};
   my $uuid = $node->{uuid};
-  my $abort_distance = 256;
+  my $abort_distance = 4096;
 
   # climb up parent chain
   my $distance = 0;  # parent distance
