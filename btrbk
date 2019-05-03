@@ -3062,7 +3062,7 @@ sub _correlated_nodes($$)
   }
 
   @ret = grep($_->{readonly}, @match);
-  TRACE "correlated_nodes: droot=\"$droot->{PRINT}/\", src_vol=\"$src_vol->{PRINT}\": " . join(", ", map _fs_path($_),@ret) if($loglevel >= 4);
+  TRACE "correlated_nodes: droot=\"$droot->{PRINT}/\", src_vol=\"$src_vol->{PRINT}\": [" . join(", ", map _fs_path($_),@ret) . "]" if($loglevel >= 4);
   return @ret;
 }
 
