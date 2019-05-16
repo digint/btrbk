@@ -1,3 +1,9 @@
+btrbk-0.28.1
+
+  * Fix regression: crash if deep parent/child relations exceed
+    depth=100 (close #279).
+  * Remove pre-generated man pages, requires "asciidoctor" for builds.
+
 btrbk-0.28.0
 
   * MIGRATION
