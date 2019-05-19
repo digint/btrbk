@@ -2706,6 +2706,7 @@ sub vinfo_init_raw_root($;@)
   }
 
   $droot->{node} = $tree_root;
+  $droot->{VINFO_MOUNTPOINT} = $droot; # fake mountpoint
   $raw_url_cache{$droot->{URL}} = $tree_root;
 
   return $tree_root;
