@@ -3251,7 +3251,7 @@ sub get_best_parent($$$;@)
       $vinfo = vinfo_resolved_all_mountpoints($_, $svol);
     }
     if($vinfo) {
-      my $correlated = get_best_correlated($droot, $vinfo, %gbc_opts);
+      my $correlated = get_best_correlated($resolve_droot, $vinfo, %gbc_opts);
       push @c_related, $correlated if($correlated);
       $c_rel_id{$_->{id}} = $correlated;
     } else {
@@ -3285,8 +3285,8 @@ sub get_best_parent($$$;@)
     my @sbdl_newer = sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
                      grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snaproot_btrbk_direct_leaf;
 
-    @c_snapdir_older = map { $c_rel_id{$_->{node}{id}} // get_best_correlated($droot, $_, %gbc_opts) // () } @sbdl_older;
-    @c_snapdir_newer = map { $c_rel_id{$_->{node}{id}} // get_best_correlated($droot, $_, %gbc_opts) // () } @sbdl_newer;
+    @c_snapdir_older = map { $c_rel_id{$_->{node}{id}} // get_best_correlated($resolve_droot, $_, %gbc_opts) // () } @sbdl_older;
+    @c_snapdir_newer = map { $c_rel_id{$_->{node}{id}} // get_best_correlated($resolve_droot, $_, %gbc_opts) // () } @sbdl_newer;
   }
 
   if($loglevel >= 4) {
