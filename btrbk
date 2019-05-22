@@ -782,7 +782,7 @@ sub run_cmd(@)
   my $ret = `$cmd`;
   if(defined($ret)) {
     chomp($ret);
-    TRACE "Command output:\n$ret";
+    TRACE "Command output:\n$ret" if($loglevel >= 4);
   }
 
   if($? == -1) {
