@@ -3023,7 +3023,7 @@ sub get_related_snapshots($$;$)
   my $svol = shift // die;
   my $btrbk_basename = shift; # if set, also filter by direct_leaf
   my @ret = map( { vinfo_resolved($_, $snaproot, btrbk_direct_leaf => $btrbk_basename) // () }
-                 @{get_related_readonly_nodes($svol)} );
+                 @{get_related_nodes($svol, readonly => 1, omit_self => 1)} );
 
   if($loglevel >= 4) { TRACE "get_related_snapshots: found: $_->{PRINT}" foreach(@ret); }
   DEBUG "Found " . scalar(@ret) . " related snapshots of \"$svol->{PRINT}\" in: $snaproot->{PRINT}" . (defined($btrbk_basename) ? "/$btrbk_basename.*" : "");
@@ -3127,7 +3127,7 @@ sub get_best_correlated($$;@)
 
 
 # returns all related readonly nodes (by parent_uuid relationship), unsorted.
-sub get_related_readonly_nodes($;@)
+sub get_related_nodes($;@)
 {
   my $vol = shift // die;
   my %opts = @_;
@@ -3161,7 +3161,7 @@ sub get_related_readonly_nodes($;@)
   $abort_distance = $abort_distance;
   $distance = $distance * (-1);  # child distance (from top parent)
   while($uuid) {
-    push @related_nodes, $node if($node->{readonly});
+    push @related_nodes, $node if($node && (!$opts{readonly} || $node->{readonly}));
     my $children = $parent_uuid_hash->{$uuid};
     if($children) {
       if($distance >= $abort_distance) {
@@ -3178,7 +3178,7 @@ sub get_related_readonly_nodes($;@)
         if($node->{readonly}) {
           TRACE "related_nodes: d=$distance uuid=$uuid : push related readonly: " . _fs_path($node);
         } else {
-          TRACE "related_nodes: d=$distance uuid=$uuid : related not readonly: " . _fs_path($node);
+          TRACE "related_nodes: d=$distance uuid=$uuid : " . ($opts{readonly} ? "" : "push ") . "related not readonly: " . _fs_path($node);
         }
       } else {
         TRACE "related_nodes: d=$distance uuid=$uuid : related missing: <deleted>";
@@ -3198,10 +3198,14 @@ sub get_related_readonly_nodes($;@)
     $uuid = $node->{uuid};
   }
 
-  my $vol_node_id = $vol->{node}{id};
-  my @filtered = grep { $_->{id} != $vol_node_id } @related_nodes;
-  TRACE "related_nodes: found total=" . scalar(@filtered) . " related readonly subvolumes";
-  return \@filtered;
+  if($opts{omit_self}) {
+    my $vol_node_id = $vol->{node}{id};
+    my @filtered = grep { $_->{id} != $vol_node_id } @related_nodes;
+    TRACE "related_nodes: found total=" . scalar(@filtered) . " related readonly subvolumes";
+    return \@filtered;
+  }
+  TRACE "related_nodes: found total=" . scalar(@related_nodes) . " related readonly subvolumes (including self)";
+  return \@related_nodes;
 }
 
 
@@ -3245,7 +3249,7 @@ sub get_best_parent($$$;@)
   # improvements, as this only affects extra clones.
   my %c_rel_id;   # map id to c_related
   my @c_related;  # candidates for parent (correlated + related), unsorted
-  foreach (@{get_related_readonly_nodes($svol, nowarn => 1)}) {
+  foreach (@{get_related_nodes($svol, readonly => 1, omit_self => 1, nowarn => 1)}) {
     my $vinfo = vinfo_resolved($_, $resolve_sroot);
     if((not $vinfo) && $source_fallback_all_mountpoints) { # related node is not under $resolve_sroot
       $vinfo = vinfo_resolved_all_mountpoints($_, $svol);
@@ -3265,7 +3269,7 @@ sub get_best_parent($$$;@)
   my @c_related_newer = sort { ($a->[0]{node}{cgen} - $cgen_ref) <=> ($b->[0]{node}{cgen} - $cgen_ref) }
                         grep { $_->[0]{node}{cgen} >  $cgen_ref } @c_related;
 
-  # NOTE: While get_related_readonly_nodes() returns deep parent_uuid
+  # NOTE: While get_related_nodes() returns deep parent_uuid
   # relations, there is always a chance that these relations get
   # broken.
   #
