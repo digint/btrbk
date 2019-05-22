@@ -2779,7 +2779,7 @@ sub vinfo_subvol_list($;@)
 }
 
 
-# returns vinfo_child if $node is in tree below $vol, or undef
+# returns vinfo_child if $node is in tree below $vol (or equal if allow_equal), or undef
 sub vinfo_resolved($$;@)
 {
   my $node = shift || die;
@@ -2792,9 +2792,13 @@ sub vinfo_resolved($$;@)
     unshift(@path, $nn->{REL_PATH});
     $nn = $nn->{TOP_LEVEL};
   }
+  if(scalar(@path) == 0) {
+    return $vol if($opts{allow_equal} && not defined($vol->{NODE_SUBDIR}));
+    return undef;
+  }
   return undef if($nn->{is_root} && (!$vol->{node}{is_root}));
   my $jpath = join('/', @path);
-  if($vol->{NODE_SUBDIR}) {
+  if(defined($vol->{NODE_SUBDIR})) {
     return undef unless($jpath =~ s/^\Q$vol->{NODE_SUBDIR}\E\///);
   }
   if(defined($opts{btrbk_direct_leaf})) {
@@ -2820,7 +2824,7 @@ sub vinfo_resolved_all_mountpoints($$)
     my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
     $mnt_vol->{node} = $mnt_node;
     TRACE "vinfo_resolved_all_mountpoints: trying mountpoint: $mnt_vol->{PRINT}";
-    my $vinfo = vinfo_resolved($node, $mnt_vol);
+    my $vinfo = vinfo_resolved($node, $mnt_vol, allow_equal => 1);
     return $vinfo if($vinfo);
   }
   return undef;
