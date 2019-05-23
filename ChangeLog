@@ -1,3 +1,10 @@
+btrbk-0.28.2
+
+  * Fix regression: crash if raw target dir is empty (close  #281).
+  * Bugfix: honor incremental_resolve on targets: resolve from
+    mountpoint instead of directory.
+  * Bugfix: handle directories named "0" correctly.
+
 btrbk-0.28.1
 
   * Fix regression: crash if deep parent/child relations exceed
