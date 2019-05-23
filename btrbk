@@ -32,6 +32,9 @@ use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
 
+use FindBin;
+use lib "$FindBin::Bin/lib";
+
 our $VERSION         = '0.29.0-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<https://digint.ch/btrbk/>';
@@ -215,6 +218,12 @@ my %table_formats = (
   origin_tree => { table => [ qw( tree uuid parent_uuid received_uuid ) ],
                    long  => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
                    raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
+                 },
+
+  extent_diff => { table => [ qw( total diff subvol     ) ],
+                   long  => [ qw( total diff subvol gen ) ],
+                   raw   => [ qw( total diff subvol gen ) ],
+                   RALIGN => { total=>1, diff=>1, gen=>1 },
                  },
 );
 
@@ -4913,6 +4922,11 @@ MAIN:
     $args_expected_min = $args_expected_max = 2;
     @subvol_args = @ARGV;
   }
+  elsif ($command eq "extents-diff") {
+    $action_noconf = "extents-diff";
+    $args_expected_min = 1;
+    @subvol_args = @ARGV;
+  }
   elsif ($command eq "origin") {
     $action_origin = 1;
     $args_expected_min = $args_expected_max = 1;
@@ -5117,6 +5131,61 @@ MAIN:
       print "\nTotal size: $total_len bytes\n";
     }
 
+    elsif($action_noconf eq "extents-diff") {
+      #
+      # print extents diff (filefrag)
+      #
+      if(scalar(@diff_vol) == 1) {
+        # single argument: add all related subvolumes
+        @diff_vol = map({ vinfo_resolved_all_mountpoints($_, $src_vol->{VINFO_MOUNTPOINT}) // () }
+                        grep { $_->{gen} <= $src_vol->{node}{gen} }  # show only older
+                        @{get_related_nodes($src_vol)}); # includes $src_vol
+        if(defined($src_vol->{NODE_SUBDIR})) {
+          # propagate subdir of src_vol (copy node, needed below)
+          @diff_vol = map { my $vc = vinfo_child($_, $src_vol->{NODE_SUBDIR}); $vc->{node} = $_->{node}; return $vc } @diff_vol;
+        }
+        unless(scalar(@diff_vol) > 1) {
+          WARN "Could not resolve any older (by generation) related subvolume for: $src_vol->{PRINT}";
+        }
+      }
+
+      my @data;
+      my $list_title = 'Extents map difference (relative complement): (blocks \ blocks_on_next_line) * 4096';
+
+      require Linux::ExtentsMap;
+
+      # print results on ctrl-c
+      $SIG{INT} = sub {
+        print STDERR "\nERROR: Cought SIGINT, dumping incomplete list:\n";
+        print_formatted("extent_diff", \@data, title => $list_title);
+        exit 1;
+      };
+
+      my $prev_vol;
+      # sort descending by gen
+      foreach (sort { $b->{node}{gen} <=> $a->{node}{gen} } @diff_vol) {
+        if($dryrun) {
+          $_->{EXTENTMAP} = Linux::ExtentsMap->new(); # empty map
+        } else {
+          INFO("Fetching extent data for: $_->{PRINT}");
+          $_->{EXTENTMAP} = Linux::ExtentsMap->new($_->{PATH});
+        }
+
+        if($prev_vol) {
+          my $diff_map = $prev_vol->{EXTENTMAP}->diff($_->{EXTENTMAP});
+          push @data, { total => print_size($prev_vol->{EXTENTMAP}->size),
+                        diff => print_size($diff_map->size),
+                        gen => $prev_vol->{node}{gen},
+                        subvol => $prev_vol->{PRINT} };
+        }
+        $prev_vol = $_;
+      }
+      push @data, { total => print_size($prev_vol->{EXTENTMAP}->size),
+                    diff => print_size($prev_vol->{EXTENTMAP}->size),
+                    gen => $prev_vol->{node}{gen},
+                    subvol => $prev_vol->{PRINT} };
+      print_formatted("extent_diff", \@data, title => $list_title);
+    }
     exit 0;
   }
 
