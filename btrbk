@@ -4842,7 +4842,7 @@ MAIN:
     WARN 'Found option "--progress", but required executable "pv" does not exist on your system. Please install "pv".';
     $show_progress = 0;
   }
-  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive);
+  my ($action_run, $action_usage, $action_resolve, $action_noconf, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive);
   my @filter_args;
   my @subvol_args;
   my $args_expected_min = 0;
@@ -4883,7 +4883,7 @@ MAIN:
     @filter_args = @ARGV;
   }
   elsif ($command eq "diff") {
-    $action_diff = 1;
+    $action_noconf = "diff";
     $args_expected_min = $args_expected_max = 2;
     @subvol_args = @ARGV;
   }
@@ -5003,87 +5003,94 @@ MAIN:
   INFO "$VERSION_INFO  (" . localtime($start_time) . ")";
   action("startup", status => "v$VERSION", message => $VERSION_INFO, time => $start_time);
 
-  if($action_diff)
+  if($action_noconf)
   {
-    #
-    # print snapshot diff
-    #
-    my $src_url    = $subvol_args[0] || die;
-    my $target_url = $subvol_args[1] || die;
-    my $default_config = init_config();
     # NOTE: ssh://{src,target} uses default config
+    my $default_config = init_config();
 
-    my $src_vol = vinfo($src_url, $default_config);
-    unless(vinfo_init_root($src_vol)) { ERROR "Failed to fetch subvolume detail for '$src_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
-    if($src_vol->{node}{is_root})     { ERROR "Subvolume is btrfs root: $src_vol->{PRINT}"; exit 1; }
-
-    my $target_vol = vinfo($target_url, $default_config);
-    unless(vinfo_init_root($target_vol)) { ERROR "Failed to fetch subvolume detail for '$target_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
-    if($target_vol->{node}{is_root})     { ERROR "Subvolume is btrfs root: $target_vol->{PRINT}"; exit 1; }
-
-    unless(_is_same_fs_tree($src_vol->{node}, $target_vol->{node})) {
-      ERROR "Subvolumes are not on the same btrfs filesystem!";
-      exit 1;
+    my @diff_vol = map { vinfo($_, $default_config) } @subvol_args;
+    my $src_vol = $diff_vol[0];
+    foreach (@diff_vol) {
+      unless(vinfo_init_root($_)) {
+        ERROR "Failed to fetch subvolume detail for '$_->{PRINT}'" . ($err ? ": $err" : "");
+        exit 1;
+      }
+      if($_->{node}{is_root}) {
+        ERROR "Subvolume is btrfs root: $_->{PRINT}";
+        exit 1;
+      }
+      unless(_is_same_fs_tree($src_vol->{node}, $_->{node})) {
+        ERROR "Subvolumes are not on the same btrfs filesystem!";
+        exit 1;
+      }
     }
 
-    # NOTE: in some cases "cgen" differs from "gen", even for read-only snapshots (observed: gen=cgen+1)
-    my $lastgen = $src_vol->{node}{gen} + 1;
+    if($action_noconf eq "diff") {
+      #
+      # print snapshot diff (btrfs find-new)
+      #
+      my $target_vol = $diff_vol[1];
 
-    # dump files, sorted and unique
-    my $ret = btrfs_subvolume_find_new($target_vol, $lastgen);
-    exit 1 unless(ref($ret));
+      # NOTE: in some cases "cgen" differs from "gen", even for read-only snapshots (observed: gen=cgen+1)
+      my $lastgen = $src_vol->{node}{gen} + 1;
 
-    print_header(title => "Subvolume Diff",
-                 time => $start_time,
-                 info => [
-                   "Showing changed files for subvolume:",
-                   "  $target_vol->{PRINT}  (gen=$target_vol->{node}{gen})",
-                   "",
-                   "Starting at creation generation of subvolume:",
-                   "  $src_vol->{PRINT}  (cgen=$src_vol->{node}{cgen})",
-                   "",
-                   "This will show all files modified within generation range: [$lastgen..$target_vol->{node}{gen}]",
-                   "Newest file generation (transid marker) was: $ret->{transid_marker}",
-                   ($ret->{parse_errors} ? "Parse errors: $ret->{parse_errors}" : undef),
-                  ],
-                 legend => [
-                   "+..     file accessed at offset 0 (at least once)",
-                   ".c.     flags COMPRESS or COMPRESS|INLINE set (at least once)",
-                   "..i     flags INLINE or COMPRESS|INLINE set (at least once)",
-                   "<count> file was modified in <count> generations",
-                   "<size>  file was modified for a total of <size> bytes",
-                  ]
-                );
+      # dump files, sorted and unique
+      my $ret = btrfs_subvolume_find_new($target_vol, $lastgen);
+      exit 1 unless(ref($ret));
 
-    my $files = $ret->{files};
+      print_header(title => "Subvolume Diff",
+                   time => $start_time,
+                   info => [
+                     "Showing changed files for subvolume:",
+                     "  $target_vol->{PRINT}  (gen=$target_vol->{node}{gen})",
+                     "",
+                     "Starting at creation generation of subvolume:",
+                     "  $src_vol->{PRINT}  (cgen=$src_vol->{node}{cgen})",
+                     "",
+                     "This will show all files modified within generation range: [$lastgen..$target_vol->{node}{gen}]",
+                     "Newest file generation (transid marker) was: $ret->{transid_marker}",
+                     ($ret->{parse_errors} ? "Parse errors: $ret->{parse_errors}" : undef),
+                    ],
+                   legend => [
+                     "+..     file accessed at offset 0 (at least once)",
+                     ".c.     flags COMPRESS or COMPRESS|INLINE set (at least once)",
+                     "..i     flags INLINE or COMPRESS|INLINE set (at least once)",
+                     "<count> file was modified in <count> generations",
+                     "<size>  file was modified for a total of <size> bytes",
+                    ]
+                  );
 
-    # calculate the character offsets
-    my $total_len = 0;
-    my $len_charlen = 0;
-    my $gen_charlen = 0;
-    foreach (values %$files) {
-      my $len = length($_->{len});
-      my $gen = length(scalar(keys(%{$_->{gen}})));
-      $len_charlen = $len if($len > $len_charlen);
-      $gen_charlen = $gen if($gen > $gen_charlen);
-      $total_len += $_->{len};
+      my $files = $ret->{files};
+
+      # calculate the character offsets
+      my $total_len = 0;
+      my $len_charlen = 0;
+      my $gen_charlen = 0;
+      foreach (values %$files) {
+        my $len = length($_->{len});
+        my $gen = length(scalar(keys(%{$_->{gen}})));
+        $len_charlen = $len if($len > $len_charlen);
+        $gen_charlen = $gen if($gen > $gen_charlen);
+        $total_len += $_->{len};
+     }
+
+      # finally print the output
+      foreach my $name (sort keys %$files) {
+        print ($files->{$name}->{new}               ? '+' : '.');
+        print ($files->{$name}->{flags}->{compress} ? 'c' : '.');
+        print ($files->{$name}->{flags}->{inline}   ? 'i' : '.');
+
+        # make nice table
+        my $gens = scalar(keys(%{$files->{$name}->{gen}}));
+        my $len = $files->{$name}->{len};
+        print "  " . (' ' x ($gen_charlen - length($gens))) .  $gens;
+        print "  " . (' ' x ($len_charlen - length($len))) .  $len;
+
+        print "  $name\n";
+      }
+      print "\nTotal size: $total_len bytes\n";
     }
 
-    # finally print the output
-    foreach my $name (sort keys %$files) {
-      print ($files->{$name}->{new}               ? '+' : '.');
-      print ($files->{$name}->{flags}->{compress} ? 'c' : '.');
-      print ($files->{$name}->{flags}->{inline}   ? 'i' : '.');
-
-      # make nice table
-      my $gens = scalar(keys(%{$files->{$name}->{gen}}));
-      my $len = $files->{$name}->{len};
-      print "  " . (' ' x ($gen_charlen - length($gens))) .  $gens;
-      print "  " . (' ' x ($len_charlen - length($len))) .  $len;
-
-      print "  $name\n";
-    }
-    print "\nTotal size: $total_len bytes\n";
     exit 0;
   }
 
