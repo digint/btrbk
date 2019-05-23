@@ -5270,6 +5270,7 @@ MAIN:
   my $args_expected_max = 9999;
   my $fallback_default_config;
   my $subvol_args_allow_relative;
+  my $subvol_args_init;
   if(($command eq "run") || ($command eq "dryrun")) {
     $action_run = 1;
     $dryrun = 1 if($command eq "dryrun");
@@ -5317,6 +5318,7 @@ MAIN:
     $action_diff = 1;
     $fallback_default_config = 1;
     $args_expected_min = $args_expected_max = 2;
+    $subvol_args_init = "restrict_same_fs deny_root_subvol";
     @subvol_args = @ARGV;
   }
   elsif ($command eq "origin") {
@@ -5471,28 +5473,37 @@ MAIN:
     exit 2;
   }
 
+  # input validation (part 2, after config is initialized)
+  @subvol_args = map { vinfo($_, $config) } @subvol_args;
+  if($subvol_args_init) {
+    foreach(@subvol_args) {
+      unless(vinfo_init_root($_)) {
+        ERROR "Failed to fetch subvolume detail for '$_->{PRINT}'" , @stderr;
+        exit 1;
+      }
+      if(defined($_->{NODE_SUBDIR})) {
+        ERROR "Argument is not a subvolume: $_->{PATH}";
+        exit 1;
+      }
+      if(($subvol_args_init =~ /deny_root_subvol/) && $_->{node}{is_root}) {
+        ERROR "Subvolume is btrfs root: $_->{PATH}";
+        exit 1;
+      }
+      if(($subvol_args_init =~ /restrict_same_fs/) && (not _is_same_fs_tree($subvol_args[0]->{node}, $_->{node}))) {
+        ERROR "Subvolumes are not on the same btrfs filesystem!";
+        exit 1;
+      }
+    }
+  }
+
 
   if($action_diff)
   {
     #
-    # print snapshot diff
+    # print snapshot diff (btrfs find-new)
     #
-    my $src_url    = $subvol_args[0] || die;
-    my $target_url = $subvol_args[1] || die;
-    # NOTE: ssh://{src,target} uses default config
-
-    my $src_vol = vinfo($src_url, $config);
-    unless(vinfo_init_root($src_vol)) { ERROR "Failed to fetch subvolume detail for '$src_vol->{PRINT}'", @stderr; exit 1; }
-    if($src_vol->{node}{is_root})     { ERROR "Subvolume is btrfs root: $src_vol->{PRINT}"; exit 1; }
-
-    my $target_vol = vinfo($target_url, $config);
-    unless(vinfo_init_root($target_vol)) { ERROR "Failed to fetch subvolume detail for '$target_vol->{PRINT}'", @stderr; exit 1; }
-    if($target_vol->{node}{is_root})     { ERROR "Subvolume is btrfs root: $target_vol->{PRINT}"; exit 1; }
-
-    unless(_is_same_fs_tree($src_vol->{node}, $target_vol->{node})) {
-      ERROR "Subvolumes are not on the same btrfs filesystem!";
-      exit 1;
-    }
+    my $src_vol = $subvol_args[0];
+    my $target_vol = $subvol_args[1];
 
     # NOTE: in some cases "cgen" differs from "gen", even for read-only snapshots (observed: gen=cgen+1)
     my $lastgen = $src_vol->{node}{gen} + 1;
@@ -5676,18 +5687,16 @@ MAIN:
     init_transaction_log(config_key($config, "transaction_log"),
                          config_key($config, "transaction_syslog"));
 
-    my $src_url     = $subvol_args[0] || die;
-    my $archive_url = $subvol_args[1] || die;
+    my $src_root     = $subvol_args[0] || die;
+    my $archive_root = $subvol_args[1] || die;
 
     # FIXME: add command line options for preserve logic
     $config->{SUBSECTION} = [];  # clear configured subsections, we build them dynamically
 
-    my $src_root = vinfo($src_url, $config);
     unless(vinfo_init_root($src_root)) {
       ERROR "Failed to fetch subvolume detail for '$src_root->{PRINT}'", @stderr;
       exit 1;
     }
-    my $archive_root = vinfo($archive_url, $config);
     unless($archive_raw ? vinfo_init_raw_root($archive_root) : vinfo_init_root($archive_root)) {
       ERROR "Failed to fetch " . ($archive_raw ? "raw target metadata" : "subvolume detail") . " for '$archive_root->{PRINT}'", @stderr;
       exit 1;
@@ -5706,8 +5715,8 @@ MAIN:
       my $subvol_dir = $vol->{SUBVOL_DIR};
       next if($name_uniq{"$subvol_dir/$snapshot_name"});
       $name_uniq{"$subvol_dir/$snapshot_name"} = 1;
-      my $droot_url = $archive_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
-      my $sroot_url = $src_url . ($subvol_dir eq "" ? "" : "/$subvol_dir");
+      my $droot_url = $archive_root->{URL} . ($subvol_dir eq "" ? "" : "/$subvol_dir");
+      my $sroot_url = $src_root->{URL} . ($subvol_dir eq "" ? "" : "/$subvol_dir");
       my $config_sroot = { CONTEXT       => "archive_source",
                            PARENT        => $config,
                            url           => $sroot_url,     # ABORTED() needs this
