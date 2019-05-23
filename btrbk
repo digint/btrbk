@@ -2252,6 +2252,135 @@ sub system_urandom($;$) {
 }
 
 
+# returns extents range (sorted array of [start,end], inclusive) from FIEMAP ioctl
+sub filefrag_extentmap($)
+{
+  my $vol = shift || die;
+  my $blocksize;
+  my $starttime = time;
+
+  INFO("Fetching extent information for: $vol->{PRINT}");
+
+  # NOTE: this returns exitstatus=0 if file is not found, or no files found
+  my $ret = run_cmd({ cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f',
+                               '-exec', 'filefrag -v \{\} +' ],
+                      large_output => 1});
+  unless(defined($ret)) {
+    ERROR "Failed to fetch extent map for: $vol->{PRINT}", @stderr;
+    return undef;
+  }
+  my @range; # array of [start,end]
+  my $extents = 0;
+  foreach (@$ret) {
+    # blocksize = 4096 = 2^12
+    if(/^\s*[0-9]+:\s*[0-9]+\.\.\s*[0-9]+:\s*([0-9]+)\.\.\s*([0-9]+):/) {
+      $extents++;
+      next if /inline/; # ignore inline data, this seems wrong
+      push @range, [ $1, $2 ];
+    }
+    elsif(/blocks of ([0-9]+) bytes\)$/) {
+      $blocksize //= $1;
+      if($1 != $blocksize) {
+        ERROR "filefrag reports mixed blocksize ($1 != $blocksize) in: $vol->{PRINT}";
+        return undef;
+      }
+    }
+  }
+  unless($blocksize) {
+    ERROR "Failed to parse filefrag results (missing blocksize): $vol->{PRINT}";
+    return undef;
+  }
+  DEBUG("Parsed " . scalar(@range) . " regions (blocksize=$blocksize) in " . (time - $starttime) . "s for: $vol->{PRINT}");
+  DEBUG("Ignored "  . ($extents - scalar(@range)) . " \"inline\" extents for: $vol->{PRINT}");
+
+  return extentmap_merge({ blocksize => $blocksize, rmap => \@range });
+}
+
+
+sub extentmap_total_blocks($)
+{
+  my $extmap = shift;
+  my $count = 0;
+  foreach(@{$extmap->{rmap}}) {
+    $count += ($_->[1] - $_->[0] + 1);
+  }
+  return $count;
+}
+
+
+sub extentmap_size($)
+{
+  my $extmap = shift;
+  return undef unless($extmap && $extmap->{rmap} && $extmap->{blocksize});
+  return (extentmap_total_blocks($extmap) * $extmap->{blocksize});
+}
+
+
+sub extentmap_merge(@) {
+  return undef unless(scalar(@_));
+  my $blocksize = $_[0]->{blocksize} // die;
+  die unless(grep { $_->{blocksize} == $blocksize } @_);
+
+  my @merged;
+  my @range = map { @{$_->{rmap}} } @_;
+  my $start = -1;
+  my $end = -2;
+  foreach (sort { $a->[0] <=> $b->[0] } @range)
+  {
+    if($_->[0] <= $end + 1) {
+      # range overlaps the preceeding one, or is adjacent to it
+      $end = $_->[1] if($_->[1] > $end);
+    }
+    else {
+      push @merged, [ $start, $end ] if($start >= 0);
+      $start = $_->[0];
+      $end = $_->[1];
+    }
+  }
+  push @merged, [ $start, $end ] if($start >= 0);
+  DEBUG "extentmap: merged " . scalar(@range) . " regions into " . scalar(@merged) . " regions";
+  return { blocksize => $blocksize, rmap => \@merged };
+}
+
+
+# ( A \ B ) : data in A that is not in B (relative complement of B in A)
+sub extentmap_diff($$)
+{
+  my $extmap_l = shift // die; # A, sorted
+  my $extmap_r = shift;        # B, sorted
+  return $extmap_l unless($extmap_r); # A \ 0 = A
+  die unless($extmap_l->{blocksize} == $extmap_r->{blocksize});
+
+  my $l = $extmap_l->{rmap};
+  my $r = $extmap_r->{rmap};
+  my $i = 0;
+  my $rn = scalar(@$r);
+  my @diff;
+
+  foreach(@$l) {
+    my $l_start = $_->[0];
+    my $l_end   = $_->[1];
+    while(($i < $rn) && ($r->[$i][1] < $l_start)) { # r_end < l_start
+      # advance r to next overlapping
+      $i++;
+    }
+    while(($i < $rn) && ($r->[$i][0] <= $l_end)) { # r_start <= l_end
+      # while overlapping, advance l_start
+      my $r_start = $r->[$i][0];
+      my $r_end   = $r->[$i][1];
+
+      push @diff, [ $l_start, $r_start - 1 ] if($l_start < $r_start);
+      $l_start = $r_end + 1;
+      last if($l_start > $l_end);
+      $i++;
+    }
+    push @diff, [ $l_start, $l_end ] if($l_start <= $l_end);
+  }
+  DEBUG "extentmap: relative complement ( B=" . scalar(@$r) . ' \ A=' . scalar(@$l) . " ) = " . scalar(@diff) . " regions";
+  return { blocksize => $extmap_l->{blocksize}, rmap => \@diff };
+}
+
+
 sub btr_tree($$$$)
 {
   my $vol = shift;
