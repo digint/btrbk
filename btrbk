@@ -2354,6 +2354,63 @@ sub filefrag_extentmap($)
 }
 
 
+# returns extents range (sorted array of [start,end], inclusive) from FIEMAP ioctl
+sub aio_extentmap($)
+{
+  my $vol = shift || die;
+
+  INFO("Fetching extent information (IO::AIO) for: $vol->{PRINT}");
+  my $starttime = time;
+  # NOTE: this returns exitstatus=0 if file is not found, or no files found
+  my $ret = run_cmd( cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f' ],
+                     large_output => 1 );
+  unless(defined($ret)) {
+    ERROR "Failed to find files in: $vol->{PRINT}", @stderr;
+    return undef;
+  }
+
+  DEBUG("Reading ioctl FIEMAP on all files");
+
+  IO::AIO::max_outstanding(512);  # < 1024 (max file descriptors)
+
+  # not sure how IO::AIO does its threading, it says we should not care about it (?).
+  # anyway, it works without "my @range :shared" (from threads::shared).
+  # Note: aio_fiemap returns byte range (not blocks)
+  my @range;
+  my $relax = 0;
+  my $count = 0;
+  foreach my $file (@$ret) {
+    IO::AIO::aio_open($file, IO::AIO::O_RDONLY(), 0, sub {
+      my $fh = shift or die "failed to open $file: $!";
+      #aioreq_pri 4;
+      # aio_fiemap $fh, $start, $length, $flags, $count, $cb->(\@extents)
+      IO::AIO::aio_fiemap($fh, 0, undef, 0, undef, sub {
+        my $aref = shift; # [$logical, $physical, $length, $flags]
+        # ignore inline data: for some reason, filefrag reports different size (x 4096 ?)
+        push @range, map { ($_->[3] & IO::AIO::FIEMAP_EXTENT_DATA_INLINE()) ? () :
+                           [ $_->[1], $_->[1] + $_->[2] - 1 ] } @$aref;
+        $count++;
+        close $fh;
+      });
+    });
+
+    # the above eats up all our filedescriptors, relax every now and then
+    $relax++;
+    if($relax > 256) {
+      # poll_cb is slow, no need to call it every time
+      IO::AIO::poll_cb(); # max_outstanding is only unsed if poll_cb is called
+      TRACE "aio_fiemap: processed $count files, " . scalar(@range) . " regions" if($loglevel >= 4);
+      $relax = 0;
+    }
+  }
+
+  IO::AIO::flush();
+
+  DEBUG("parsed FIEMAP of $count files: " . scalar(@range) . " regions in " . (time - $starttime) . "s for: $vol->{PRINT}");
+  return extentmap_merge(\@range);
+}
+
+
 sub extentmap_total_blocks($)
 {
   my $extmap = shift;
@@ -5636,8 +5693,22 @@ MAIN:
     #
 
     # check system requirements
-    unless(check_exe("filefrag")) {
-      ERROR 'Please install "filefrag" (from e2fsprogs package)';
+    my $extentmap_fn;
+    if($dryrun) {
+      $extentmap_fn = sub {
+        INFO("Fetching extent information (dryrun) for: $_[0]->{PRINT}");
+        return undef;
+      };
+    }
+    elsif(eval_quiet { require IO::AIO; }) {
+      # this is slightly faster than filefrag
+      $extentmap_fn=\&aio_extentmap;
+    }
+    elsif(check_exe("filefrag")) {
+      $extentmap_fn=\&filefrag_extentmap;
+    }
+    else {
+      ERROR 'Please install either "filefrag" (from e2fsprogs package), or "IO::AIO" perl module';
       exit 1;
     }
 
@@ -5681,7 +5752,7 @@ MAIN:
       if($vol->{EXTENTMAP} = read_extentmap_cache($vol)) {
         INFO "Using cached extents map for: $vol->{PRINT}";
       } else {
-        $vol->{EXTENTMAP} = filefrag_extentmap($vol);
+        $vol->{EXTENTMAP} = $extentmap_fn->($vol);
         write_extentmap_cache($vol);
       }
       next unless($vol->{EXTENTMAP});
