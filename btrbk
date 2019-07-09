@@ -5372,6 +5372,9 @@ MAIN:
       }
     }
 
+    # do not return clean status if there is uncoverable problem
+    $exit_status = 10 if scalar(@unrecoverable);
+
     exit $exit_status;
   }
 
