@@ -4759,7 +4759,7 @@ sub _origin_tree
       }
     }
     else {
-      push(@$lines,{ tree => "${prefix_spaces}    ^-- <unknown>" });
+      push(@$lines,{ tree => "${prefix_spaces}    ^-- <unknown uuid=$node->{parent_uuid}>" });
     }
   }
 
