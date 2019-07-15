@@ -3988,7 +3988,6 @@ sub macro_send_receive(@)
     FIX_MANUALLY($config_target, $err_msg);
     ERROR ABORTED_TEXT($config_target) . ", aborting send/receive of: $source->{PRINT}";
     ERROR $err_msg;
-    $info{ERROR} = 1;
     return undef;
   }
 
@@ -4003,7 +4002,6 @@ sub macro_send_receive(@)
     }
     else {
       WARN "Backup to $target->{PRINT} failed: no common parent subvolume found for \"$source->{PRINT}\", and option \"incremental\" is set to \"strict\"";
-      $info{ERROR} = 1;
       ABORTED($config_target, "No common parent subvolume found, and option \"incremental\" is set to \"strict\"");
       return undef;
     }
