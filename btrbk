@@ -428,6 +428,15 @@ sub ABORTED_TEXT($)
   return $config->{ABORTED}->{text} // "";
 }
 
+sub FIX_MANUALLY($$)
+{
+  # treated as error, but does not abort config section
+  my $config = shift;
+  $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
+  my $msg = shift // die;
+  $config->{FIX_MANUALLY} //= [];
+  push(@{$config->{FIX_MANUALLY}}, $msg);
+}
 
 sub eval_quiet(&)
 {
@@ -3879,6 +3888,19 @@ sub _config_propagate_target
 }
 
 
+sub _config_collect_values
+{
+  my $config = shift;
+  my $key = shift;
+  my @values;
+  push(@values, @{$config->{$key}}) if(ref($config->{$key}) eq "ARRAY");
+  foreach (@{$config->{SUBSECTION}}) {
+    push(@values, _config_collect_values($_, $key));
+  }
+  return @values;
+}
+
+
 sub init_config(@)
 {
   my %defaults = ( CONTEXT => "meta", @_ );
@@ -3961,10 +3983,11 @@ sub macro_send_receive(@)
 
   # check for existing target subvolume
   if(my $err_vol = vinfo_subvol($target, $source->{NAME})) {
+    my $err_msg = "Please delete stray subvolume: \"btrfs subvolume delete $err_vol->{PRINT}\"";
     ABORTED($config_target, "Target subvolume \"$err_vol->{PRINT}\" already exists");
-    $config_target->{UNRECOVERABLE} = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
+    FIX_MANUALLY($config_target, $err_msg);
     ERROR ABORTED_TEXT($config_target) . ", aborting send/receive of: $source->{PRINT}";
-    ERROR $config_target->{UNRECOVERABLE};
+    ERROR $err_msg;
     $info{ERROR} = 1;
     return undef;
   }
@@ -4527,6 +4550,25 @@ sub print_header(@)
 }
 
 
+sub print_footer($$)
+{
+  my $config = shift;
+  my $exit_status = shift;
+  if($exit_status) {
+    print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
+    print "Please check warning and error messages above.\n";
+    my @fix_manually_text = _config_collect_values($config, "FIX_MANUALLY");
+    if(scalar(@fix_manually_text)) {
+      my @unique = do { my %seen; grep { !$seen{$_}++ } @fix_manually_text };
+      print join("\n", @unique) . "\n";
+    }
+  }
+  if($dryrun) {
+    print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
+  }
+}
+
+
 sub print_table($;$)
 {
   my $data = shift;
@@ -4752,6 +4794,7 @@ sub exit_status
   my $config = shift;
   foreach my $subsection (@{$config->{SUBSECTION}}) {
     return 10 if(IS_ABORTED($subsection, "abort_"));
+    return 10 if(defined($subsection->{FIX_MANUALLY})); # treated as errors
     return 10 if(exit_status($subsection));
   }
   return 0;
@@ -5305,7 +5348,6 @@ MAIN:
       $output_format ||= "custom";
       if($output_format eq "custom")
       {
-        my @unrecoverable;
         my @out;
         foreach my $sroot (vinfo_subsection($config, 'archive_source', 1)) {
           foreach my $droot (vinfo_subsection($sroot, 'archive_target', 1)) {
@@ -5328,9 +5370,6 @@ MAIN:
             elsif(IS_ABORTED($sroot, "skip_archive_exclude")) {
               push @subvol_out, "<archive_exclude>";
             }
-            if($droot->{CONFIG}->{UNRECOVERABLE}) {
-              push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});
-            }
             unless(@subvol_out) {
               push @subvol_out, "[-] $droot->{PRINT}/$sroot->{CONFIG}->{snapshot_name}.*";
             }
@@ -5352,17 +5391,8 @@ MAIN:
                        "[-]  no action",
                       ],
                     );
-
         print join("\n", @out);
-
-        if($exit_status || scalar(@unrecoverable)) {
-          print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
-          print "Please check warning and error messages above.\n";
-          print join("\n", @unrecoverable) . "\n" if(@unrecoverable);
-        }
-        if($dryrun) {
-          print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
-        }
+        print_footer($config, $exit_status);
       }
       else
       {
@@ -5371,9 +5401,6 @@ MAIN:
         print_formatted("transaction", \@data, title => "TRANSACTION LOG");
       }
     }
-
-    # do not return clean status if there is uncoverable problem
-    $exit_status = 10 if scalar(@unrecoverable);
 
     exit $exit_status;
   }
@@ -6148,9 +6175,7 @@ MAIN:
                       ],
                     );
         print join("\n", @out);
-        if($dryrun) {
-          print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
-        }
+        print_footer($config, $exit_status);
       }
       else
       {
@@ -6319,15 +6344,14 @@ MAIN:
               foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } @resume)
               {
                 # Continue gracefully (skip instead of abort) on existing (possibly garbled) target
-                my $err_vol = vinfo_subvol($droot, $snapshot->{NAME});
-                if($err_vol) {
-                  my $status_msg = "Please delete stray subvolume (\"btrbk clean\"): $err_vol->{PRINT}";
+                if(my $err_vol = vinfo_subvol($droot, $snapshot->{NAME})) {
+                  my $err_msg = "Please delete stray subvolumes: \"btrbk clean $droot->{PRINT}\"";
+                  FIX_MANUALLY($droot, $err_msg);
                   WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$snapshot->{PRINT}\"";
-                  WARN $status_msg;
+                  WARN $err_msg;
                   WARN "Skipping backup of: $snapshot->{PRINT}";
                   $droot->{SUBVOL_RECEIVED} //= [];
-                  push(@{$droot->{SUBVOL_RECEIVED}}, { ERROR => $status_msg, received_subvolume => $err_vol });
-                  $droot->{CONFIG}->{UNRECOVERABLE} = $status_msg;
+                  push(@{$droot->{SUBVOL_RECEIVED}}, { ERROR => 1, received_subvolume => $err_vol });
                   next;
                 }
 
@@ -6501,7 +6525,6 @@ MAIN:
       $output_format ||= "custom";
       if($output_format eq "custom")
       {
-        my @unrecoverable;
         my @out;
         foreach my $sroot (vinfo_subsection($config, 'volume', 1)) {
           foreach my $svol (vinfo_subsection($sroot, 'subvolume', 1)) {
@@ -6530,10 +6553,6 @@ MAIN:
 
               if(IS_ABORTED($droot, "abort_")) {
                 push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED_TEXT($droot);
-              }
-
-              if($droot->{CONFIG}->{UNRECOVERABLE}) {
-                push(@unrecoverable, $droot->{CONFIG}->{UNRECOVERABLE});
               }
             }
 
@@ -6579,15 +6598,7 @@ MAIN:
                     );
 
         print join("\n", @out);
-
-        if($exit_status || scalar(@unrecoverable)) {
-          print "\nNOTE: Some errors occurred, which may result in missing backups!\n";
-          print "Please check warning and error messages above.\n";
-          print join("\n", @unrecoverable) . "\n" if(@unrecoverable);
-        }
-        if($dryrun) {
-          print "\nNOTE: Dryrun was active, none of the operations above were actually executed!\n";
-        }
+        print_footer($config, $exit_status);
       }
       else
       {
