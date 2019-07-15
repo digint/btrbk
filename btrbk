@@ -4723,7 +4723,8 @@ sub _origin_tree
   my $uuid = $node->{uuid} || die;
 
   # cache a bit, this might be large
-  $nodelist //= [ (sort { $a->{REL_PATH} cmp $b->{REL_PATH} } values %uuid_cache) ];
+  # note: root subvolumes dont have REL_PATH
+  $nodelist //= [ (sort { ($a->{REL_PATH} // "") cmp ($b->{REL_PATH} // "") } values %uuid_cache) ];
 
   my $out_path;
   $out_path = _fs_path($node);
