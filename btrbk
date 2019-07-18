@@ -1917,18 +1917,15 @@ sub btrfs_mountpoint
     $mountinfo_cache{$vol->{MACHINE_ID}} = $mountinfo;
   }
 
-  # find longest match
+  # find mount point (last mountinfo entry matching realpath)
   $realpath .= '/' unless($realpath =~ /\/$/);  # correctly handle root path="/"
   my $mountpoint;
-  foreach(@$mountinfo) {
+  foreach(reverse @$mountinfo) {
     my $mnt_path = $_->{mount_point};
     $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # correctly handle root path="/"
     if($realpath =~ /^\Q$mnt_path\E/) {
-      if((not $mountpoint) || (length($_->{mount_point}) >= length($mountpoint->{mount_point}))) {
-        # pick longest match (last if same size).
-        # NOTE: on duplicate match (mounted multiple times, e.g. autofs), use the latest in list.
-        $mountpoint = $_;
-      }
+      $mountpoint = $_;
+      last;
     }
   }
   unless($mountpoint) {
