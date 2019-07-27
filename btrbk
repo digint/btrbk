@@ -563,7 +563,7 @@ sub rate_limit_cmd($)
   return "pv -q -L " . lc($rate);
 }
 
-sub compress_cmd($;$)
+sub compress_cmd_text($;$)
 {
   my $def = shift;
   my $decompress = shift;
@@ -595,9 +595,9 @@ sub compress_cmd($;$)
   return join(' ', @cmd);
 }
 
-sub decompress_cmd($)
+sub decompress_cmd_text($)
 {
-  return compress_cmd($_[0], 1);
+  return compress_cmd_text($_[0], 1);
 }
 
 sub stream_buffer_cmd($)
@@ -688,11 +688,11 @@ sub run_cmd(@)
 
     if($href->{compress}) {
       if($compressed && ($compression{$compressed->{key}}->{format} ne $compression{$href->{compress}->{key}}->{format})) {
-        push @cmd_pipe, { cmd_text => decompress_cmd($compressed) };
+        push @cmd_pipe, { cmd_text => decompress_cmd_text($compressed) };
         $compressed = undef;
       }
       unless($compressed) {
-        push @cmd_pipe, { cmd_text => compress_cmd($href->{compress}) };
+        push @cmd_pipe, { cmd_text => compress_cmd_text($href->{compress}) };
         $compressed = $href->{compress};
       }
     }
@@ -711,11 +711,11 @@ sub run_cmd(@)
         if($href->{rsh_compress_in}) {
           if($compressed && ($compression{$compressed->{key}}->{format} ne $compression{$href->{rsh_compress_in}->{key}}->{format}))
           {
-            push @cmd_pipe, { cmd_text => decompress_cmd($compressed) };
+            push @cmd_pipe, { cmd_text => decompress_cmd_text($compressed) };
             $compressed = undef;
           }
           unless($compressed) {
-            push @cmd_pipe, { cmd_text => compress_cmd($href->{rsh_compress_in}) };
+            push @cmd_pipe, { cmd_text => compress_cmd_text($href->{rsh_compress_in}) };
             $compressed = $href->{rsh_compress_in};
           }
         }
@@ -729,13 +729,13 @@ sub run_cmd(@)
         }
 
         if($compressed && (not ($href->{compressed_ok}))) {
-          unshift @rsh_cmd_pipe, { cmd_text => decompress_cmd($compressed) };
+          unshift @rsh_cmd_pipe, { cmd_text => decompress_cmd_text($compressed) };
           $compressed = undef;
         }
 
         if($href->{rsh_compress_out}) {
           die if($href->{redirect_to_file});
-          push @rsh_cmd_pipe, { cmd_text => compress_cmd($href->{rsh_compress_out}) };
+          push @rsh_cmd_pipe, { cmd_text => compress_cmd_text($href->{rsh_compress_out}) };
           $compressed = $href->{rsh_compress_out};
         }
 
@@ -755,7 +755,7 @@ sub run_cmd(@)
       }
       else {
         if($compressed && (not ($href->{compressed_ok}))) {
-          push @cmd_pipe, { cmd_text => decompress_cmd($compressed) };
+          push @cmd_pipe, { cmd_text => decompress_cmd_text($compressed) };
           $compressed = undef;
         }
 
