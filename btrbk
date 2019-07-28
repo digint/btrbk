@@ -4879,6 +4879,7 @@ MAIN:
   my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive);
   my @filter_args;
   my @subvol_args;
+  my @dir_args;
   my $args_expected_min = 0;
   my $args_expected_max = 9999;
   if(($command eq "run") || ($command eq "dryrun")) {
@@ -4986,6 +4987,20 @@ MAIN:
       exit 2;
     }
     $_ = $url_prefix . $path;
+  }
+  foreach (@dir_args) {
+    # map relative path to absolute
+    my $path = $_;
+    if(-d $path) {
+      $path = `readlink -e -q '$path'`;
+    }
+    $path = check_file($path, { absolute => 1 });
+    unless($path) {
+      ERROR "Bad argument: not a directory: $_";
+      HELP_MESSAGE(0);
+      exit 2;
+    }
+    $_ = $path;
   }
   my @filter_vf;
   foreach (@filter_args) {
