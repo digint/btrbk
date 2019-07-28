@@ -3916,10 +3916,7 @@ sub parse_config(@)
       last;
     }
   }
-  unless($file) {
-    ERROR "Configuration file not found: " . join(', ', @config_files);
-    return undef;
-  }
+  return undef unless($file);
 
   my $root = init_config(SRC_FILE => $file);
   my $cur = $root;
@@ -4882,6 +4879,7 @@ MAIN:
   my @dir_args;
   my $args_expected_min = 0;
   my $args_expected_max = 9999;
+  my $fallback_default_config;
   if(($command eq "run") || ($command eq "dryrun")) {
     $action_run = 1;
     $dryrun = 1 if($command eq "dryrun");
@@ -4919,6 +4917,7 @@ MAIN:
   }
   elsif ($command eq "diff") {
     $action_diff = 1;
+    $fallback_default_config = 1;
     $args_expected_min = $args_expected_max = 2;
     @subvol_args = @ARGV;
   }
@@ -5052,6 +5051,27 @@ MAIN:
   INFO "$VERSION_INFO  (" . localtime($start_time) . ")";
   action("startup", status => "v$VERSION", message => $VERSION_INFO, time => $start_time);
 
+
+  #
+  # parse config file
+  #
+  my $config = parse_config(@config_src);
+  unless($config) {
+    if($fallback_default_config) {
+      INFO "Configuration file not found, falling back to defaults";
+      $config = init_config();
+    }
+    else {
+      ERROR "Configuration file not found: " . join(', ', @config_src);
+      exit 2;
+    }
+  }
+  unless(ref($config->{SUBSECTION}) eq "ARRAY") {
+    ERROR "No volumes defined in configuration file";
+    exit 2;
+  }
+
+
   if($action_diff)
   {
     #
@@ -5059,14 +5079,13 @@ MAIN:
     #
     my $src_url    = $subvol_args[0] || die;
     my $target_url = $subvol_args[1] || die;
-    my $default_config = init_config();
     # NOTE: ssh://{src,target} uses default config
 
-    my $src_vol = vinfo($src_url, $default_config);
+    my $src_vol = vinfo($src_url, $config);
     unless(vinfo_init_root($src_vol)) { ERROR "Failed to fetch subvolume detail for '$src_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
     if($src_vol->{node}{is_root})     { ERROR "Subvolume is btrfs root: $src_vol->{PRINT}"; exit 1; }
 
-    my $target_vol = vinfo($target_url, $default_config);
+    my $target_vol = vinfo($target_url, $config);
     unless(vinfo_init_root($target_vol)) { ERROR "Failed to fetch subvolume detail for '$target_vol->{PRINT}'" . ($err ? ": $err" : ""); exit 1; }
     if($target_vol->{node}{is_root})     { ERROR "Subvolume is btrfs root: $target_vol->{PRINT}"; exit 1; }
 
@@ -5137,18 +5156,6 @@ MAIN:
   }
 
 
-  #
-  # parse config file
-  #
-  my $config = parse_config(@config_src);
-  unless($config) {
-    ERROR "Failed to parse configuration file";
-    exit 2;
-  }
-  unless(ref($config->{SUBSECTION}) eq "ARRAY") {
-    ERROR "No volumes defined in configuration file";
-    exit 2;
-  }
 
   #
   # try exclusive lock if set in config or command-line option
