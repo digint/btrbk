@@ -132,7 +132,8 @@ OPTIONS
     command line option to switch between different output formats.
 
 --progress::
-    Show progress bar on send-receive operation.
+    Show progress bar on send-receive operation. Requires "mbuffer"
+    command (version >= 20180505) installed on the host running btrbk.
 
 --lockfile <file>::
     Create lockfile <file> on startup; checks lockfile before running

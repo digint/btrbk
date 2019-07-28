@@ -305,9 +305,9 @@ backup process, leave this option disabled.
 *rate_limit* <rate>|no::
     Limit the transfer to a maximum of '<rate>' bytes per second. A
     suffix of "k", "m", "g", or "t" can be added to denote kilobytes
-    (*1024), megabytes, and so on. Defaults to ``no''. If enabled for
-    remote sources, make sure that the "pv" command is available on
-    the source host.
+    (*1024), megabytes, and so on. Defaults to ``no''. Note that the
+    current implementation uses the "mbuffer" command for both
+    'rate_limit' and 'stream_buffer' (see implications above).
 
 
 === System Options
