@@ -355,6 +355,11 @@ different output formats.
 *diff* <from> <to>::
     Print new files since subvolume <from> for subvolume <to>.
 
+*ls* <path>::
+    List all btrfs subvolumes below <path>. Use
+    '--format=table|long|rel|raw' to switch between different output
+    formats.
+
 *config* print|print-all::
     Prints the parsed configuration file. Use the '--format' command
     line option to switch between different output formats.
