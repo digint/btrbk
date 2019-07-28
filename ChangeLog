@@ -1,3 +1,10 @@
+btrbk-0.28.3
+
+  * Bugfix: return exitcode=10 if action skipped by stray subvolumes
+    (close: #285).
+  * Bugfix: correctly handle root subvolumes having uuid.
+  * Bugfix: fix mount point resolving.
+
 btrbk-0.28.2
 
   * Fix regression: crash if raw target dir is empty (close  #281).

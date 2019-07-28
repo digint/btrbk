@@ -1,7 +1,7 @@
 btrbk(1)
 ========
-:date: 2019-05-23
-:release-version: 0.28.2
+:date: 2019-07-28
+:release-version: 0.28.3
 :man manual: Btrbk Manual
 :man source: Btrbk {release-version}
 
