@@ -1,3 +1,13 @@
+btrbk-current
+
+  * MIGRATION
+    - If stream_buffer or rate_limit is configured, install "mbuffer"
+      (version >= 20180505) on your local and/or target hosts.
+  * Combined stream_buffer and rate_limit: for rate_limit, use
+    "mbuffer" (on target host) instead of "pv" (on source host).
+  * Use "mbuffer" instead of "pv" for --progress display.
+  * Add stream_buffer functionality for raw targets.
+
 btrbk-0.28.3
 
   * Bugfix: return exitcode=10 if action skipped by stray subvolumes
