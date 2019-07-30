@@ -287,8 +287,8 @@ option in ssh_config(5).
     for "pigz", "pbzip2" and recent versions of "xz".
 
 *stream_buffer* <size>|no::
-    Add a buffer to the btrfs send stream (in front of "btrfs
-    receive"), with a maximum size of '<size>'. This can give a speed
+    Add a buffer to the btrfs send stream (locally, on uncompressed
+    data), with a maximum size of '<size>'. This can give a speed
     improvement (measured up to 20%) on both local or remote
     operations, but also increases system load. A suffix of "k", "m",
     "g", or "%" can be added to '<size>' to denote kilobytes (*1024),
@@ -296,19 +296,37 @@ option in ssh_config(5).
     memory. Defaults to ``no''.
 +
 --
-If enabled, make sure that the "mbuffer" command is available on the
-target host. Note that versions of mbuffer < 20180505 suffered from
-nasty bugs (infinite loops, hangs); if your main concern is a stable
-backup process, leave this option disabled.
+If enabled, make sure that the "mbuffer" command (at least version
+20180505) is available on the host running btrbk. As of btrbk-0.29.0,
+mbuffer(1) is used for both 'rate_limit' and 'stream_buffer' options:
+
+    mbuffer [-m <stream_buffer>] [-r <rate_limit>]
+
+Note that mbuffer(1) always reads defaults from "`/etc/mbuffer.rc"`
+and "`~/.mbuffer.rc`".
+
+Leave this option disabled if your main concern is a stable backup
+process: while recent versions of mbuffer have proven reliable, it is
+often desirable to keep things simple rather than adding an
+additional, multi-threaded process to the command pipe.
 --
 
-*rate_limit* <rate>|no::
-    Limit the transfer to a maximum of '<rate>' bytes per second. A
-    suffix of "k", "m", "g", or "t" can be added to denote kilobytes
-    (*1024), megabytes, and so on. Defaults to ``no''. Note that the
-    current implementation uses the "mbuffer" command for both
-    'rate_limit' and 'stream_buffer' (see implications above).
+*stream_buffer_remote* <size>|no::
+    Add a buffer on remote hosts (either source or target). Defaults
+    to ``no''.
 
+*rate_limit* <rate>|no::
+    Limit the read rate of the btrfs send stream to '<rate>' bytes per
+    second (locally, on uncompressed send stream). A suffix of "k",
+    "m", "g", or "t" can be added to denote kilobytes (*1024),
+    megabytes, and so on. Defaults to ``no''. Note that 'rate_limit'
+    implicitely adds a stream buffer (see 'stream_buffer' option
+    above).
+
+*rate_limit_remote* <rate>|no::
+    Add rate limit on remote hosts (either source or target). Defaults
+    to ``no''. Note that it usually does not make much sense to enable
+    both 'rate_limit' and 'rate_limit_remote'.
 
 === System Options
 
