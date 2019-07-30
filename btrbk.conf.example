@@ -4,6 +4,10 @@
 #
 # Please refer to the btrbk.conf(5) man-page for a complete
 # description of all configuration options.
+# For more examples, see README.md included with this package.
+#
+#   btrbk.conf(5): <https://digint.ch/btrbk/doc/btrbk.conf.5.html>
+#   README.md:     <https://digint.ch/btrbk/doc/readme.html>
 #
 # Note that the options can be overridden per volume/subvolume/target
 # in the corresponding sections.
@@ -15,9 +19,8 @@ transaction_log            /var/log/btrbk.log
 
 # Enable stream buffer. Adding a buffer between the sending and
 # receiving side is generally a good idea.
-# NOTE: If enabled, make sure the "mbuffer" package is installed on
-# the target host!
-stream_buffer              512m
+# NOTE: If enabled, make sure to install the "mbuffer" package!
+stream_buffer              256m
 
 # Directory in which the btrfs snapshots are created. Relative to
 # <volume-directory> of the volume section.
