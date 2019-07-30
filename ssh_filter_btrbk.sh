@@ -61,29 +61,28 @@ reject_filtered_cmd()
     fi
 
     if [[ -n "$allow_compress" ]]; then
-        decompress_match="((${compress_list}) -d -c( -[pT][0-9]+)? \| )?"
-        compress_match="( \| (${compress_list}) -c( -[0-9])?( -[pT][0-9]+)?)?"
+        decompress_match="(${compress_list}) -d -c( -[pT][0-9]+)?"
+        compress_match="(${compress_list}) -c( -[0-9])?( -[pT][0-9]+)?"
     else
         decompress_match=
         compress_match=
     fi
 
-    if [[ -n "$allow_stream_buffer" ]]; then
-        stream_buffer_match="(mbuffer -q -m [0-9]+[kmg]? \| )?"
+    # rate_limit_remote and stream_buffer_remote use combined
+    # "mbuffer" as of btrbk-0.29.0
+    if [[ -n "$allow_stream_buffer" ]] || [[ -n "$allow_rate_limit" ]]; then
+        mbuffer_match="mbuffer -v 1 -q( -s [0-9]+[kmgKMG]?)?( -m [0-9]+[kmgKMG]?)?( -[rR] [0-9]+[kmgtKMGT]?)?"
     else
-        stream_buffer_match=
-    fi
-
-    if [[ -n "$allow_rate_limit" ]]; then
-        rate_limit_match="( \| pv -q -L [0-9]+[kmgt]?)?"
-    else
-        rate_limit_match=
+        mbuffer_match=
     fi
 
     # allow multiple paths (e.g. "btrfs subvolume snapshot <src> <dst>")
-    btrfs_cmd_match="^${decompress_match}${stream_buffer_match}(${allow_list})( ${option_match})*( ${path_match})+${compress_match}${rate_limit_match}$"
+    allow_cmd_match="(${allow_list})( ${option_match})*( ${path_match})+"
+    stream_in_match="(${decompress_match} \| )?(${mbuffer_match} \| )?"
+    stream_out_match="( \| ${mbuffer_match})?( \| ${compress_match}$)?"
 
-    if [[ $SSH_ORIGINAL_COMMAND =~ $btrfs_cmd_match ]] ; then
+    allow_stream_match="^${stream_in_match}${allow_cmd_match}${stream_out_match}"
+    if [[ $SSH_ORIGINAL_COMMAND =~ $allow_stream_match ]] ; then
         return 0
     fi
 
