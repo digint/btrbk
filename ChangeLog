@@ -1,10 +1,16 @@
 btrbk-current
 
   * MIGRATION
-    - If stream_buffer or rate_limit is configured, install "mbuffer"
-      (version >= 20180505) on your local and/or target hosts.
+    - If stream_buffer or rate_limit is configured, please install
+      "mbuffer" (version >= 20180505). Note that mbuffer is only
+      required on remote hosts if stream_buffer_remote or
+      rate_limit_remote is set.
+    - In order to mimic old behavior, replace rate_limit with
+      rate_limit_remote, and read btrbk.conf(5).
+  * Dropped run-time dependency on "pv" (in favor of "mbuffer").
   * Combined stream_buffer and rate_limit: for rate_limit, use
-    "mbuffer" (on target host) instead of "pv" (on source host).
+    "mbuffer" (on local host) instead of "pv" (on source host).
+  * Add stream_buffer_remote and rate_limit_remote options.
   * Use "mbuffer" instead of "pv" for --progress display.
   * Add stream_buffer functionality for raw targets.
 
