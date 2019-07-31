@@ -2278,7 +2278,7 @@ sub btr_tree($$$$)
       # "path" always starts with set REL_PATH
       my $rel_path = $node->{path};
       unless($top_level->{is_root}) {
-        die unless($rel_path =~ s/^$top_level->{path}\///);
+        die unless($rel_path =~ s/^\Q$top_level->{path}\E\///);
       }
       $node->{REL_PATH} = $rel_path;  # relative to {TOP_LEVEL}->{path}
     }
