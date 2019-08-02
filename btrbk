@@ -4673,6 +4673,7 @@ sub print_formatted(@)
   my %args = @_;
   my $title = $args{title};
   my $format = $args{output_format} || $output_format || $default_format;
+  my $pretty = $args{pretty};
   my $key_defs = $table_formats{$format_key}->{$format};
   my $ralign = $table_formats{$format_key}->{RALIGN} // {};
   my $fh = $args{outfile} // *STDOUT;
@@ -4703,7 +4704,7 @@ sub print_formatted(@)
   {
     # output: value0 value1, ...
     unless($args{no_header}) {
-      print $fh join(' ', @keys) . "\n";
+      print $fh join(' ', map uc($_), @keys) . "\n"; # unaligned upper case headings
     }
     foreach my $row (@$data) {
       my $line = join(' ', map { ((defined($row->{$_}) && ($_ eq "message")) ? '# ' : '') . ($row->{$_} // "-") } @keys);
@@ -4740,6 +4741,7 @@ sub print_formatted(@)
     # print title
     if($title) {
       print $fh "$title\n";
+      print $fh '-' x length($title) . "\n"; # separator line
     }
 
     # print keys (headings)
@@ -4749,25 +4751,32 @@ sub print_formatted(@)
         next unless($print_row{$_});
         print $fh ' ' x $fill;
         $fill = $maxlen{$_} - length($_);
-        if($ralign->{$_}) {
-          print $fh ' ' x $fill;
-          $fill = 0;
+        if($pretty) {
+           # use aligned lower case headings (with separator line below)
+          if($ralign->{$_}) {
+            print $fh ' ' x $fill;
+            $fill = 0;
+          }
+          print $fh $_;
+        } else {
+          print $fh uc($_); # default unaligned upper case headings
         }
-        print $fh $_;
         $fill += $table_spacing;
       }
       print $fh "\n";
 
       $fill = 0;
-      foreach (@keys) {
-        next unless($print_row{$_});
-        print $fh ' ' x $fill;
-        print $fh '-' x $maxlen{$_};
-        $fill = $table_spacing;
+      if($pretty) { # separator line after header
+        foreach (@keys) {
+          next unless($print_row{$_});
+          print $fh ' ' x $fill;
+          print $fh '-' x $maxlen{$_};
+          $fill = $table_spacing;
+        }
+        print $fh "\n";
+        # alternative (all above in one line ;)
+        #print $fh join(' ' x $table_spacing, map { '-' x ($maxlen{$_}) } @keys) . "\n";
       }
-      # alternatively (all above in one line ;)
-      #print $fh join(' ' x $table_spacing, map { '-' x ($maxlen{$_}) } @keys) . "\n";
-      print $fh "\n";
     }
 
     # print values
