@@ -365,6 +365,30 @@ different output formats.
 *diff* <from> <to>::
     Print new files since subvolume <from> for subvolume <to>.
 
+*extents-diff* <path>... [exclusive <filter>...]  _*experimental*_::
+   List estimated size and diff from extent information (FIEMAP ioctl)
+   from filefrag(8). The 'diff' column shows the data added (relative
+   complement of block regions) from the 'subvol' of the previous
+   line. In the best case (if no other files hold references to the
+   extents in question) the 'diff' data would be freed when deleting
+   the subvolume.
++
+If called with the 'exclusive' keyword, subvolumes matching '<filter>'
+are added to a separate set, and the exclusive data is computed for
+this set. This gives a hint of how much data will be freed if deleting
+all subvolumes in the set. Example:
+
+    btrbk extents-diff /backup/data.* exclusive /backup/data.2010*
+
++
+If called with the '--related' option, btrbk also lists all related
+subvolumes. This is not recommended for backups, as parent-uuid
+relations break for received subvolumes as soon as an intermediate
+subvolume is deleted.
++
+Note that reading all extents is a disk-intensive task, expect long
+execution times and high ram usage. Consider setting 'cache_dir'.
+
 *ls* <path>|<url>...::
     List all btrfs subvolumes below <path>. Use the '--format' command
     line option to switch between different output formats.
