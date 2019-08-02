@@ -220,9 +220,9 @@ my %table_formats = (
                  },
 
   fs_list     => { table => [ qw( mount_point id flags path ) ],
-                   rel   => [ qw( mount_point mount_source path subvolume_path subvolume_rel_path ) ],
-                   long  => [ qw( mount_point mount_source id top_level cgen gen uuid parent_uuid received_uuid flags path ) ],
-                   raw   => [ qw( mount_point mount_source mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path ) ],
+                   rel   => [ qw( mount_source mount_point path subvolume_path subvolume_rel_path ) ],
+                   long  => [ qw( mount_source mount_subvol mount_point id top_level cgen gen uuid parent_uuid received_uuid flags path ) ],
+                   raw   => [ qw( mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path ) ],
                  },
 );
 
@@ -5271,6 +5271,7 @@ MAIN:
             mount_point => $svol->{VINFO_MOUNTPOINT}{PATH},
             mount_source => $svol->{node}{TREE_ROOT}{host_mount_source},
             mount_subvolid => $mnt->{MNTOPS}{subvolid},
+            mount_subvol   => $mnt->{MNTOPS}{subvol},
             subvolume_path => $svol->{node}{path},
             subvolume_rel_path => $svol->{node}{REL_PATH},
             path => $svol->{PATH},
