@@ -134,6 +134,7 @@ my %config_options = (
   archive_qgroup_destroy      => { default => undef,     accept => [ "yes", "no" ], context => [ "root" ] },
 
   archive_exclude             => { default => undef,     accept_file => { wildcards => 1 }, allow_multiple => 1, context => [ "root" ] },
+  archive_exclude_older       => { default => undef,     accept => [ "yes", "no" ] },
 
   # deprecated options
   ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1,
@@ -4205,17 +4206,23 @@ sub macro_archive_target($$$;$)
   }
 
   # add all present archives as informative_only: these are needed for correct results of schedule()
+  my $last_dvol_date;
   foreach my $dvol (@{vinfo_subvol_list($droot, readonly => 1, btrbk_direct_leaf => $snapshot_name)})
   {
+    my $btrbk_date = $dvol->{node}{BTRBK_DATE};
     push @schedule, { informative_only => 1,
                       value            => $dvol,
-                      btrbk_date       => $dvol->{node}{BTRBK_DATE},
+                      btrbk_date       => $btrbk_date,
                     };
+
+    # find last present archive (by btrbk_date, needed for archive_exclude_older below)
+    $last_dvol_date = $btrbk_date if((not defined($last_dvol_date)) || (cmp_date($btrbk_date, $last_dvol_date) > 0));
   }
 
   my ($preserve, undef) = schedule(
     schedule => \@schedule,
     preserve => config_preserve_hash($droot, "archive"),
+    preserve_threshold_date => (config_key($droot, "archive_exclude_older") ? $last_dvol_date : undef),
     result_preserve_action_text => 'archive',
     result_delete_action_text   => '',
     %$schedule_options
@@ -4270,6 +4277,7 @@ sub schedule(@)
   my $schedule        = $args{schedule} || die;
   my $preserve        = $args{preserve} || die;
   my $preserve_date_in_future = $args{preserve_date_in_future};
+  my $preserve_threshold_date = $args{preserve_threshold_date};
   my $results_list    = $args{results};
   my $result_hints    = $args{result_hints} // {};
   my $result_preserve_action_text = $args{result_preserve_action_text};
@@ -4432,24 +4440,33 @@ sub schedule(@)
   my $count_defined = 0;
   foreach my $href (@sorted_schedule)
   {
-    $count_defined++  unless($href->{informative_only});
-    if($href->{preserve}) {
-      push(@preserve, $href->{value}) unless($href->{informative_only});
-      push @$results_list, { %result_base,
-                             action => $href->{informative_only} ? undef : $result_preserve_action_text,
-                             reason => $href->{preserve},
-                             value => $href->{value},
-                           } if($results_list);
-      TRACE "schedule: $href->{value}->{PRINT}: " . ($href->{informative_only} ? '(informative_only)' : '') . " $href->{preserve}" if($href->{value} && $href->{value}->{PRINT});
+    my $result_reason_text = $href->{preserve};
+    my $result_action_text;
+
+    unless($href->{informative_only}) {
+      if($href->{preserve}) {
+        if($preserve_threshold_date && (cmp_date($href->{btrbk_date}, $preserve_threshold_date) <= 0)) {
+          # older than threshold, do not add to preserve list
+          $result_reason_text = "$result_reason_text, ignored (archive_exclude_older) older than threshold: XXX [PRINT_SUBVOL_HERE]";
+        }
+        else {
+          push(@preserve, $href->{value});
+          $result_action_text = $result_preserve_action_text;
+        }
+      }
+      else {
+        push(@delete, $href->{value});
+        $result_action_text = $result_delete_action_text;
+      }
+      $count_defined++;
     }
-    else {
-      push(@delete, $href->{value}) unless($href->{informative_only});
-      push @$results_list, { %result_base,
-                             action => $href->{informative_only} ? undef : $result_delete_action_text,
-                             value => $href->{value},
-                           } if($results_list);
-      TRACE "schedule: $href->{value}->{PRINT}: delete ($result_delete_action_text)" if($href->{value} && $href->{value}->{PRINT});
-    }
+
+    TRACE join(" ", "schedule: $href->{value}{PRINT}", ($href->{informative_only} ? "(informative_only)" : uc($result_action_text || "-")), ($result_reason_text // "-")) if(($loglevel >= 4) && $href->{value} && $href->{value}{PRINT});
+    push @$results_list, { %result_base,
+                           action => $result_action_text,
+                           reason => $result_reason_text,
+                           value => $href->{value},
+                         } if($results_list);
   }
   DEBUG "Preserving " . @preserve . "/" . $count_defined . " items";
   return (\@preserve, \@delete);
