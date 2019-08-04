@@ -1006,12 +1006,16 @@ sub btrfs_subvolume_show($;@)
     }
     DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
 
+    # NOTE: as of btrfs-progs v4.6.1, flags are either "-" or "readonly"
+    $detail{readonly} = ($detail{flags} =~ /readonly/) ? 1 : 0 if($detail{flags});
+
     # validate required keys
     unless((defined($detail{parent_uuid}) && (($detail{parent_uuid} eq '-') || ($detail{parent_uuid} =~ /^$uuid_match$/))) &&
            (defined($detail{id}) && ($detail{id} =~ /^\d+$/) && ($detail{id} >= 5)) &&
            (defined($detail{gen}) && ($detail{gen} =~ /^\d+$/)) &&
            (defined($detail{cgen}) && ($detail{cgen} =~ /^\d+$/)) &&
-           (defined($detail{top_level}) && ($detail{top_level} =~ /^\d+$/)))
+           (defined($detail{top_level}) && ($detail{top_level} =~ /^\d+$/)) &&
+           (defined($detail{readonly})))
     {
       ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
       return undef;
@@ -1035,9 +1039,6 @@ sub btrfs_subvolume_show($;@)
       ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
       return undef;
     }
-
-    # NOTE: as of btrfs-progs v4.6.1, flags are either "-" or "readonly"
-    $detail{readonly} = ($detail{flags} =~ /readonly/) ? 1 : 0;
 
     VINFO(\%detail, "detail") if($loglevel >=4);
   }
