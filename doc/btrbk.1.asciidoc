@@ -237,7 +237,7 @@ as it is still required in order to determine the latest
 snapshot/backup pair (which is always preserved, regardless of the
 retention policy).
 
-*archive* <source> <target>::
+*archive* <source> <target> [--raw]::
     Recursively copy all subvolumes created by btrbk from <source> to
     <target> directory, optionally rescheduled using
     'archive_preserve_*' configuration options. Also creates directory
@@ -250,6 +250,9 @@ need to create them by hand (e.g. by running "btrfs subvolume create
 <target>/dir"). Check the output of --dry-run if unsure.
 +
 Note that this feature needs a *linux kernel >=4.4* to work correctly!
++
+If '--raw' option is set, creates raw targets (experimental, see
+btrbk.conf(5), TARGET TYPES).
 
 *clean* [filter...]::
     Delete incomplete (garbled) backups. Incomplete backups can be
