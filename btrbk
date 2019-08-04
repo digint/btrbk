@@ -1001,7 +1001,7 @@ sub btrfs_subvolume_show($;@)
       if($trans{$key}) {
         $detail{$trans{$key}} = $value;
       } else {
-        WARN "Failed to parse subvolume detail \"$key: $value\" for: $vol->{PRINT}";
+        DEBUG "Ignoring subvolume detail \"$key: $value\" for: $vol->{PRINT}";
       }
     }
     DEBUG "Parsed " . scalar(keys %detail) . " subvolume detail items: $vol->{PRINT}";
