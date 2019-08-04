@@ -280,6 +280,7 @@ my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id: XX
 my $dryrun;
 my $loglevel = 1;
 my $quiet;
+my @exclude_vf;
 my $do_dumper;
 my $show_progress = 0;
 my $err = "";
@@ -4191,6 +4192,10 @@ sub macro_archive_target($$$;$)
   foreach my $svol (@{vinfo_subvol_list($sroot, readonly => 1, btrbk_direct_leaf => $snapshot_name, sort => 'path')})
   {
     next if(get_receive_targets($droot, $svol, exact => 1, warn => 1, ret_unexpected => \$has_unexpected_location));
+    if(my $ff = vinfo_match(\@exclude_vf, $svol)) {
+      INFO "Skipping archive candidate \"$svol->{PRINT}\": Match on exclude pattern \"$ff->{unparsed}\"";
+      next;
+    }
     DEBUG "Adding archive candidate: $svol->{PRINT}";
 
     push @schedule, { value      => $svol,
@@ -5092,7 +5097,6 @@ MAIN:
     }
     push @filter_vf, $vf;
   }
-  my @exclude_vf;
   foreach (@exclude_cmdline) {
     my $vf = vinfo_filter_statement($_);
     unless($vf) {
@@ -5444,7 +5448,7 @@ MAIN:
       if(vinfo_match(\@exclude_vf, $sroot) ||
          vinfo_match(\@exclude_vf, vinfo_child($sroot, $snapshot_name)))
       {
-        ABORTED($sroot, "skip_archive_exclude", "Match on archive_exclude");
+        ABORTED($sroot, "skip_archive_exclude", "Match on exclude pattern");
         INFO "Skipping archive subvolumes \"$sroot->{PRINT}/${snapshot_name}.*\": " . ABORTED_TEXT($sroot);
         next;
       }
