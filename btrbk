@@ -2547,6 +2547,44 @@ sub vinfo_cmd($$@)
   return $ret;
 }
 
+sub _get_btrbk_date(@)
+{
+  my %bts = @_; # named capture buffers (%+) from $btrbk_timestamp_match
+
+  my @tm = ( ($+{ss} // 0), ($+{mm} // 0), ($+{hh} // 0), $+{DD}, ($+{MM} - 1), ($+{YYYY} - 1900) );
+  my $NN = $+{NN} // 0;
+  my $zz = $+{zz};
+  my $has_exact_time = defined($+{hh}); # false if timestamp_format=short
+
+  my $time;
+  if(defined($zz)) {
+    eval_quiet { $time = timegm(@tm); };
+  } else {
+    eval_quiet { $time = timelocal(@tm); };
+  }
+  unless(defined($time)) {
+    # WARN "$@"; # sadly Time::Local croaks, which also prints the line number from here.
+    return undef;
+  }
+
+  # handle ISO 8601  time offset
+  if(defined($zz)) {
+    my $offset;
+    if($zz eq 'Z') {
+      $offset = 0;  # Zulu time == UTC
+    }
+    elsif($zz =~ /^([+-])([0-9][0-9])([0-9][0-9])$/) {
+      $offset = ( $3 * 60 ) + ( $2 * 60 * 60 );
+      $offset *= -1 if($1 eq '-');
+    }
+    else {
+      return undef;
+    }
+    $time -= $offset;
+  }
+
+  return [ $time, $NN, $has_exact_time ];
+}
 
 sub add_btrbk_filename_info($;$)
 {
@@ -2565,42 +2603,14 @@ sub add_btrbk_filename_info($;$)
     return undef;
   }
   $name = $+{name} // die;
-  my @tm = ( ($+{ss} // 0), ($+{mm} // 0), ($+{hh} // 0), $+{DD}, ($+{MM} - 1), ($+{YYYY} - 1900) );
-  my $NN = $+{NN} // 0;
-  my $zz = $+{zz};
-  my $has_exact_time = defined($+{hh}); # false if timestamp_format=short
-
-  my $time;
-  if(defined($zz)) {
-    eval_quiet { $time = timegm(@tm); };
-  } else {
-    eval_quiet { $time = timelocal(@tm); };
-  }
-  unless(defined($time)) {
+  my $btrbk_date = _get_btrbk_date(%+); # use named capture buffers of previous match
+  unless($btrbk_date) {
     WARN "Illegal timestamp on subvolume \"$node->{REL_PATH}\", ignoring";
-    # WARN "$@"; # sadly Time::Local croaks, which also prints the line number from here.
     return undef;
   }
 
-  # handle ISO 8601  time offset
-  if(defined($zz)) {
-    my $offset;
-    if($zz eq 'Z') {
-      $offset = 0;  # Zulu time == UTC
-    }
-    elsif($zz =~ /^([+-])([0-9][0-9])([0-9][0-9])$/) {
-      $offset = ( $3 * 60 ) + ( $2 * 60 * 60 );
-      $offset *= -1 if($1 eq '-');
-    }
-    else {
-      WARN "Failed to parse time offset on subvolume \"$node->{REL_PATH}\", ignoring";
-      return undef;
-    }
-    $time -= $offset;
-  }
-
   $node->{BTRBK_BASENAME} = $name;
-  $node->{BTRBK_DATE} = [ $time, $NN, $has_exact_time ];
+  $node->{BTRBK_DATE} = $btrbk_date;
   $node->{BTRBK_RAW} = $raw_info if($raw_info);
   return $node;
 }
