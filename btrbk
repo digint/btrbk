@@ -60,7 +60,7 @@ my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*
 my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 my $glob_match = qr/[0-9a-zA-Z_@\+\-\.\/\*]+/;  # file_match plus '*'
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
-my $timestamp_postfix_match = qr/\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
+my $btrbk_timestamp_match = qr/(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
 my $raw_postfix_match_DEPRECATED = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uuid_match))?\.btrfs?(\.(?<compress>($compress_format_alt)))?(\.(?<encrypt>gpg))?(\.(?<split>split))?(\.(?<incomplete>part))?/;  # matches ".btrfs_<received_uuid>[@<parent_uuid>][.gz|bz2|xz][.gpg][.split][.part]"
 my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))?/;  # matches ".btrfs[.gz|bz2|xz][.gpg|encrypted]"
 
@@ -2101,7 +2101,7 @@ sub system_read_raw_info_dir($)
       ERROR("Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
       return undef;
     }
-    if($file =~ /^(?<name>$file_match)(?<timestamp>$timestamp_postfix_match)$raw_postfix_match_DEPRECATED$/) {
+    if($file =~ /^(?<name>$file_match)\.$btrbk_timestamp_match$raw_postfix_match_DEPRECATED$/) {
       push @raw_targets, {
         # NOTE: if INFO_FILE is not present, this raw target is treated as deprecated format
         TYPE                 => 'raw',
@@ -2558,9 +2558,9 @@ sub add_btrbk_filename_info($;$)
   # NOTE: unless long-iso file format is encountered, the timestamp is interpreted in local timezone.
 
   $name =~ s/^(.*)\///;
-  if($raw_info && ($name =~ /^(?<name>$file_match)$timestamp_postfix_match$raw_postfix_match$/)) { ; }
-  elsif($raw_info && $name =~ /^(?<name>$file_match)$timestamp_postfix_match$raw_postfix_match_DEPRECATED$/) { ; } # DEPRECATED raw format
-  elsif((not $raw_info) && ($name =~ /^(?<name>$file_match)$timestamp_postfix_match$/)) { ; }
+  if($raw_info && ($name =~ /^(?<name>$file_match)\.$btrbk_timestamp_match$raw_postfix_match$/)) { ; }
+  elsif($raw_info && $name =~ /^(?<name>$file_match)\.$btrbk_timestamp_match$raw_postfix_match_DEPRECATED$/) { ; } # DEPRECATED raw format
+  elsif((not $raw_info) && ($name =~ /^(?<name>$file_match)\.$btrbk_timestamp_match$/)) { ; }
   else {
     return undef;
   }
