@@ -4681,8 +4681,9 @@ sub print_formatted(@)
   my @keys;
   my %print_row;
   foreach (@$key_defs) {
-    $print_row{$_} = 1 unless(s/^-//);  # strip leading "-"
-    push @keys, $_;
+    my $kd = $_;
+    $print_row{$kd} = 1 unless($kd =~ s/^-//);  # strip leading "-"
+    push @keys, $kd;
   }
 
   if($format eq "raw")
