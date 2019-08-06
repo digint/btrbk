@@ -144,6 +144,8 @@ my %config_options = (
   archive_exclude             => { default => undef,     accept_file => { wildcards => 1 }, allow_multiple => 1, context => [ "global" ] },
   archive_exclude_older       => { default => undef,     accept => [ "yes", "no" ] },
 
+  cache_dir                   => { default => undef,     accept_file => { absolute => 1 }, allow_multiple => 1, context => [ "global" ] },
+
   # deprecated options
   ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1,
                                    deprecated => { DEFAULT => { warn => 'Please use "ssh://hostname[:port]" notation in the "volume" and "target" configuration lines.' } } },
@@ -2257,6 +2259,68 @@ sub system_urandom($;$) {
   die "unsupported format";
 }
 
+sub read_extentmap_cache($)
+{
+  my $vol = shift;
+  my $cache_dir = config_key($vol, 'cache_dir');
+  return undef unless($cache_dir);
+  my $uuid = $vol->{node}{uuid} // die;
+  foreach (@$cache_dir) {
+    my $file = "$_/${uuid}.extentmap.bin";
+    next unless (-f $file);
+
+    DEBUG "Reading extentmap cache: $file";
+    if(open(my $fh, '<:raw', $file)) {
+      my @range;
+      my $buf;
+      read($fh, $buf, 24 + 8 * 3); # read header
+      my ($v, $gen, $time, $blocksize) = unpack('a24Q<Q<Q<', $buf);
+      unless(($v =~ /^btrbk_extentmap_v1/) && $gen && $time && $blocksize) {
+        ERROR "Ambigous cache file: $file";
+        next;
+      }
+      if($gen != $vol->{node}{gen}) {
+        INFO "Subvolume generation has changed (cache=$gen, subvol=$vol->{node}{gen}), ignoring cache: $file";
+        next;
+      }
+      while(read $fh, $buf, 8 * 2) { # read / unpack two words
+        push @range, [ unpack('Q<Q<', $buf) ];
+        #TRACE "read_extentmap_cache: range " . join("..", @{$range[-1]});
+      };
+      DEBUG "Read " . scalar(@range) . " block regions (blocksize=$blocksize, timestamp='" . localtime($time) . "') from: $file";
+      return { blocksize => $blocksize, rmap => \@range, CACHED => $file };
+    } else {
+      ERROR "Failed to open '$file': $!";
+    }
+  }
+  return undef;
+}
+
+sub write_extentmap_cache($)
+{
+  my $vol = shift;
+  my $extmap = $vol->{EXTENTMAP};
+  my $cache_dir = config_key($vol, 'cache_dir');
+  return undef unless($extmap && $cache_dir);
+  my $uuid = $vol->{node}{uuid} // die;
+  foreach (@$cache_dir) {
+    unless(-d $_) {
+      WARN_ONCE "Ignoring cache_dir (not a directory): $_";
+      next;
+    }
+    my $file = "$_/${uuid}.extentmap.bin";
+
+    INFO "Writing extentmap cache: $file";
+    if(open(my $fh, '>:raw', $file)) {
+      # pack Q: unsigned quad (64bit, Documentation/filesystems/fiemap.txt)
+      print $fh pack('a24Q<Q<Q<', "btrbk_extentmap_v1", $vol->{node}{gen}, time, $extmap->{blocksize});
+      print $fh pack('Q<*', map(@{$_}, @{$extmap->{rmap}}));
+      close($fh);
+    } else {
+      ERROR "Failed to create '$file': $!";
+    }
+  }
+}
 
 # returns extents range (sorted array of [start,end], inclusive) from FIEMAP ioctl
 sub filefrag_extentmap($)
@@ -5619,7 +5683,16 @@ MAIN:
                     ($a->{node}{readonly} ? $a->{node}{cgen} : $a->{node}{gen}) }
              @resolved_vol) {
       next if($prev_vol && ($prev_vol->{node}{id} == $_->{node}{id})); # skip duplicates
-      $_->{EXTENTMAP} = filefrag_extentmap($_);
+
+      # read extents map
+      if($_->{EXTENTMAP} = read_extentmap_cache($_)) {
+        INFO "Using cached extents map for: $_->{PRINT}";
+      } else {
+        $_->{EXTENTMAP} = filefrag_extentmap($_);
+        write_extentmap_cache($_);
+      }
+      next unless($_->{EXTENTMAP});
+
       if($prev_vol) {
         my $diff_map = extentmap_diff($prev_vol->{EXTENTMAP}, $_->{EXTENTMAP});
 

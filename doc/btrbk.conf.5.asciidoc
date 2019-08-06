@@ -410,6 +410,8 @@ If you want to set this option for regular (non-root) user only, set
     can set *compat_local* or *compat_remote*
     (e.g. "compat_remote busybox").
 
+*cache_dir* <file>|no _*experimental*_::
+    If set, cache extent maps for the 'extents-diff' command.
 
 === Btrfs Specific Options
 
