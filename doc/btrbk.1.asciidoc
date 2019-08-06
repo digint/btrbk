@@ -20,7 +20,7 @@ btrbk [-h|--help] [--version]
       [-c|--config <file>] [-n|--dry-run] [--exclude <filter>]
       [-p|--preserve] [--preserve-snapshots] [--preserve-backups]
       [-v|--verbose] [-q|--quiet] [-l|--loglevel <level>]
-      [-t|--table] [--format <output-format>]
+      [-t|--table] [--format <output-format>] [--pretty]
       [-S|--print-schedule] [--progress]
       [--lockfile <file>]
       [--override <config_option>=<value>]
@@ -125,6 +125,10 @@ OPTIONS
     space-separated key="value" pairs (machine readable). Affects
     output format for *run*, *snapshot*, *resume*, *prune*, *archive*
     and *list* commands. Useful for further exporting/scripting.
+
+--pretty::
+    Print table output with lowercase, underlined column headings
+    (instead of single-line uppercase headings).
 
 -S, --print-schedule::
     Print detailed scheduler information on *run*, *snapshot*,

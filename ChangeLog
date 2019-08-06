@@ -7,6 +7,10 @@ btrbk-current
       rate_limit_remote is set.
     - In order to mimic old behavior, replace rate_limit with
       rate_limit_remote, and read btrbk.conf(5).
+    - If you are using table output other than --format=raw in your
+      scripts, note that the column headings changed from pretty
+      two-line to (uppercase) one-line format. Either add --pretty
+      option to mimic old behavior, or adapt your scripts.
   * Dropped run-time dependency on "pv" (in favor of "mbuffer").
   * Combined stream_buffer and rate_limit: for rate_limit, use
     "mbuffer" (on local host) instead of "pv" (on source host).

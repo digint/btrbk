@@ -286,6 +286,7 @@ my @exclude_vf;
 my $do_dumper;
 my $show_progress = 0;
 my $output_format;
+my $output_pretty = 0;
 my $lockfile;
 my $tlog_fh;
 my $syslog_enabled = 0;
@@ -4673,7 +4674,7 @@ sub print_formatted(@)
   my %args = @_;
   my $title = $args{title};
   my $format = $args{output_format} || $output_format || $default_format;
-  my $pretty = $args{pretty};
+  my $pretty = $args{pretty} // $output_pretty;
   my $key_defs = $table_formats{$format_key}->{$format};
   my $ralign = $table_formats{$format_key}->{RALIGN} // {};
   my $fh = $args{outfile} // *STDOUT;
@@ -4943,6 +4944,7 @@ MAIN:
     'table|t'            => sub { $output_format = "table" },
     'long|L'             => sub { $output_format = "long" },
     'format=s'           => \$output_format,
+    'pretty'             => \$output_pretty,
     'print-schedule|S'   => \$print_schedule,
     'lockfile=s'         => \$lockfile_cmdline,
     'override=s'         => \@config_override_cmdline,  # e.g. --override=incremental=no
