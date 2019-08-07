@@ -2414,11 +2414,10 @@ sub _get_longest_match
 }
 
 
-sub vinfo($;$)
+sub vinfo($$)
 {
   my $url = shift // die;
   my $config = shift;
-  my %info;
 
   my ($url_prefix, $path) = check_url($url);
   die "invalid url: $url" unless(defined($path));
@@ -4463,7 +4462,7 @@ sub schedule(@)
       if($href->{preserve}) {
         if($preserve_threshold_date && (cmp_date($href->{btrbk_date}, $preserve_threshold_date) <= 0)) {
           # older than threshold, do not add to preserve list
-          $result_reason_text = "$result_reason_text, ignored (archive_exclude_older) older than threshold: XXX [PRINT_SUBVOL_HERE]";
+          $result_reason_text = "$result_reason_text, ignored (archive_exclude_older) older than existing archive";
         }
         else {
           push(@preserve, $href->{value});
@@ -5213,8 +5212,8 @@ MAIN:
                    "Showing changed files for subvolume:",
                    "  $target_vol->{PRINT}  (gen=$target_vol->{node}{gen})",
                    "",
-                   "Starting at creation generation of subvolume:",
-                   "  $src_vol->{PRINT}  (cgen=$src_vol->{node}{cgen})",
+                   "Starting at generation after subvolume:",
+                   "  $src_vol->{PRINT}  (gen=$src_vol->{node}{gen})",
                    "",
                    "This will show all files modified within generation range: [$lastgen..$target_vol->{node}{gen}]",
                    "Newest file generation (transid marker) was: $ret->{transid_marker}",
