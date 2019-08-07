@@ -4975,16 +4975,17 @@ sub print_formatted(@)
   my $default_format = "table";
   my %args = @_;
   my $title = $args{title};
+  my $table_format = ref($format_key) ? $format_key : $table_formats{$format_key};
   my $format = $args{output_format} || $output_format || $default_format;
   my $pretty = $args{pretty} // $output_pretty;
-  my $key_defs = $table_formats{$format_key}->{$format};
-  my $ralign = $table_formats{$format_key}->{RALIGN} // {};
+  my $key_defs = $table_format->{$format};
+  my $ralign = $table_format->{RALIGN} // {};
   my $fh = $args{outfile} // *STDOUT;
   my $table_spacing = 2;
 
   unless($key_defs) {
     WARN "Unsupported output format \"$format\", defaulting to \"$default_format\" format.";
-    $key_defs = $table_formats{$format_key}->{$default_format} || die;
+    $key_defs = $table_format->{$default_format} || die;
     $format = $default_format;
   }
   my @keys;
