@@ -239,6 +239,12 @@ my %table_formats = (
                    long  => [ qw( -host mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
                    raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
                  },
+
+  extent_diff => { table => [ qw( total diff subvol     ) ],
+                   long  => [ qw( total diff subvol cgen gen ) ],
+                   raw   => [ qw( total diff subvol cgen gen ) ],
+                   RALIGN => { total=>1, diff=>1, cgen=>1, gen=>1 },
+                 },
 );
 
 my %backend_cmd_map = (
@@ -5177,7 +5183,7 @@ MAIN:
   my @exclude_cmdline;
   my ($config_cmdline, $lockfile_cmdline, $print_schedule,
       $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups,
-      $archive_raw,
+      $archive_raw, $extents_diff_related,
       $resume_only_DEPRECATED,  # as of btrbk-v0.26.0
      );
 
@@ -5213,6 +5219,7 @@ MAIN:
     'wipe'               => \$wipe_snapshots,
     'resume-only|r'      => \$resume_only_DEPRECATED,
     'progress'           => \$show_progress,
+    'related'            => \$extents_diff_related,
     'table|t'            => sub { $output_format = "table" },
     'long|L'             => sub { $output_format = "long" },
     'print-schedule|S'   => \$print_schedule,
@@ -5263,7 +5270,7 @@ MAIN:
     WARN 'Found option "--progress", but required executable "mbuffer" does not exist on your system. Please install "mbuffer".';
     $show_progress = 0;
   }
-  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive, $action_ls);
+  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_extents_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive, $action_ls);
   my @filter_args;
   my @subvol_args;
   my $args_expected_min = 0;
@@ -5318,6 +5325,13 @@ MAIN:
     $action_diff = 1;
     $fallback_default_config = 1;
     $args_expected_min = $args_expected_max = 2;
+    $subvol_args_init = "restrict_same_fs deny_root_subvol";
+    @subvol_args = @ARGV;
+  }
+  elsif ($command eq "extents-diff") {
+    $action_extents_diff = 1;
+    $fallback_default_config = 1;
+    $args_expected_min = 1;
     $subvol_args_init = "restrict_same_fs deny_root_subvol";
     @subvol_args = @ARGV;
   }
@@ -5553,6 +5567,83 @@ MAIN:
                 ) unless($quiet || $raw);
     print_formatted("diff", \@data, no_header => !$output_pretty);
     print "\nTotal size: " . print_size($total_len) . "\n" unless($raw);
+    exit 0;
+  }
+
+
+  if($action_extents_diff)
+  {
+    #
+    # print extents diff (filefrag)
+    #
+
+    # check system requirements
+    unless(check_exe("filefrag")) {
+      ERROR 'Please install "filefrag" (from e2fsprogs package)';
+      exit 1;
+    }
+
+    # resolve related subvolumes
+    my @resolved_vol;
+    $extents_diff_related = 1 if(scalar(@subvol_args) == 1); # single argument: implicit --related
+    if($extents_diff_related) {
+      # add all related subvolumes
+      foreach my $svol (@subvol_args) {
+        # filter gen for r/w subvolumes, cgen on readonly subvolumes
+        # ("gen" is increased on readonly subvolume if it is being snapshotted)
+        my $svol_gen = $svol->{node}{readonly} ? $svol->{node}{cgen} : $svol->{node}{gen};
+        my @related = map({ vinfo_resolved_all_mountpoints($_, $svol->{VINFO_MOUNTPOINT}) // () }
+                          grep { ($_->{readonly} ? $_->{cgen} : $_->{gen}) <= $svol_gen }  # show only older
+                          @{get_related_nodes($svol)}); # includes $svol
+        unless(scalar(@related) > 1) {
+          WARN "Could not resolve any older (by generation) related subvolume for: $svol->{PRINT}";
+        }
+        push @resolved_vol, @related;
+      }
+    }
+    else {
+      @resolved_vol = @subvol_args;
+    }
+
+    my @data;
+    # print results on ctrl-c
+    $SIG{INT} = sub {
+      print STDERR "\nERROR: Cought SIGINT, dumping incomplete list:\n";
+      print_formatted("extent_diff", \@data);
+      exit 1;
+    };
+
+    my $prev_vol;
+    # sort descending by gen: crawl descending, but display ascending (unshift)
+    foreach (sort { ($b->{node}{readonly} ? $b->{node}{cgen} : $b->{node}{gen}) <=>
+                    ($a->{node}{readonly} ? $a->{node}{cgen} : $a->{node}{gen}) }
+             @resolved_vol) {
+      next if($prev_vol && ($prev_vol->{node}{id} == $_->{node}{id})); # skip duplicates
+      $_->{EXTENTMAP} = filefrag_extentmap($_);
+      if($prev_vol) {
+        my $diff_map = extentmap_diff($prev_vol->{EXTENTMAP}, $_->{EXTENTMAP});
+
+        unshift @data, {
+          total  => print_size(extentmap_size($prev_vol->{EXTENTMAP})),
+          diff   => print_size(extentmap_size($diff_map)),
+          cgen   => $prev_vol->{node}{cgen},
+          gen    => $prev_vol->{node}{gen},
+          subvol => $prev_vol->{PRINT},
+         };
+
+        $prev_vol->{EXTENTMAP} = undef; # release memory
+      }
+      $prev_vol = $_;
+    }
+    unshift @data, {
+      total  => print_size(extentmap_size($prev_vol->{EXTENTMAP})),
+      cgen   => $prev_vol->{node}{cgen},
+      gen    => $prev_vol->{node}{gen},
+      subvol => $prev_vol->{PRINT},
+     };
+
+    INFO "Printing extents map difference (relative complement): (blocks \ blocks_on_prev_line) * blocksize";
+    print_formatted("extent_diff", \@data);
     exit 0;
   }
 
