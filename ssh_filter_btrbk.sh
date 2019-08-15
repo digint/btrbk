@@ -172,16 +172,16 @@ allow_exact_list=${allow_exact_list#\|}
 restrict_path_list=${restrict_path_list#\|}
 
 case "$SSH_ORIGINAL_COMMAND" in
-    *\.\./*)  reject_and_die "directory traversal"  ;;
-    *\$*)     reject_and_die "unsafe character"     ;;
-    *\&*)     reject_and_die "unsafe character"     ;;
-    *\(*)     reject_and_die "unsafe character"     ;;
-    *\{*)     reject_and_die "unsafe character"     ;;
-    *\;*)     reject_and_die "unsafe character"     ;;
-    *\<*)     reject_and_die "unsafe character"     ;;
-    *\>*)     reject_and_die "unsafe character"     ;;
-    *\`*)     reject_and_die "unsafe character"     ;;
-    *\|*)     [[ -n "$allow_compress" ]] || [[ -n "$allow_rate_limit" ]] || [[ -n "$allow_stream_buffer" ]] || reject_and_die "unsafe character (compression disallowed)" ;;
+    *\.\./*)  reject_and_die 'directory traversal'  ;;
+    *\$*)     reject_and_die 'unsafe character "$"' ;;
+    *\&*)     reject_and_die 'unsafe character "&"' ;;
+    *\(*)     reject_and_die 'unsafe character "("' ;;
+    *\{*)     reject_and_die 'unsafe character "{"' ;;
+    *\;*)     reject_and_die 'unsafe character ";"' ;;
+    *\<*)     reject_and_die 'unsafe character "<"' ;;
+    *\>*)     reject_and_die 'unsafe character ">"' ;;
+    *\`*)     reject_and_die 'unsafe character "`"' ;;
+    *\|*)     [[ -n "$allow_compress" ]] || [[ -n "$allow_rate_limit" ]] || [[ -n "$allow_stream_buffer" ]] || reject_and_die 'unsafe character "|"' ;;
 esac
 
 reject_filtered_cmd
