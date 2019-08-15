@@ -690,6 +690,7 @@ sub run_cmd(@)
 
   my $destructive = 0;
   my $catch_stderr = 0;
+  my $exitcode_loglevel = "debug";
   my $filter_stderr = undef;
   my @cmd_pipe;
   my @unsafe_cmd;
@@ -706,6 +707,7 @@ sub run_cmd(@)
     $catch_stderr = 1 if($href->{catch_stderr});
     $filter_stderr = $href->{filter_stderr} if($href->{filter_stderr});  # NOTE: last filter wins!
     $destructive = 1 unless($href->{non_destructive});
+    $exitcode_loglevel = $href->{exitcode_loglevel} if($href->{exitcode_loglevel});
 
     if($href->{check_unsafe}) {
       _safe_cmd($href->{check_unsafe}, \@unsafe_cmd);
@@ -819,12 +821,15 @@ sub run_cmd(@)
   no warnings qw(exec);
 
   # execute command and parse output
+  my @exitcode_msg;
+  my $stderr_fatal;
   my $ret = `$cmd`;
   if(defined($ret)) {
     chomp($ret);
     TRACE "Command output:\n$ret" if($loglevel >= 4);
   }
 
+  # fatal errors
   if($? == -1) {
     ERROR "Command execution failed ($!): `$cmd_print`";
     return undef;
@@ -834,17 +839,28 @@ sub run_cmd(@)
     ERROR "Command execution failed (child died with signal $signal): `$cmd_print`";
     return undef;
   }
-  elsif($?) {
-    my $exitcode= $? >> 8;
-    DEBUG "Command execution failed (exitcode=$exitcode): `$cmd_print`";
+  my $exitcode = $? >> 8;
 
-    if($catch_stderr) {
-      $_ = $ret;
-      &{$filter_stderr} ($cmd) if($filter_stderr);
-      if($_) {
-        # no filter, or uncaught by filter
-        ERROR "Command execution failed (exitcode=$exitcode): `$cmd_print`: $_";
+  # handle filter_stderr option
+  if(defined($ret) && $filter_stderr) {
+    foreach(split("\n", $ret)) {
+      next if($_ eq "");
+      if(my $href = &{$filter_stderr} ($exitcode)) {
+        $stderr_fatal //= $href->{fatal};
+        push @exitcode_msg, $href;
+        $exitcode_loglevel = "error";
       }
+    }
+  }
+
+  if($exitcode || $stderr_fatal) {
+    my $log_text = "Command execution failed (exitcode=$exitcode): `$cmd_print`";
+    if($exitcode_loglevel eq "error")   { ERROR $log_text; }
+    elsif($exitcode_loglevel eq "warn") { WARN  $log_text; }
+    else                                { DEBUG $log_text; }
+    foreach(@exitcode_msg) {
+      ERROR "... $_->{error}" if(defined($_->{error}));
+      WARN  "... $_->{warn}"  if(defined($_->{warn}));
     }
     return undef;
   }
@@ -958,21 +974,19 @@ sub btrfs_subvolume_show($;@)
                     non_destructive => 1,
                     catch_stderr => 1, # hack for shell-based run_cmd()
                     filter_stderr => sub {
-                      if(/ssh command rejected/) {
-                        # catch errors from ssh_filter_btrbk.sh
-                        $err = "ssh command rejected (please fix ssh_filter_btrbk.sh)";
-                      }
-                      elsif(/^ERROR: (.*)/) {
-                        # catch errors from btrfs command
-                        $err = $1;
-                      }
-                      else {
-                        DEBUG "Unparsed error: $_";
+                      return undef unless($_[0]); # do nothing if exitcode=0
+                      if(s/^ERROR: //) { # catch errors from btrfs-progs as well as ssh_filter_btrbk.sh
                         $err = $_;
+                        return { error => $_, fatal => 1 } if(/^ssh_filter_btrbk.sh/); # "fatal" causes run_cmd to return undef
+                      } elsif(/(unrecognized|invalid) option/) {
+                        WARN_ONCE "$_ (maybe using unsupported btrfs-progs < v$BTRFS_PROGS_MIN " . ($vol->{HOST} ? "on host=$vol->{HOST} " : "") . "?)";
+                      } else {
+                        DEBUG "Unparsed error: $_";
+                        $err ||= $_;
                       }
-                      # consume stderr line, as $err will be displayed as a user-friendly WARNING
-                      $_ = undef;
-                    }
+                      # soft fail: $err can be displayed as a user-friendly WARNING
+                      return undef;
+                    },
                    );
 
   return undef unless(defined($ret));
@@ -1300,7 +1314,6 @@ sub btrfs_subvolume_delete($@)
                    );
   my $ret;
   my @deleted;
-  my @unparsed_errors;
   my %err_catch;
   if($target_type eq "raw") {
     my @cmd_target_paths;
@@ -1320,57 +1333,42 @@ sub btrfs_subvolume_delete($@)
                    catch_stderr => 1, # hack for shell-based run_cmd()
                    filter_stderr => sub {
                      # catch errors from "rm -f"
-                     my @error_lines = split("\n", $_);
-                     foreach (@error_lines) {
-                       if(/^rm: cannot remove '($file_match)':/) {
-                         my $catch = $1; # make sure $catch matches $vol->{PATH}
-                         $catch =~ s/\.info$//;
-                         $catch =~ s/\.split_[a-z][a-z]$//;
-                         $err_catch{$catch} //= [];
-                         push(@{$err_catch{$catch}}, $_);
-                       }
-                       else {
-                         push @unparsed_errors, $_;
-                       }
+                     if(/^rm: cannot remove '($file_match)':/) {
+                       my $catch = $1; # make sure $catch matches $vol->{PATH}
+                       $catch =~ s/\.info$//;
+                       $catch =~ s/\.split_[a-z][a-z]$//;
+                       $err_catch{$catch} //= [];
+                       push(@{$err_catch{$catch}}, $_);
+                       return undef; # no error messages in run_cmd
                      }
-                     $_ = undef; # prevent "Command execution failed" error message
-                   }
+                     else {
+                       # show errors in run_cmd; force "Command execution failed" error message
+                       return { error => $_, fatal => 1 };
+                     }
+                   },
                   );
   }
   else {
     my @cmd_target_paths = map { { unsafe => $_->{PATH} } } @$targets;
+    my $unparsed_errors;
     my @options;
     @options = ("--commit-$commit") if($commit);
     $ret = run_cmd(cmd => vinfo_cmd($targets->[0], "btrfs subvolume delete", @options, @cmd_target_paths ),
                    rsh => vinfo_rsh($targets->[0]),
                    catch_stderr => 1, # hack for shell-based run_cmd()
                    filter_stderr => sub {
-                     # catch errors from btrfs command
-                     # NOTE: this is NOT RELIABLE ANY MORE (path is not printed in btrfs-progs >= 4.16), e.g.:
-                     #       "ERROR: Could not statfs: No such file or directory"
-                     my @error_lines = split("\n", $_);
-                     foreach (@error_lines) {
-                       next if(/^Delete subvolume/); # NOTE: stdout is also reflected here!
-                       if(/^ERROR: cannot access subvolume ($file_match):/     ||  # btrfs-progs < 4.16
-                          /^ERROR: not a subvolume: ($file_match)/             ||  # btrfs-progs < 4.16
-                          /^ERROR: cannot find real path for '($file_match)':/ ||
-                          /^ERROR: cannot delete '($file_match)'/              ||  # btrfs-progs < 4.16
-                          /^ERROR: cannot access subvolume '($file_match)'$/   ||  # btrfs-progs < 4.4
-                          /^ERROR: error accessing '($file_match)'/            ||  # btrfs-progs < 4.4
-                          /^ERROR: '($file_match)' is not a subvolume/         ||  # btrfs-progs < 4.4
-                          /^ERROR: finding real path for '($file_match)'/      ||  # btrfs-progs < 4.4
-                          /^ERROR: can't access '($file_match)'/               )   # btrfs-progs < 4.4
-                       {
-                         $err_catch{$1} //= [];
-                         push(@{$err_catch{$1}}, $_);
-                       }
-                       else {
-                            push @unparsed_errors, $_;
-                          }
-                        }
-                     $_ = undef; # prevent "Command execution failed" error message
-                   }
+                     return undef unless(s/^ERROR: //); # strip ERROR prefix
+                     if(/'($file_match)'/ || /: ($file_match)$/ || /($file_match):/) {
+                       # NOTE: as of btrfs-progs-4.16, this does not catch anything
+                       $err_catch{$1} //= [];
+                       push(@{$err_catch{$1}}, $_);
+                     } else {
+                       $unparsed_errors = 1;
+                     }
+                     return undef; # no error messages in run_cmd
+                   },
                   );
+    $ret = undef if($unparsed_errors);
   }
 
   if(defined($ret)) {
@@ -1389,17 +1387,12 @@ sub btrfs_subvolume_delete($@)
           push @deleted, $check_target;
         }
       }
-      if($catch_count != (scalar keys %err_catch)) {
-        @deleted = ();
-        ERROR "Failed to assign error messages, assuming nothing deleted";
-        ERROR "Failed to delete subvolume: $_" foreach(map( { $_->{PRINT} } @$targets));
-      }
+      @deleted = () if($catch_count != (scalar keys %err_catch));
     }
-    if(@unparsed_errors) {
-      @deleted = ();
-      ERROR "Failed to delete subvolume, assuming nothing deleted";
-      ERROR "[delete]: $_" foreach(@unparsed_errors);
-      ERROR "Failed to delete subvolume: $_" foreach(map( { $_->{PRINT} } @$targets));
+    unless(scalar(@deleted)) {
+      ERROR "Failed to match error messages from delete command, assuming nothing deleted:";
+      ERROR "... possibly not deleted subvolume: $_" foreach(map( { $_->{PRINT} } @$targets));
+      ERROR "... consider running 'btrbk prune -n'";
     }
   }
 
@@ -1471,6 +1464,7 @@ sub btrfs_send_receive($$;$$$)
     rsh => vinfo_rsh($snapshot, disable_compression => $stream_options->{stream_compress}),
     name => "btrfs send",
     stream_options => $stream_options,
+    exitcode_loglevel => "error", # print error message if exitcode != 0
     catch_stderr => 1, # hack for shell-based run_cmd()
   };
 
@@ -1479,7 +1473,12 @@ sub btrfs_send_receive($$;$$$)
     rsh => vinfo_rsh($target, disable_compression => $stream_options->{stream_compress}),
     name => "btrfs receive",
     catch_stderr => 1, # hack for shell-based run_cmd()
-    filter_stderr => sub { $err = $_; $_ = undef }
+    filter_stderr => sub {
+      # NOTE: btrfs-progs < 4.11: if "btrfs send" fails, "btrfs receive" returns 0!
+      return { error => $_, fatal => 1 } if(s/^ERROR: //); # "fatal" causes run_cmd to return undef
+      return { warn  => $_ } if(s/^WARNING: //);
+      return undef;
+    },
   };
 
   my $send_receive_error = 0;
@@ -1491,17 +1490,6 @@ sub btrfs_send_receive($$;$$$)
   my $ret = run_cmd(@cmd_pipe);
   unless(defined($ret)) {
     $send_receive_error = 1;
-    $ret = $err;  # print the errors below
-  }
-  if(defined($ret)) {
-    # NOTE: btrfs-progs < 4.11: if "btrfs send" fails, "btrfs receive" returns 0! so we need to parse the output for "ERROR:" lines:
-    my @ret_lines = split("\n", $ret);
-    $send_receive_error = 1 if(grep /^ERROR: /, @ret_lines);
-    foreach(@ret_lines) {
-      if(/^WARNING: / || $send_receive_error) {
-        WARN "[send/receive] (send=$snapshot_path, receive=$target_path) $_";
-      }
-    }
   }
 
   # Read in target subvolume metadata (btrfs subvolume show):
@@ -1549,6 +1537,7 @@ sub btrfs_send_receive($$;$$$)
       $is_garbled = ((not $detail->{readonly}) && defined($detail->{received_uuid}) && ($detail->{received_uuid} eq '-'));
     }
     else {
+      $err = "" if($send_receive_error); # ignore $err if send/receive failed
       $send_receive_error = 1;
     }
   }
@@ -1556,7 +1545,8 @@ sub btrfs_send_receive($$;$$$)
   end_transaction("send-receive", not $send_receive_error);
 
   if($send_receive_error) {
-    ERROR "Failed to send/receive btrfs subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $target->{PRINT}";
+    ERROR "Failed to send/receive subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}";
+    ERROR "... $err" if($err);
   }
 
   if($is_garbled) {
@@ -1621,6 +1611,13 @@ sub btrfs_send_to_file($$$;$$)
     rsh => vinfo_rsh($source, disable_compression => $stream_options->{stream_compress}),
     name => "btrfs send",
     stream_options => $stream_options,
+    exitcode_loglevel => "error", # print error message if exitcode != 0
+    catch_stderr => 1, # hack for shell-based run_cmd()
+    filter_stderr => sub {
+      return { error => $_, fatal => 1 } if(s/^ERROR: //); # "fatal" causes run_cmd to return undef
+      return { warn  => $_ } if(s/^WARNING: //);
+      return undef;
+    },
   };
 
   if($compress) {
@@ -1836,6 +1833,7 @@ sub system_list_mountinfo($)
   my $ret = run_cmd(cmd => [ qw(cat), $file ],
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
+                    exitcode_loglevel => "error", # print error message if exitcode != 0
                     catch_stderr => 1, # hack for shell-based run_cmd()
                    );
   return undef unless(defined($ret));
@@ -4091,6 +4089,7 @@ sub macro_send_receive(@)
       if($source->{node}{uuid} =~ /^$fake_uuid_prefix/) {
         DEBUG "Fetching uuid of new subvolume: $source->{PRINT}";
         my $detail = btrfs_subvolume_show($source);
+        return undef unless($detail);
         die unless($detail->{uuid});
         $source->{node}{uuid} = $detail->{uuid};
         $uuid_cache{$detail->{uuid}} = $source->{node};
