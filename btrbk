@@ -696,6 +696,7 @@ sub run_cmd(@)
   my @unsafe_cmd;
   my $compressed = undef;
   my $stream_options = $cmd_pipe_in[0]->{stream_options} // {};
+  my $has_rsh;
 
   $cmd_pipe_in[0]->{stream_source} = 1;
   $cmd_pipe_in[-1]->{stream_sink}  = 1;
@@ -708,6 +709,7 @@ sub run_cmd(@)
     $filter_stderr = $href->{filter_stderr} if($href->{filter_stderr});  # NOTE: last filter wins!
     $destructive = 1 unless($href->{non_destructive});
     $exitcode_loglevel = $href->{exitcode_loglevel} if($href->{exitcode_loglevel});
+    $has_rsh = 1 if($href->{rsh});
 
     if($href->{check_unsafe}) {
       _safe_cmd($href->{check_unsafe}, \@unsafe_cmd);
@@ -851,6 +853,13 @@ sub run_cmd(@)
         $exitcode_loglevel = "error";
       }
     }
+  }
+
+  if($has_rsh && ($exitcode == 255)) {
+    # SSH returns exit status 255 if an error occurred.
+    $cmd_print =~ s/ssh -q/ssh/g;
+    ERROR "SSH command failed: `$cmd_print`";
+    return undef;
   }
 
   if($exitcode || $stderr_fatal) {
