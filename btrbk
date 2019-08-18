@@ -31,6 +31,8 @@ use warnings FATAL => qw( all ), NONFATAL => qw( deprecated );
 use Carp qw(confess);
 use Getopt::Long qw(GetOptions);
 use Time::Local qw( timelocal timegm timegm_nocheck );
+use IPC::Open3 qw(open3);
+use Symbol qw(gensym);
 
 our $VERSION         = '0.29.0-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
@@ -680,8 +682,7 @@ sub _safe_cmd($$)
 
 sub run_cmd(@)
 {
-  # shell-based implementation.
-  # this needs some redirection magic for filter_stderr to work.
+  # IPC::Open3 based implementation.
   # NOTE: multiple filters are not supported!
 
   my @cmd_pipe_in = (ref($_[0]) eq "HASH") ? @_ : { @_ };
@@ -803,80 +804,75 @@ sub run_cmd(@)
      );
   }
 
-  my $cmd = _assemble_cmd(\@cmd_pipe, $catch_stderr);
-  my $cmd_print = _assemble_cmd(\@cmd_pipe);    # hide redirection magic from debug output
+  my $cmd = _assemble_cmd(\@cmd_pipe);
 
   if(scalar(@unsafe_cmd)) {
-    ERROR "Unsafe command `$cmd_print` (offending string: " . join(', ', @unsafe_cmd) . ')';
+    ERROR "Unsafe command `$cmd` (offending string: " . join(', ', @unsafe_cmd) . ')';
     return undef;
   }
 
   if($dryrun && $destructive) {
-    DEBUG "### (dryrun) $cmd_print";
+    DEBUG "### (dryrun) $cmd";
     return "";
   }
-  DEBUG "### $cmd_print";
-  TRACE "Executing command: $cmd";
+  DEBUG "### $cmd";
 
-  # disable warnings in this scope (e.g. "permission denied", "no such file"), these cases are handled below.
-  # NOTE: for some reason this is only needed if we use "use warnings FATAL => qw( all )"
-  no warnings qw(exec);
 
-  # execute command and parse output
-  my @exitcode_msg;
-  my $stderr_fatal;
-  my $ret = `$cmd`;
-  if(defined($ret)) {
-    chomp($ret);
-    TRACE "Command output:\n$ret" if($loglevel >= 4);
+  # execute command
+  my ($pid, $out_fh, $err_fh, $stdout, @stderr);
+  $err_fh = gensym;
+  if(eval_quiet { $pid = open3(undef, $out_fh, $err_fh, $cmd); }) {
+    $stdout = do { local $/; scalar readline $out_fh };
+    @stderr = readline $err_fh;
+    waitpid($pid, 0);
+    chomp(@stderr);
+    TRACE "Command stdout:\n$stdout" if(($loglevel >= 4) && defined($stdout));
+    TRACE "Command stderr:\n" . join("\n", @stderr) if(($loglevel >= 4) && scalar(@stderr));
+  }
+  else {
+    ERROR "Command execution failed ($!): `$cmd`";
+    return undef;
   }
 
   # fatal errors
   if($? == -1) {
-    ERROR "Command execution failed ($!): `$cmd_print`";
+    ERROR "Command execution failed ($!): `$cmd`";
     return undef;
   }
   elsif ($? & 127) {
     my $signal = $? & 127;
-    ERROR "Command execution failed (child died with signal $signal): `$cmd_print`";
+    ERROR "Command execution failed (child died with signal $signal): `$cmd`";
     return undef;
   }
   my $exitcode = $? >> 8;
 
-  # handle filter_stderr option
-  if(defined($ret) && $filter_stderr) {
-    foreach(split("\n", $ret)) {
-      next if($_ eq "");
-      if(my $href = &{$filter_stderr} ($exitcode)) {
-        $stderr_fatal //= $href->{fatal};
-        push @exitcode_msg, $href;
-        $exitcode_loglevel = "error";
-      }
-    }
+  my @filtered_err;
+  if($filter_stderr) {
+    @filtered_err = map { &{$filter_stderr} ($exitcode) // () } @stderr;
   }
-
-  if($has_rsh && ($exitcode == 255)) {
+  elsif($has_rsh && ($exitcode == 255)) {
     # SSH returns exit status 255 if an error occurred.
-    $cmd_print =~ s/ssh -q/ssh/g;
-    ERROR "SSH command failed: `$cmd_print`";
-    return undef;
+    @filtered_err = map { { error => $_ } } @stderr;
+    $exitcode_loglevel = "error";
   }
 
-  if($exitcode || $stderr_fatal) {
-    my $log_text = "Command execution failed (exitcode=$exitcode): `$cmd_print`";
+  if($exitcode || (grep { $_->{fatal} } @filtered_err)) {
+    my $log_text = "Command execution failed (exitcode=$exitcode): `$cmd`";
+    $exitcode_loglevel = "error" if(scalar(@filtered_err));
     if($exitcode_loglevel eq "error")   { ERROR $log_text; }
     elsif($exitcode_loglevel eq "warn") { WARN  $log_text; }
     else                                { DEBUG $log_text; }
-    foreach(@exitcode_msg) {
+    foreach(@filtered_err) {
       ERROR "... $_->{error}" if(defined($_->{error}));
       WARN  "... $_->{warn}"  if(defined($_->{warn}));
+      DEBUG "... $_->{debug}" if(defined($_->{debug}));
     }
     return undef;
   }
   else {
     DEBUG "Command execution successful";
   }
-  return $ret;
+  return $stdout;
 }
 
 
