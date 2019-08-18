@@ -1107,9 +1107,12 @@ sub btrfs_subvolume_list_readonly_flag($)
   return undef unless(defined($ret));
 
   my %ro;
-  foreach(@$ret)
-  {
-    die("Failed to parse line: \"$_\"") unless(/^ID\s+([0-9]+)\s+gen\s+[0-9]+\s+top level\s+[0-9]+\s+path\s/);
+  foreach(@$ret) {
+    unless(/^ID\s+([0-9]+)\s+gen\s+[0-9]+\s+top level\s+[0-9]+\s+path\s/) {
+      ERROR "Failed to parse subvolume list (unsupported btrfs-progs) for: $vol->{PRINT}";
+      DEBUG "Offending line: $_";
+      return undef;
+    }
     $ro{$1} = 1;
   }
   DEBUG "Parsed " . scalar(keys %ro) . " readonly subvolumes for filesystem at: $vol->{PRINT}";
