@@ -813,21 +813,22 @@ sub run_cmd(@)
 
   if($dryrun && $destructive) {
     DEBUG "### (dryrun) $cmd";
-    return "";
+    return [];
   }
   DEBUG "### $cmd";
 
 
   # execute command
-  my ($pid, $out_fh, $err_fh, $stdout, @stderr);
+  my ($pid, $out_fh, $err_fh, @stdout, @stderr);
   $err_fh = gensym;
   if(eval_quiet { $pid = open3(undef, $out_fh, $err_fh, $cmd); }) {
-    $stdout = do { local $/; scalar readline $out_fh };
-    @stderr = readline $err_fh;
+    chomp(@stdout = readline($out_fh));
+    chomp(@stderr = readline($err_fh));
     waitpid($pid, 0);
-    chomp(@stderr);
-    TRACE "Command stdout:\n$stdout" if(($loglevel >= 4) && defined($stdout));
-    TRACE "Command stderr:\n" . join("\n", @stderr) if(($loglevel >= 4) && scalar(@stderr));
+    if($loglevel >= 4) {
+      TRACE "[stdout] $_" foreach(@stdout);
+      TRACE "[stderr] $_" foreach(@stderr);
+    }
   }
   else {
     ERROR "Command execution failed ($!): `$cmd`";
@@ -872,7 +873,7 @@ sub run_cmd(@)
   else {
     DEBUG "Command execution successful";
   }
-  return $stdout;
+  return \@stdout;
 }
 
 
@@ -909,7 +910,7 @@ sub btrfs_filesystem_usage($)
   return undef unless(defined($ret));
 
   my %detail;
-  foreach (split("\n", $ret)) {
+  foreach(@$ret) {
     if(/^\s+Device size:\s+(\S+)/) {
       $detail{device_size} = $1;
     }
@@ -996,8 +997,7 @@ sub btrfs_subvolume_show($;@)
 
   return undef unless(defined($ret));
 
-  my @ret_lines = split("\n", $ret);
-  unless(@ret_lines) {
+  unless(scalar(@$ret)) {
     ERROR "Failed to parse subvolume detail (unsupported btrfs-progs) for: $vol->{PRINT}";
     return undef;
   }
@@ -1007,7 +1007,7 @@ sub btrfs_subvolume_show($;@)
   #  - btrfs-progs >= 4.12 prints the relative path to btrfs root (or "/" if it is the root)
 
   my %detail;
-  if($ret_lines[0] =~ / is (btrfs root|toplevel subvolume)$/) {
+  if($ret->[0] =~ / is (btrfs root|toplevel subvolume)$/) {
     # btrfs-progs <  4.4 prints: "<subvol> is btrfs root"
     # btrfs-progs >= 4.4 prints: "<subvol> is toplevel subvolume"
     # btrfs-progs >= 4.8.3 does not enter here, as output shares format with regular subvolumes
@@ -1033,7 +1033,7 @@ sub btrfs_subvolume_show($;@)
       "Top level ID"          => "top_level",       # btrfs-progs >= 4.1
       "Flags"                 => "flags",
      );
-    foreach (@ret_lines) {
+    foreach(@$ret) {
       next unless /^\s+(.+):\s+(.*)$/;
       my ($key, $value) = ($1, $2);
       if($trans{$key}) {
@@ -1107,7 +1107,7 @@ sub btrfs_subvolume_list_readonly_flag($)
   return undef unless(defined($ret));
 
   my %ro;
-  foreach (split(/\n/, $ret))
+  foreach(@$ret)
   {
     die("Failed to parse line: \"$_\"") unless(/^ID\s+([0-9]+)\s+gen\s+[0-9]+\s+top level\s+[0-9]+\s+path\s/);
     $ro{$1} = 1;
@@ -1136,7 +1136,7 @@ sub btrfs_subvolume_list($;@)
   return undef unless(defined($ret));
 
   my @nodes;
-  foreach (split(/\n/, $ret))
+  foreach(@$ret)
   {
     my %node;
     # NOTE: btrfs-progs >= 4.13.2 pads uuid's with 36 whitespaces
@@ -1225,7 +1225,7 @@ sub btrfs_subvolume_find_new($$;$)
   my %files;
   my $parse_errors = 0;
   my $transid_marker;
-  foreach (split(/\n/, $ret))
+  foreach(@$ret)
   {
     if(/^inode \S+ file offset (\S+) len (\S+) disk start \S+ offset \S+ gen (\S+) flags (\S+) (.+)$/) {
       my $file_offset = $1;
@@ -1706,7 +1706,7 @@ sub btrfs_send_to_file($$$;$$)
                                    name => $kdf_backend_name
                                   );
           return undef unless(defined($kdf_values));
-          foreach(split("\n", $kdf_values)) {
+          foreach(@$kdf_values) {
             chomp;
             next if /^\s*$/; # ignore empty lines
             if(/^KEY=([0-9a-fA-f]+)/) {
@@ -1844,7 +1844,7 @@ sub system_list_mountinfo($)
   return undef unless(defined($ret));
 
   my @mountinfo;
-  foreach (split(/\n/, $ret))
+  foreach(@$ret)
   {
     # https://www.kernel.org/doc/Documentation/filesystems/proc.txt
     unless(/^(?<mount_id>[0-9]+)       # mount ID:  unique identifier of the mount (may be reused after umount)
@@ -1893,8 +1893,8 @@ sub system_realpath($)
                    );
   return undef unless(defined($ret));
 
-  unless($ret =~ /^($file_match)$/) {
-    ERROR "Failed to parse output of `realpath` for \"$vol->{PRINT}\": \"$ret\"";
+  unless(scalar(@$ret) && ($ret->[0] =~ /^($file_match)$/)) {
+    ERROR "Failed to parse output of `realpath` for \"$vol->{PRINT}\": \"$ret->[0]\"";
     return undef;
   }
   my $realpath = $1; # untaint argument
@@ -2029,7 +2029,7 @@ sub system_read_raw_info_dir($)
 
   my @raw_targets;
   my $cur_target;
-  foreach (split("\n", $ret))
+  foreach(@$ret)
   {
     if(/^INFO_FILE=/) {
       push @raw_targets, $cur_target if($cur_target);
@@ -2095,7 +2095,7 @@ sub system_read_raw_info_dir($)
     return undef;
   }
   my $deprecated_found = 0;
-  foreach (split("\n", $ret))
+  foreach(@$ret)
   {
     unless(/^($file_match)$/) {
       DEBUG "Skipping non-parseable file: \"$_\"";
