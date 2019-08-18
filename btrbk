@@ -2513,7 +2513,7 @@ sub vinfo_rsh($;@)
   my $ssh_identity    = config_key($config, "ssh_identity");
   my $ssh_compression = config_key($config, "ssh_compression");
   my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
-  my @ssh_options = ('-q');
+  my @ssh_options; # as of btrbk-0.29.0, we run ssh without -q, and print stderr output if exitcode=255
   push(@ssh_options, '-p', $ssh_port) if($ssh_port);
   push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
   if($ssh_identity) {
