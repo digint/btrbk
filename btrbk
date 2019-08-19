@@ -374,11 +374,11 @@ END_HELP
 }
 
 
-sub TRACE { my $t = shift; print STDERR "... $t\n" if($loglevel >= 4);  }
-sub DEBUG { my $t = shift; print STDERR "$t\n" if($loglevel >= 3);  }
-sub INFO  { my $t = shift; print STDERR "$t\n" if($loglevel >= 2);  }
-sub WARN  { my $t = shift; print STDERR "WARNING: $t\n" if($loglevel >= 1);  }
-sub ERROR { my $t = shift; print STDERR "ERROR: $t\n";  }
+sub TRACE { if($loglevel >= 4) { print STDERR "... $_\n"      foreach(@_) } }
+sub DEBUG { if($loglevel >= 3) { print STDERR "$_\n"          foreach(@_) } }
+sub INFO  { if($loglevel >= 2) { print STDERR "$_\n"          foreach(@_) } }
+sub WARN  { if($loglevel >= 1) { print STDERR "WARNING: $_\n" foreach(@_) } }
+sub ERROR {                      print STDERR "ERROR: $_\n"   foreach(@_) ; }
 
 sub WARN_ONCE {
   my $t = shift;
