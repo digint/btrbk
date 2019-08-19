@@ -3342,10 +3342,10 @@ sub get_best_parent($$$;@)
 
   if($loglevel >= 4) {
     TRACE "get_best_parent: related reference cgen=$svol->{node}{cgen}";
-    TRACE "get_best_parent: related older: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})" foreach(@c_related_older);
-    TRACE "get_best_parent: related newer: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})" foreach(@c_related_newer);
-    TRACE "get_best_parent: snapdir older: $_->[0]{PRINT}" foreach(@c_snapdir_older);
-    TRACE "get_best_parent: snapdir newer: $_->[0]{PRINT}" foreach(@c_snapdir_newer);
+    TRACE map("get_best_parent: related older: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_related_older);
+    TRACE map("get_best_parent: related newer: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_related_newer);
+    TRACE map("get_best_parent: snapdir older: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_snapdir_older);
+    TRACE map("get_best_parent: snapdir newer: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_snapdir_newer);
   }
 
   if(scalar @inaccessible_nodes) { # populated by get_best_correlated()
