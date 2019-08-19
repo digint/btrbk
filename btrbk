@@ -1889,8 +1889,7 @@ sub system_realpath($)
   my $vol = shift // die;
 
   my $path = $vol->{PATH} // die;;
-  my @quiet = ($loglevel < 3) ? ('-q') : ();
-  my $ret = run_cmd(cmd => vinfo_cmd($vol, "readlink", '-e', @quiet, { unsafe => $path } ),
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "readlink", '-v', '-e', { unsafe => $path } ),
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
