@@ -6748,20 +6748,18 @@ MAIN:
               }
             }
 
-            unless(IS_ABORTED($svol, "skip_")) {
-              if(IS_ABORTED($sroot, "abort_")) {
-                # repeat volume errors in subvolume context
-                push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: " . ABORTED_TEXT($sroot);
-              }
-              if(IS_ABORTED($svol, "abort_")) {
-                # don't print "<no_action>" on skip_cmdline or skip_noauto
-                push @subvol_out, "!!! Aborted: " . ABORTED_TEXT($svol);
-              }
+            if(IS_ABORTED($sroot, "abort_")) {
+              # repeat volume errors in subvolume context
+              push @subvol_out, "!!! Volume \"$sroot->{PRINT}\" aborted: " . ABORTED_TEXT($sroot);
+            }
+            if(IS_ABORTED($svol, "abort_")) {
+              # don't print "<no_action>" on skip_cmdline or skip_noauto
+              push @subvol_out, "!!! Aborted: " . ABORTED_TEXT($svol);
+            }
 
-              # print "<no_action>" for subvolume, unless aborted by "skip_"
-              unless(@subvol_out) {
-                @subvol_out = "<no_action>";
-              }
+            # print "<no_action>" for subvolume, unless aborted by "skip_"
+            unless(scalar(@subvol_out) || IS_ABORTED($sroot, "skip_") || IS_ABORTED($svol, "skip_")) {
+              @subvol_out = "<no_action>";
             }
 
             if(@subvol_out) {
