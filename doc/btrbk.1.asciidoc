@@ -84,7 +84,7 @@ OPTIONS
 
 --exclude <filter>::
     Exclude configured sections matching '<filter>'. See
-    <<_filter_statements,FILTER STATEMENTS>> below
+    <<_filter_statements,FILTER STATEMENTS>> below.
 
 -p, --preserve::
     Preserve all snapshots and backups. Skips deletion of any
