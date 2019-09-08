@@ -1862,13 +1862,15 @@ sub system_list_mountinfo($)
       return undef;
     }
     my %line = %+;
-    foreach (split(',', $line{super_options})) {
+    # merge super_options and mount_options to MNTOPS.
+    foreach (split(',', $line{super_options}), split(',', $line{mount_options})) {
       if(/^(.+?)=(.+)$/) {
         $line{MNTOPS}->{$1} = $2;
       } else {
         $line{MNTOPS}->{$_} = 1;
       }
     }
+    $line{MNTOPS}->{rw} = 0 if($line{MNTOPS}->{ro}); # e.g. mount_options="ro", super_options="rw"
     push @mountinfo, \%line;
   }
   # TRACE(Data::Dumper->Dump([\@mountinfo], ["mountinfo"])) if($do_dumper);
