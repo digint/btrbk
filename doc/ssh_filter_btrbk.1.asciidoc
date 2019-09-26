@@ -56,7 +56,8 @@ OPTIONS
     "btrfs send". Equivalent to "--snapshot --send".
 
 -t, --target::
-    Allow commands for backup target: "btrfs receive".
+    Allow commands for backup and archive target: "btrfs receive",
+    "mkdir".
 
 -d, --delete::
     Allow commands for subvolume deletion: "btrfs subvolume

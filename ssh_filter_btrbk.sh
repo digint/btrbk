@@ -125,6 +125,7 @@ while [[ "$#" -ge 1 ]]; do
 
       -t|--target)
           allow_cmd "${sudo_prefix}btrfs receive"
+          allow_cmd "${sudo_prefix}mkdir"
           ;;
 
       -c|--compress)
