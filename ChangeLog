@@ -1,4 +1,4 @@
-btrbk-current
+btrbk-0.29.0
 
   * MIGRATION
     - If stream_buffer or rate_limit is configured, please install
@@ -17,6 +17,15 @@ btrbk-current
   * Add stream_buffer_remote and rate_limit_remote options.
   * Use "mbuffer" instead of "pv" for --progress display.
   * Add stream_buffer functionality for raw targets.
+  * Add action "ls": list all btrfs subvolumes below given path.
+  * Change table output: print single-line, uppercase headings.
+  * ssh_filter_btrbk.sh: whitelist mkdir if -t,--target option is set,
+    used by "btrbk archive" action (close #297).
+  * Bugfix: handle subvolumes with special characters (close #288).
+  * Bugfix: don't display "<no_action>" in backup summary if volume is
+    skipped by --exclude or noauto (close #291).
+  * Bugfix: systemd: Use WantedBy=timers.target instead of
+    WantedBy=multi-user.target in btrbk.timer (close #293).
 
 btrbk-0.28.3
 
