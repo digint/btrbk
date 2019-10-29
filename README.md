@@ -49,12 +49,12 @@ For more information, read the [installation documentation].
   * [btrfs-progs]: Btrfs filesystem utilities >= v4.12
   * [Perl interpreter]: Probably already installed on your system
   * [OpenSSH]: If you want to transfer backups from/to remote locations
-  * [Pipe Viewer]: If you want rate limiting and progress bars
+  * [mbuffer]: If you want rate limiting and progress bars
 
   [btrfs-progs]: https://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
   [Perl interpreter]: https://www.perl.org
   [OpenSSH]: https://www.openssh.org
-  [Pipe Viewer]: https://www.ivarch.com/programs/pv.shtml
+  [mbuffer]: https://www.maier-komor.de/mbuffer.html
 
 
 Synopsis
