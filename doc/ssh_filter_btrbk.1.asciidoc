@@ -34,8 +34,8 @@ The accepted commands are specified by the "--source", "--target",
 
 The following commands are always allowed:
 
- - "btrfs subvolume show"
- - "btrfs subvolume list"
+ - "btrfs subvolume show" (not affected by "--restrict-path")
+ - "btrfs subvolume list" (not affected by "--restrict-path")
  - "readlink"
  - "cat /proc/self/mountinfo"
  - pipes through "gzip", "pigz", "bzip2", "pbzip2", "xz", "lzop",
@@ -80,7 +80,8 @@ OPTIONS
     Allow btrfs receive command: "btrfs receive".
 
 -p, --restrict-path <path>::
-    Restrict btrfs commands to <path>.
+    Restrict commands to <path>. Note that "btrfs subvolume show",
+    "btrfs subvolume list" are NOT affected by this option.
 
 -l, --log::
     Log ACCEPT and REJECT messages to the system log.

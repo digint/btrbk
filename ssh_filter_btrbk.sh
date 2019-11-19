@@ -161,8 +161,9 @@ while [[ "$#" -ge 1 ]]; do
     shift
 done
 
-allow_cmd "${sudo_prefix}btrfs subvolume show"; # subvolume queries are always allowed
-allow_exact_cmd "${sudo_prefix}btrfs subvolume list ${file_match}"; # subvolume queries are always allowed
+# NOTE: subvolume queries no NOT affected by "--restrict-path":
+# btrbk also calls show/list on the mount point of the subvolume
+allow_exact_cmd "${sudo_prefix}btrfs subvolume (show|list)( ${option_match})* ${file_match}";
 allow_cmd "${sudo_prefix}readlink"              # used to resolve mountpoints
 allow_exact_cmd "cat /proc/self/mountinfo"      # used to resolve mountpoints
 allow_exact_cmd "cat /proc/self/mounts"         # legacy, for btrbk < 0.27.0
