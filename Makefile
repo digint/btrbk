@@ -8,27 +8,28 @@
 # build target for simplicity.
 #
 
-BIN        = btrbk
-BIN_LINKS  = lsbtr
-CONFIGS    = btrbk.conf.example
-DOCS       = ChangeLog \
-             README.md
-SCRIPTS    = ssh_filter_btrbk.sh \
-             contrib/cron/btrbk-mail \
-             contrib/cron/btrbk-verify \
-             contrib/migration/raw_suffix2sidecar \
-             contrib/crypt/kdf_pbkdf2.py
+BIN         = btrbk
+BIN_LINKS   = lsbtr
+CONFIGS     = btrbk.conf.example
+DOCS        = ChangeLog \
+              README.md
+SCRIPTS     = ssh_filter_btrbk.sh \
+              contrib/cron/btrbk-mail \
+              contrib/cron/btrbk-verify \
+              contrib/migration/raw_suffix2sidecar \
+              contrib/crypt/kdf_pbkdf2.py
 
-PN         = btrbk
-PREFIX    ?= /usr
-CONFDIR    = /etc
-CRONDIR    = /etc/cron.daily
-BINDIR     = $(PREFIX)/bin
-DOCDIR     = $(PREFIX)/share/doc/$(PN)
-SCRIPTDIR  = $(PREFIX)/share/$(PN)/scripts
-SYSTEMDDIR = $(PREFIX)/lib/systemd/system
-MAN1DIR    = $(PREFIX)/share/man/man1
-MAN5DIR    = $(PREFIX)/share/man/man5
+PN          = btrbk
+PREFIX     ?= /usr
+CONFDIR     = /etc
+CRONDIR     = /etc/cron.daily
+BINDIR      = $(PREFIX)/bin
+DOCDIR      = $(PREFIX)/share/doc/$(PN)
+SCRIPTDIR   = $(PREFIX)/share/$(PN)/scripts
+SYSTEMDDIR  = $(PREFIX)/lib/systemd/system
+BASHCOMPDIR = $(PREFIX)/share/bash-completion/completions
+MAN1DIR     = $(PREFIX)/share/man/man1
+MAN5DIR     = $(PREFIX)/share/man/man5
 
 ifeq ($(COMPRESS), yes)
   DOCS := $(addsuffix .gz,$(DOCS))
@@ -42,12 +43,13 @@ replace_vars = sed \
 	-e "s|@DOCDIR@|$(DOCDIR)|g" \
 	-e "s|@SCRIPTDIR@|$(SCRIPTDIR)|g" \
 	-e "s|@SYSTEMDDIR@|$(SYSTEMDDIR)|g" \
+	-e "s|@BASHCOMPDIR@|$(BASHCOMPDIR)|g" \
 	-e "s|@MAN1DIR@|$(MAN1DIR)|g" \
 	-e "s|@MAN5DIR@|$(MAN5DIR)|g"
 
 all: man
 
-install: install-bin install-bin-links install-etc install-systemd install-share install-man install-doc
+install: install-bin install-bin-links install-etc install-completion install-systemd install-share install-man install-doc
 
 install-bin:
 	@echo 'installing binary...'
@@ -64,6 +66,11 @@ install-etc:
 	@echo 'installing example configs...'
 	install -d -m 755 "$(DESTDIR)$(CONFDIR)/btrbk"
 	install -p -m 644 $(CONFIGS) "$(DESTDIR)$(CONFDIR)/btrbk"
+
+install-completion:
+	@echo 'installing bash completion...'
+	install -d -m 755 "$(DESTDIR)$(BASHCOMPDIR)"
+	install -p -m 644 contrib/bash/completion.bash "$(DESTDIR)$(BASHCOMPDIR)/$(BIN)"
 
 install-systemd:
 	@echo 'installing systemd service units...'
