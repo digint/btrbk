@@ -252,7 +252,8 @@ not be certain about this, such operations are disallowed in
 
 *ssh_compression* yes|no::
     Enables or disables the compression of ssh connections. Defaults
-    to ``no''.
+    to ``no''. Note that if *stream_compress* is enabled, ssh
+    compression will always be disabled for send/receive operations.
 
 *ssh_cipher_spec* <cipher_spec>::
     Selects the cipher specification for encrypting the session
