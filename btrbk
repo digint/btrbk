@@ -854,15 +854,16 @@ sub run_cmd(@)
     @stderr = map { &{$filter_fn} ($exitcode); $_ // () } @stderr;
   }
 
-  unshift @stderr, "sh: $cmd";
-
   if($exitcode) {
-    my @log_text = ("Command execution failed (exitcode=$exitcode): `$cmd`", map("... $_", @stderr));
-    if($has_rsh && ($exitcode == 255)) { # SSH returns exit status 255 if an error occurred.
-      ERROR @log_text;
+    unshift @stderr, "sh: $cmd";
+    if($has_rsh && ($exitcode == 255)) {
+      # SSH returns exit status 255 if an error occurred (including
+      # network errors, dns failures).
+      unshift @stderr, "SSH command failed (exitcode=$exitcode)";
     } else {
-      DEBUG @log_text;
+      unshift @stderr, "Command execution failed (exitcode=$exitcode)";
     }
+    DEBUG @stderr;
     return undef;
   }
   else {
@@ -2514,7 +2515,7 @@ sub vinfo_rsh($;@)
   my $ssh_identity    = config_key($config, "ssh_identity");
   my $ssh_compression = config_key($config, "ssh_compression");
   my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
-  my @ssh_options; # as of btrbk-0.29.0, we run ssh without -q, and print stderr output if exitcode=255
+  my @ssh_options; # as of btrbk-0.29.0, we run ssh without -q (catching @stderr)
   push(@ssh_options, '-p', $ssh_port) if($ssh_port);
   push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
   if($ssh_identity) {
