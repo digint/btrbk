@@ -3027,7 +3027,11 @@ sub vinfo_match($$;@)
   my $vinfo = shift;
   my %opts = @_;
   my $flag_matched = $opts{flag_matched};
-  my $url = join("", check_url($vinfo->{URL})); # sanitize URL (can contain "//", see vinfo_child)
+
+  # match URL against sane path (can contain "//", see vinfo_child),
+  # no wildcards
+  my ($url_prefix, $path) = check_url($vinfo->{URL});
+  my $url = defined($path) ? $url_prefix . $path : undef;
   my $count = 0;
   foreach my $ff (@$filter) {
     if(defined($ff->{group_eq}) && (grep { $ff->{group_eq} eq $_ } @{$vinfo->{CONFIG}{group}})) {
@@ -3037,7 +3041,7 @@ sub vinfo_match($$;@)
       $ff->{$flag_matched} = 1;
       $count++;
     }
-    if(defined($ff->{url_regex}) && ($url =~ /$ff->{url_regex}/)) {
+    if(defined($ff->{url_regex}) && defined($url) && ($url =~ /$ff->{url_regex}/)) {
       TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} url: $vinfo->{PRINT}";
       return $ff unless($flag_matched);
       #push @{$ff->{$flag_matched}}, $vinfo->{CONFIG}{CONTEXT} . '=' . $vinfo->{PRINT};
