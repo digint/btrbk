@@ -5628,25 +5628,30 @@ MAIN:
 
     # read-in subvolume list (and expand globs) only if needed
     next unless(grep defined($_->{GLOB_CONTEXT}), @{$config_vol->{SUBSECTION}});
-    my $sroot = vinfo($config_vol->{url}, $config_vol);
-    unless(vinfo_init_root($sroot)) {
-      ABORTED($sroot, "Failed to fetch subvolume detail");
-      WARN "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot), map("... $_", @stderr);
-      next;
-    }
-
+    my $sroot_glob; # read-in late
     my @vol_subsection_expanded;
     foreach my $config_subvol (@{$config_vol->{SUBSECTION}}) {
       die unless($config_subvol->{CONTEXT} eq "subvolume");
       if($config_subvol->{GLOB_CONTEXT}) {
         my $globs = $config_subvol->{rel_path};
-        INFO "Expanding wildcards: $sroot->{PRINT}/$globs";
+
+        # read-in subvolume list once, only if needed
+        unless(defined($sroot_glob)) {
+          $sroot_glob = vinfo($config_vol->{url}, $config_vol);
+          unless(vinfo_init_root($sroot_glob)) {
+            ABORTED($sroot_glob, "Failed to fetch subvolume detail");
+            WARN "Skipping subvolume (wildcards) \"$sroot_glob->{PRINT}/$globs\": " . ABORTED_TEXT($sroot_glob), map("... $_", @stderr);
+            last;
+          }
+        }
+
+        INFO "Expanding wildcards: $sroot_glob->{PRINT}/$globs";
 
         # support "*some*file*", "*/*"
         my $match = join('[^\/]*', map(quotemeta($_), split(/\*+/, $globs, -1)));
         TRACE "translated globs \"$globs\" to regex \"$match\"";
         my $expand_count = 0;
-        foreach my $vol (@{vinfo_subvol_list($sroot, sort => 'path')})
+        foreach my $vol (@{vinfo_subvol_list($sroot_glob, sort => 'path')})
         {
           if($vol->{node}{readonly}) {
             TRACE "skipping readonly subvolume: $vol->{PRINT}";
@@ -5674,7 +5679,7 @@ MAIN:
           $expand_count += 1;
         }
         unless($expand_count) {
-          WARN "No subvolumes found matching: $sroot->{PRINT}/$globs";
+          WARN "No subvolumes found matching: $sroot_glob->{PRINT}/$globs";
         }
       }
       else {
