@@ -2626,10 +2626,12 @@ sub vinfo_init_root($)
   my $vol = shift || die;
 
   # resolve btrfs tree from mount point
+  @stderr = (); # clear @stderr (propagated for logging)
   my ($mnt_path, $real_path, $subvolid, $mount_source, $mountpoints) = btrfs_mountpoint($vol);
   return undef unless($mnt_path && $real_path && $subvolid);
 
   # read btrfs tree for the mount point
+  @stderr = (); # clear @stderr (propagated for logging)
   my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
   my $mnt_tree_root = btr_tree($mnt_vol, $subvolid, $mount_source, $mountpoints);
   return undef unless($mnt_tree_root);
