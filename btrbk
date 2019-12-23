@@ -5038,7 +5038,7 @@ MAIN:
   elsif ($command eq "ls") {
     $action_ls = 1;
     $fallback_default_config = 1;
-    $args_expected_min = $args_expected_max = 1;
+    $args_expected_min = 1;
     @dir_args = @ARGV;
   }
   elsif ($command eq "diff") {
@@ -5290,64 +5290,75 @@ MAIN:
     #
     # print accessible subvolumes for local path
     #
-    my $path = $dir_args[0] || die;
-    my $root_vol = vinfo($path, $config);
-
-    # map url to real path (we need to match against mount points below)
-    my $root_path = system_realpath($root_vol);
-    unless($root_path) {
-      ERROR "Cannot find real path for: $root_vol->{PATH}", @stderr;
-      exit 1;
-    }
-    $root_vol = vinfo($root_path, $config);
-    $root_path .= '/' unless($root_path =~ /\/$/);  # append trailing slash
-
-    my $mountinfo = system_list_mountinfo($root_vol) || die;
-    $mountinfo_cache{$root_vol->{MACHINE_ID}} = $mountinfo;
-
+    my $exit_status = 0;
     my @data;
-    my @path_hidden;
-    foreach my $mnt (reverse @$mountinfo) {
-      my $mnt_path = $mnt->{mount_point};
-      $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # append trailing slash
+    foreach my $path (@dir_args) {
+      my $root_vol = vinfo($path, $config);
 
-      if(($mnt->{fs_type} eq "btrfs") &&
-         (($root_path =~ /^\Q$mnt_path\E/) || ($mnt_path =~ /^\Q$root_path\E/)))
-      {
-        $realpath_cache{$mnt->{mount_point}} = $mnt->{mount_point}; # we know those are real paths, prevents calling readlink in btrfs_mountpoint
-        my $vol = vinfo($mnt->{mount_point}, $config);
-        unless(vinfo_init_root($vol)) {
-          ERROR "Failed to fetch subvolume detail for: $vol->{PRINT}", @stderr;
-          exit 1;
+      # map url to real path (we need to match against mount points below)
+      my $root_path = system_realpath($root_vol);
+      unless($root_path) {
+        ERROR "Cannot find real path for: $root_vol->{PATH}", @stderr;
+        $exit_status = 1;
+        next;
+      }
+      $root_vol = vinfo($root_path, $config);
+      $root_path .= '/' unless($root_path =~ /\/$/);  # append trailing slash
+
+      my $mountinfo = $mountinfo_cache{$root_vol->{MACHINE_ID}};
+      unless($mountinfo) {
+        $mountinfo = system_list_mountinfo($root_vol);
+        unless($mountinfo) {
+          $exit_status = 1;
+          next;
         }
+        $mountinfo_cache{$root_vol->{MACHINE_ID}} = $mountinfo;
+      }
 
-        my $subvol_list = vinfo_subvol_list($vol);
-        foreach my $svol ($vol, @$subvol_list) {
-          my $svol_path = $svol->{PATH};
-          $svol_path .= '/' unless($svol_path =~ /\/$/);  # append trailing slash
+      my @path_hidden;
+      foreach my $mnt (reverse @$mountinfo) {
+        my $mnt_path = $mnt->{mount_point};
+        $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # append trailing slash
 
-          next unless($svol_path =~ /^\Q$root_path\E/);
-
-          if(grep { $svol_path =~ /^\Q$_\E/ } @path_hidden) {
-            DEBUG "subvolume is hidden by another mount point: $svol->{PRINT}";
+        if(($mnt->{fs_type} eq "btrfs") &&
+           (($root_path =~ /^\Q$mnt_path\E/) || ($mnt_path =~ /^\Q$root_path\E/)))
+        {
+          $realpath_cache{$mnt->{mount_point}} = $mnt->{mount_point}; # we know those are real paths, prevents calling readlink in btrfs_mountpoint
+          my $vol = vinfo($mnt->{mount_point}, $config);
+          unless(vinfo_init_root($vol)) {
+            ERROR "Failed to fetch subvolume detail for: $vol->{PRINT}", @stderr;
+            $exit_status = 1;
             next;
           }
 
-          push @data, {
-            %{$svol->{node}}, # copy node
-            mount_point => $svol->{VINFO_MOUNTPOINT}{PATH},
-            mount_source => $svol->{node}{TREE_ROOT}{host_mount_source},
-            mount_subvolid => $mnt->{MNTOPS}{subvolid},
-            mount_subvolume => $mnt->{MNTOPS}{subvol},
-            subvolume_path => $svol->{node}{path},
-            subvolume_rel_path => $svol->{node}{REL_PATH},
-            path => $svol->{PATH},
-            flags => ($svol->{node}{readonly} ? "readonly" : undef),
-          };
+          my $subvol_list = vinfo_subvol_list($vol);
+          foreach my $svol ($vol, @$subvol_list) {
+            my $svol_path = $svol->{PATH};
+            $svol_path .= '/' unless($svol_path =~ /\/$/);  # append trailing slash
+
+            next unless($svol_path =~ /^\Q$root_path\E/);
+
+            if(grep { $svol_path =~ /^\Q$_\E/ } @path_hidden) {
+              DEBUG "subvolume is hidden by another mount point: $svol->{PRINT}";
+              next;
+            }
+
+            push @data, {
+              %{$svol->{node}}, # copy node
+              mount_point => $svol->{VINFO_MOUNTPOINT}{PATH},
+              mount_source => $svol->{node}{TREE_ROOT}{host_mount_source},
+              mount_subvolid => $mnt->{MNTOPS}{subvolid},
+              mount_subvolume => $mnt->{MNTOPS}{subvol},
+              subvolume_path => $svol->{node}{path},
+              subvolume_rel_path => $svol->{node}{REL_PATH},
+              path => $svol->{PATH},
+              flags => ($svol->{node}{readonly} ? "readonly" : undef),
+            };
+          }
         }
+        last if($root_path =~ /^\Q$mnt_path\E/);
+        push @path_hidden, ($mnt->{mount_point} . '/');
       }
-      last if($root_path =~ /^\Q$mnt_path\E/);
-      push @path_hidden, ($mnt->{mount_point} . '/');
     }
 
     my @sorted = sort { $a->{path} cmp $b->{path} } @data;
@@ -5356,7 +5367,7 @@ MAIN:
     } else {
       print join("\n", map { $_->{path} } @sorted) . "\n";
     }
-    exit 0;
+    exit $exit_status;
   }
 
 
