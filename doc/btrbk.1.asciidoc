@@ -20,7 +20,7 @@ btrbk [-h|--help] [--version]
       [-c|--config <file>] [-n|--dry-run] [--exclude <filter>]
       [-p|--preserve] [--preserve-snapshots] [--preserve-backups]
       [-v|--verbose] [-q|--quiet] [-l|--loglevel <level>]
-      [-t|--table] [--format <output-format>] [--pretty]
+      [-t|--table] [-L|--long] [--format <output-format>] [--pretty]
       [-S|--print-schedule] [--progress]
       [--lockfile <file>]
       [--override <config_option>=<value>]
@@ -119,6 +119,9 @@ OPTIONS
 
 -t, --table::
     Print output in table format (shortcut for "--format=table").
+
+-L, --long::
+    Print output in long table format (shortcut for "--format=long").
 
 --format table|long|raw::
     Print output in specified format. If set to "raw", prints
@@ -363,9 +366,8 @@ different output formats.
     Print new files since subvolume <from> for subvolume <to>.
 
 *ls* <path>::
-    List all btrfs subvolumes below <path>. Use
-    '--format=table|long|rel|raw' to switch between different output
-    formats.
+    List all btrfs subvolumes below <path>. Use the '--format' command
+    line option to switch between different output formats.
 
 *config* print|print-all::
     Prints the parsed configuration file. Use the '--format' command
