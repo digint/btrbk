@@ -222,10 +222,10 @@ my %table_formats = (
                    raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
                  },
 
-  fs_list     => { table => [ qw( mount_point id flags path ) ],
-                   rel   => [ qw( mount_source mount_point path subvolume_path subvolume_rel_path ) ],
-                   long  => [ qw( mount_source mount_subvolume mount_point id top_level cgen gen uuid parent_uuid received_uuid flags path ) ],
-                   raw   => [ qw( mount_source mount_subvolume mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
+  fs_list     => { table => [ qw( mount_source id flags mount_subvol mount_point subvolume_path subvolume_rel_path path ) ],
+                   short => [ qw( mount_source id flags              mount_point                                   path ) ],
+                   long  => [ qw( mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
+                   raw   => [ qw( mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
                  },
 );
 
@@ -5345,10 +5345,11 @@ MAIN:
 
             push @data, {
               %{$svol->{node}}, # copy node
+              top => $svol->{node}{top_level}, # alias (narrow column)
               mount_point => $svol->{VINFO_MOUNTPOINT}{PATH},
               mount_source => $svol->{node}{TREE_ROOT}{host_mount_source},
               mount_subvolid => $mnt->{MNTOPS}{subvolid},
-              mount_subvolume => $mnt->{MNTOPS}{subvol},
+              mount_subvol => $mnt->{MNTOPS}{subvol},
               subvolume_path => $svol->{node}{path},
               subvolume_rel_path => $svol->{node}{REL_PATH},
               path => $svol->{PATH},
@@ -5362,11 +5363,9 @@ MAIN:
     }
 
     my @sorted = sort { $a->{path} cmp $b->{path} } @data;
-    if($output_format) {
-      print_formatted("fs_list", \@sorted);
-    } else {
-      print join("\n", map { $_->{path} } @sorted) . "\n";
-    }
+    $output_format ||= "short";
+    print_formatted("fs_list", \@sorted);
+    #print join("\n", map { $_->{path} } @sorted) . "\n";
     exit $exit_status;
   }
 
