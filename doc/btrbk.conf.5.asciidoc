@@ -315,6 +315,13 @@ additional, multi-threaded process to the command pipe.
 *stream_buffer_remote* <size>|no::
     Add a buffer on remote hosts (either source or target). Defaults
     to ``no''.
++
+--
+Enable this if you prefer buffering on the remote side, or even on
+both sides: reasons for this depend on available memory, disk and cpu
+performance (btrfs send/receive, compression), as well as networking
+constraints.
+--
 
 *rate_limit* <rate>|no::
     Limit the read rate of the btrfs send stream to '<rate>' bytes per
