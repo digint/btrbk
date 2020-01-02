@@ -35,8 +35,12 @@ Installation
 ============
 
 Btrbk is a single perl script, and does not require any special
-installation procedures or libraries. Simply download the latest
-[btrbk source tarball] and run the "btrbk" executable.
+installation procedures or libraries. Download the latest [btrbk
+source tarball], or try latest master:
+
+    wget https://raw.githubusercontent.com/digint/btrbk/master/btrbk
+    chmod +x btrbk
+    sudo ./btrbk ls /
 
 For more information, read the [installation documentation].
 
