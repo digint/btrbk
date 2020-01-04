@@ -484,29 +484,24 @@ If the broken subvolume is still present, move it away:
 
     mv /mnt/btr_pool/data /mnt/btr_pool/data.BROKEN
 
-Now restore the backup:
+Now restore the backup and re-create the read-write subvolume:
 
     btrfs send /mnt/btr_backup/data.20150101 | btrfs receive /mnt/btr_pool/
     btrfs subvolume snapshot /mnt/btr_pool/data.20150101 /mnt/btr_pool/data
-    btrfs subvolume delete /mnt/btr_pool/data.20150101
 
-Alternatively, if you're restoring data on a remote host, do something
-like this:
+Hints:
 
-    btrfs send /mnt/btr_backup/data.20150101 | ssh root@my-remote-host.com btrfs receive /mnt/btr_pool/
+  * If you still have common snapshot / backup pairs (i.e. both
+    "snapshot_subvol" and "target_subvol" are listed) consider sending
+    the backup incrementally by specifying a parent subvolume:
+    `btrfs send -p /mnt/btr_backup/<parent-subvolume> [...]`
 
-Hint: If you still have common snapshot / backup pairs (i.e. both
-"snapshot_subvol" and "target_subvol" are listed) consider sending the
-backup incrementally by specifying a parent subvolume:
+  * If you're restoring data on a remote host:
+    `btrfs send /mnt/btr_backup/data.20150101 | ssh root@my-remote-host.com btrfs receive /mnt/btr_pool/`
 
-    btrfs send -p /mnt/btr_backup/<parent-subvolume> [...]
-
-This allows btrbk to continue using the parent subvolume for
-incremental backups later.
-
-If everything went fine, nuke the broken subvolume:
-
-    btrfs subvolume delete /mnt/btr_pool/data.BROKEN
+From this point, btrbk will use `/mnt/btr_pool/data.20150101` as
+parent for subsequent send-receive operations, keeping the incremental
+chain alive.
 
 
 FAQ
