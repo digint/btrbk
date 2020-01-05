@@ -434,10 +434,10 @@ For even more security, set up a chroot environment in
 Restoring Backups
 =================
 
-btrbk does not provide any mechanism to restore your backups, this has
-to be done manually. In the examples below, we assume that you have a
-btrfs volume mounted at `/mnt/btr_pool`, and the subvolume you want to
-have restored is at `/mnt/btr_pool/data`.
+Btrbk does not provide any mechanism to restore your backups, this has
+to be done manually. In the instructions below, we assume that you
+have a btrfs volume mounted at `/mnt/btr_pool`, and the subvolume you
+want to restore is at `/mnt/btr_pool/data`.
 
 **Important**: don't use `btrfs property set` to make a subvolume
 read-write after restoring. This is a low-level command, and leaves
@@ -446,62 +446,85 @@ subsequent incremental backups. Instead, use `btrfs subvolume
 snapshot` (without `-r` flag) as described below.
 
 
-Example: Restore a Snapshot
------------------------------
+### Step 0: Identify Subvolume
 
-First, pick a snapshot to be restored:
-
+    # list snapshots managed by btrbk
     btrbk list snapshots
 
-From the list, pick the snapshot you want to restore. Let's say it's
+    # alternative: list all subvolumes
+    btrbk ls /
+    btrbk ls -L /
+
+From the list, identify the snapshot you want to restore. Let's say it's
 `/mnt/btr_pool/_btrbk_snap/data.20150101`.
 
-If the broken subvolume is still present, move it away:
 
-    mv /mnt/btr_pool/data /mnt/btr_pool/data.BROKEN
+### Step 1: Restore Backup
+(skip this step if you restore from a snapshot)
 
-Now restore the snapshot:
-
-    btrfs subvolume snapshot /mnt/btr_pool/_btrbk_snap/data.20150101 /mnt/btr_pool/data
-
-That's it; your `data` subvolume is restored. If everything went fine,
-it's time to nuke the broken subvolume:
-
-    btrfs subvolume delete /mnt/btr_pool/data.BROKEN
-
-
-Example: Restore a Backup
--------------------------
-
-First, pick a backup to be restored:
-
-    btrbk list backups
-
-From the list, pick the backup you want to restore. Let's say it's
-`/mnt/btr_backup/data.20150101`.
-
-If the broken subvolume is still present, move it away:
-
-    mv /mnt/btr_pool/data /mnt/btr_pool/data.BROKEN
-
-Now restore the backup and re-create the read-write subvolume:
-
+    # locally mounted backup disk
     btrfs send /mnt/btr_backup/data.20150101 | btrfs receive /mnt/btr_pool/
+
+    # from / to remote host
+    ssh root@remote btrfs send /mnt/btr_backup/data.20150101 | btrfs receive /mnt/btr_pool/
+    btrfs send /mnt/btr_backup/data.20150101 | ssh root@remote btrfs receive /mnt/btr_pool/
+
+**Hint**: Try to send-receive backups incrementally if possible. In
+case you still have common snapshot / backup pairs (i.e. both
+"snapshot_subvol" and "target_subvol" are listed above), use `btrfs
+send -p <parent>`.
+
+From this point on, `data.20150101` on both disks can be used as
+parents for subsequent send-receive operations, and a *received_uuid*
+relationship is established (see below).
+
+
+### Step 2: Create read-write Subvolume
+
+    # if still present, move broken subvolume away
+    mv /mnt/btr_pool/data /mnt/btr_pool/data.BROKEN
+
+    # create read-write subvolume
     btrfs subvolume snapshot /mnt/btr_pool/data.20150101 /mnt/btr_pool/data
 
-Hints:
+Your `data` subvolume is restored, you can carry on with incremental
+backups to `/mnt/btr_backup`.
 
-  * If you still have common snapshot / backup pairs (i.e. both
-    "snapshot_subvol" and "target_subvol" are listed) consider sending
-    the backup incrementally by specifying a parent subvolume:
-    `btrfs send -p /mnt/btr_backup/<parent-subvolume> [...]`
 
-  * If you're restoring data on a remote host:
-    `btrfs send /mnt/btr_backup/data.20150101 | ssh root@my-remote-host.com btrfs receive /mnt/btr_pool/`
+### Step 3: Cleanup
 
-From this point, btrbk will use `/mnt/btr_pool/data.20150101` as
-parent for subsequent send-receive operations, keeping the incremental
-chain alive.
+    # if everything went fine, delete the broken subvolume
+    btrfs subvolume delete /mnt/btr_pool/data.BROKEN
+
+Make sure to keep `data.20150101` subvolumes on both disks at least
+until you created a new backup using btrbk, in order to keep the
+incremental chain alive.
+
+
+### Btrfs Relationship (technical note)
+
+    btrbk origin -t /mnt/btr_backup/data.20150101
+    btrbk ls -L /mnt/btr_pool /mnt/btr_backup
+
+  * **received_uuid** relationship: *correlated*, *identical*
+    read-only subvolumes, cross-filesystem.
+
+        a.received_uuid = b.received_uuid
+        a.received_uuid = b.uuid
+
+    * Required for subvolumes used as parent (or clone-src) of
+      send-receive operations.
+    * Present on subvolumes created by `btrfs send | btrfs receive`.
+    * `/mnt/btr_pool/data.20150101 === /mnt/btr_backup/data.20150101`
+
+  * **parent_uuid** relationship: "is-snapshot-of"
+  
+        a.parent_uuid = b.uuid
+
+    * Present on subvolumes created by `btrfs subvolume snapshot` or
+      `btrfs send -p | btrfs receive`.
+    * Used by btrbk to determine best parent.
+    * `/mnt/btr_pool/data.20150101 <-- /mnt/btr_pool/data`
 
 
 FAQ
