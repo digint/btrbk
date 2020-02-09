@@ -130,7 +130,7 @@ Note that using ``long-iso'' has implications on the scheduling, see
 *snapshot_dir* <directory>::
     Directory in which the btrfs snapshots are created, relative to
     '<volume-directory>' of the 'volume' section. Note that btrbk does
-    not autmatically create this directory, and the snapshot creation
+    not automatically create this directory, and the snapshot creation
     will fail if it is not present.
 
 *snapshot_name* <basename>::
@@ -167,7 +167,7 @@ not be certain about this, such operations are disallowed in
 
 *noauto* yes|no::
     If set, the context is skipped by all btrbk actions unless
-    explicitely enabled by a matching btrbk '<filter>' command line
+    explicitly enabled by a matching btrbk '<filter>' command line
     argument (e.g. "btrbk run myfilter").
 
 
@@ -328,7 +328,7 @@ constraints.
     second (locally, on uncompressed send stream). A suffix of "k",
     "m", "g", or "t" can be added to denote kilobytes (*1024),
     megabytes, and so on. Defaults to ``no''. Note that 'rate_limit'
-    implicitely adds a stream buffer (see 'stream_buffer' option
+    implicitly adds a stream buffer (see 'stream_buffer' option
     above).
 
 *rate_limit_remote* <rate>|no::
@@ -484,7 +484,7 @@ Caveats:
   btrbk with different local time on the clients, in order to make
   sure the backups from all the remote hosts are preserved for
   "midnight", and not at "00:00 UTC" (which would be "14:00" in
-  Honolulu). If you want this behaviour, do NOT use "timestamp_format
+  Honolulu). If you want this behavior, do NOT use "timestamp_format
   long-iso".
 
 * If "timestamp_format long-iso" is set, running btrbk from different

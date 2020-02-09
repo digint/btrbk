@@ -518,7 +518,7 @@ incremental chain alive.
     * `/mnt/btr_pool/data.20150101 === /mnt/btr_backup/data.20150101`
 
   * **parent_uuid** relationship: "is-snapshot-of"
-  
+
         a.parent_uuid = b.uuid
 
     * Present on subvolumes created by `btrfs subvolume snapshot` or

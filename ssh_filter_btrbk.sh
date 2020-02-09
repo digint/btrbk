@@ -161,7 +161,7 @@ while [[ "$#" -ge 1 ]]; do
     shift
 done
 
-# NOTE: subvolume queries no NOT affected by "--restrict-path":
+# NOTE: subvolume queries are NOT affected by "--restrict-path":
 # btrbk also calls show/list on the mount point of the subvolume
 allow_exact_cmd "${sudo_prefix}btrfs subvolume (show|list)( ${option_match})* ${file_match}";
 allow_cmd "${sudo_prefix}readlink"              # used to resolve mountpoints
