@@ -1,3 +1,12 @@
+btrbk-0.29.1
+
+  * Allow multiple path arguments for action "ls".
+  * Change default output to format=short for action "ls".
+  * ssh_filter_btrbk.sh: exclude "btrfs subvolume show|list" from
+    restrict-path (close #309).
+  * Bugfix: fix filter statement match on wildcards (close #311).
+  * Fix regression: print ssh errors only if needed.
+
 btrbk-0.29.0
 
   * MIGRATION
