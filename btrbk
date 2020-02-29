@@ -284,6 +284,7 @@ my %realpath_cache;  # map URL to realpath (symlink target). empty string denote
 my $tree_inject_id   = 0;  # fake subvolume id for injected nodes (negative)
 my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id: XXXXXXXX-XXXX-XXXX-XXXX-000000000000
 
+my $program_name; # "btrbk" or "lsbtr", default to "btrbk"
 my $dryrun;
 my $loglevel = 1;
 my $quiet;
@@ -328,7 +329,25 @@ sub HELP_MESSAGE
 {
   return if($quiet);
 #80-----------------------------------------------------------------------------
-  print STDERR <<"END_HELP";
+  if($program_name eq "lsbtr") {
+    print STDERR <<"END_HELP_LSBTR";
+usage: lsbtr [options] [path]...
+
+options:
+   -h, --help                display this help message
+       --version             display version information
+   -l, --long                use long listing format
+   -u, --uuid                print uuid table (parent/received relations)
+       --raw                 print raw table format
+   -v, --verbose             increase output verbosity
+   -c, --config=FILE         specify btrbk configuration file
+       --override=KEY=VALUE  globally override a configuration option
+
+For additional information, see $PROJECT_HOME
+END_HELP_LSBTR
+  }
+  else {
+    print STDERR <<"END_HELP_BTRBK";
 usage: btrbk [options] <command> [filter...]
 
 options:
@@ -375,7 +394,8 @@ commands:
    ls <path>             list all btrfs subvolumes below path
 
 For additional information, see $PROJECT_HOME
-END_HELP
+END_HELP_BTRBK
+  }
 #80-----------------------------------------------------------------------------
 }
 
@@ -4967,10 +4987,31 @@ MAIN:
       $archive_raw,
       $resume_only_DEPRECATED,  # as of btrbk-v0.26.0
      );
-  unless(GetOptions(
+
+  # Calling btrbk via "lsbtr" symlink acts as an alias for "btrbk ls",
+  # while also changing the semantics of the command line options.
+  $program_name = $0;
+  $program_name =~ s/^.*\///; # remove path
+  my @cmdline_options = (
+    # common options
     'help|h'             => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
     'version'            => sub { VERSION_MESSAGE(); exit 0; },
+    'quiet|q'            => \$quiet,
+    'verbose|v'          => sub { $loglevel = ($loglevel =~ /^[0-9]+$/) ? $loglevel+1 : 2; },
+    'loglevel|l=s'       => \$loglevel,
+    'format=s'           => \$output_format,
+    'pretty'             => \$output_pretty,
     'config|c=s'         => \$config_cmdline,
+    'override=s'         => \@config_override_cmdline,  # e.g. --override=incremental=no
+    'lockfile=s'         => \$lockfile_cmdline,
+   );
+  push @cmdline_options, ($program_name eq "lsbtr") ? (
+    # "lsbtr" options
+    'long|l'             => sub { $output_format = "table" },
+    'uuid|u'             => sub { $output_format = "long" },
+    'raw'                => sub { $output_format = "raw" },
+   ) : (
+     # "btrbk" options
     'dry-run|n'          => \$dryrun,
     'exclude=s'          => \@exclude_cmdline,
     'preserve|p'         => sub { $preserve_snapshots = "preserve", $preserve_backups = "preserve" },
@@ -4978,23 +5019,20 @@ MAIN:
     'preserve-backups'   => sub { $preserve_backups = "preserve-backups" },
     'wipe'               => \$wipe_snapshots,
     'resume-only|r'      => \$resume_only_DEPRECATED,
-    'quiet|q'            => \$quiet,
-    'verbose|v'          => sub { $loglevel = ($loglevel =~ /^[0-9]+$/) ? $loglevel+1 : 2; },
-    'loglevel|l=s'       => \$loglevel,
     'progress'           => \$show_progress,
     'table|t'            => sub { $output_format = "table" },
     'long|L'             => sub { $output_format = "long" },
-    'format=s'           => \$output_format,
-    'pretty'             => \$output_pretty,
     'print-schedule|S'   => \$print_schedule,
-    'lockfile=s'         => \$lockfile_cmdline,
-    'override=s'         => \@config_override_cmdline,  # e.g. --override=incremental=no
     'raw'                => \$archive_raw,
-   ))
-  {
+   );
+  unless(GetOptions(@cmdline_options)) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 2;
+  }
+  if($program_name eq "lsbtr") {
+    unshift @ARGV, './' unless(@ARGV); # default to current path
+    unshift @ARGV, "ls"; # implicit "btrbk ls"
   }
   my $command = shift @ARGV;
   unless($command) {
