@@ -9,6 +9,7 @@
 #
 
 BIN        = btrbk
+BIN_LINKS  = lsbtr
 CONFIGS    = btrbk.conf.example
 DOCS       = ChangeLog \
              README.md
@@ -46,12 +47,18 @@ replace_vars = sed \
 
 all: man
 
-install: install-bin install-etc install-systemd install-share install-man install-doc
+install: install-bin install-bin-links install-etc install-systemd install-share install-man install-doc
 
 install-bin:
 	@echo 'installing binary...'
 	install -d -m 755 "$(DESTDIR)$(BINDIR)"
 	install -p -m 755 $(BIN) "$(DESTDIR)$(BINDIR)"
+
+install-bin-links:
+	@echo 'installing symlinks...'
+	for name in $(BIN_LINKS); do \
+		ln -s -n -f $(BIN) "$(DESTDIR)$(BINDIR)/$$name"; \
+	done
 
 install-etc:
 	@echo 'installing example configs...'
