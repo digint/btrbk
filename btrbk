@@ -5315,7 +5315,7 @@ MAIN:
         $mountinfo_cache{$root_vol->{MACHINE_ID}} = $mountinfo;
       }
 
-      my @path_hidden;
+      my @mnt_path_hidden;
       foreach my $mnt (reverse @$mountinfo) {
         my $mnt_path = $mnt->{mount_point};
         $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # append trailing slash
@@ -5334,11 +5334,12 @@ MAIN:
           my $subvol_list = vinfo_subvol_list($vol);
           foreach my $svol ($vol, @$subvol_list) {
             my $svol_path = $svol->{PATH};
+            $svol_path =~ s/^\/\//\//;  # sanitize "//" (see vinfo_child)
             $svol_path .= '/' unless($svol_path =~ /\/$/);  # append trailing slash
 
             next unless($svol_path =~ /^\Q$root_path\E/);
 
-            if(grep { $svol_path =~ /^\Q$_\E/ } @path_hidden) {
+            if(grep { $svol_path =~ /^\Q$_\E/ } @mnt_path_hidden) {
               DEBUG "subvolume is hidden by another mount point: $svol->{PRINT}";
               next;
             }
@@ -5358,7 +5359,7 @@ MAIN:
           }
         }
         last if($root_path =~ /^\Q$mnt_path\E/);
-        push @path_hidden, ($mnt->{mount_point} . '/');
+        push @mnt_path_hidden, $mnt_path;
       }
     }
 
