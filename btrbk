@@ -2446,9 +2446,10 @@ sub vinfo($$)
     }
   }
 
+  # Note that PATH and URL have no trailing slash, except if "/".
   return {
-    HOST       => $host,        # hostname|<undef>
-    PORT       => $port,        # port|<undef>
+    HOST       => $host,                   # hostname|<undef>
+    PORT       => $port,                   # port|<undef>
     NAME       => $name,
     PATH       => $path,
     PRINT      => $print,
@@ -2470,13 +2471,12 @@ sub vinfo_child($$;$)
   $subvol_dir = $1 if($name =~ s/^(.*)\///);
 
   # Note that PATH and URL intentionally contain "//" if $parent->{PATH} = "/".
-  # For consistency reasons (not required), we dont sanitize PRINT either.
   my $vinfo = {
     HOST         => $parent->{HOST},
     PORT         => $parent->{PORT},
     NAME         => $name,
     PATH         => "$parent->{PATH}/$rel_path",
-    PRINT        => "$parent->{PRINT}/$rel_path",
+    PRINT        => "$parent->{PRINT}" . ($parent->{PRINT} =~ /\/$/ ? "" : "/") . $rel_path,
     URL          => "$parent->{URL}/$rel_path",
     URL_PREFIX   => $parent->{URL_PREFIX},
     MACHINE_ID   => $parent->{MACHINE_ID},
