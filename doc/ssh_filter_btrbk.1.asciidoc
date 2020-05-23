@@ -37,6 +37,7 @@ The following commands are always allowed:
  - "btrfs subvolume show" (not affected by "--restrict-path")
  - "btrfs subvolume list" (not affected by "--restrict-path")
  - "readlink"
+ - "test -d" (only if "compat busybox" configuration option is set)
  - "cat /proc/self/mountinfo"
  - pipes through "gzip", "pigz", "bzip2", "pbzip2", "xz", "lzop",
    "lz4" (stream_compress)

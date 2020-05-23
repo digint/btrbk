@@ -132,6 +132,10 @@ my %config_options = (
   backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
   backend_remote              => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
 
+  compat                      => { default => undef,     accept => [ "no", "busybox" ] },
+  compat_local                => { default => undef,     accept => [ "no", "busybox" ] },
+  compat_remote               => { default => undef,     accept => [ "no", "busybox" ] },
+
   snapshot_qgroup_destroy     => { default => undef,     accept => [ "yes", "no" ], context => [ "global", "volume", "subvolume" ] },
   target_qgroup_destroy       => { default => undef,     accept => [ "yes", "no" ] },
   archive_qgroup_destroy      => { default => undef,     accept => [ "yes", "no" ], context => [ "global" ] },
@@ -1883,23 +1887,43 @@ sub system_list_mountinfo($)
 }
 
 
+sub system_testdir($)
+{
+  my $vol = shift // die;
+  my $path = $vol->{PATH} // die;
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "test", '-d', { unsafe => $path } ),
+                    rsh => vinfo_rsh($vol),
+                    non_destructive => 1,
+                   );
+  return undef unless(defined($ret));
+  DEBUG "Directory exists: $vol->{PRINT}";
+  return 1;
+}
+
+
 sub system_realpath($)
 {
   my $vol = shift // die;
-
-  my $path = $vol->{PATH} // die;;
-  my $ret = run_cmd(cmd => vinfo_cmd($vol, "readlink", '-v', '-e', { unsafe => $path } ),
+  my $path = $vol->{PATH} // die;
+  my $compat = (($vol->{HOST} && config_key($vol, "compat_remote")) //
+                config_key($vol, "compat_local") //
+                config_key($vol, "compat")) // "" eq "busybox";
+  my @options = ("-v");                # report error messages
+  push @options, "-e" unless($compat); # all components must exist (not available in busybox!)
+  push @options, "-f" if($compat);     # all but the last component must exist.
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "readlink", @options, { unsafe => $path } ),
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
   return undef unless(defined($ret));
 
-  unless(scalar(@$ret) && ($ret->[0] =~ /^($file_match)$/)) {
+  my $realpath = scalar(@$ret) ? (check_file($ret->[0], { absolute => 1 }) // "") : "";
+  unless($realpath) {
     ERROR "Failed to parse output of `realpath` for \"$vol->{PRINT}\": \"$ret->[0]\"";
     return undef;
   }
-  my $realpath = $1; # untaint argument
   DEBUG "Real path for \"$vol->{PRINT}\" is: $realpath";
+  return undef if($compat && !system_testdir($vol));
   return $realpath;
 }
 

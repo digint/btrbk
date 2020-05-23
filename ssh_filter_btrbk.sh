@@ -164,9 +164,10 @@ done
 # NOTE: subvolume queries are NOT affected by "--restrict-path":
 # btrbk also calls show/list on the mount point of the subvolume
 allow_exact_cmd "${sudo_prefix}btrfs subvolume (show|list)( ${option_match})* ${file_match}";
-allow_cmd "${sudo_prefix}readlink"              # used to resolve mountpoints
-allow_exact_cmd "cat /proc/self/mountinfo"      # used to resolve mountpoints
-allow_exact_cmd "cat /proc/self/mounts"         # legacy, for btrbk < 0.27.0
+allow_cmd "${sudo_prefix}readlink"                    # resolve symlink
+allow_exact_cmd "${sudo_prefix}test -d ${file_match}" # check directory (only for compat=busybox)
+allow_exact_cmd "cat /proc/self/mountinfo"            # resolve mountpoints
+allow_exact_cmd "cat /proc/self/mounts"               # legacy, for btrbk < 0.27.0
 
 # remove leading "|" on alternation lists
 allow_list=${allow_list#\|}

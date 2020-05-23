@@ -364,6 +364,9 @@ constraints.
 *backend* btrfs-progs|btrfs-progs-btrbk|btrfs-progs-sudo::
     Backend filesystem utilities to be used for btrfs specific
     operations. Defaults to ``btrfs-progs''.
+    If you want to set this option for local or remote hosts only, you
+    can set *backend_local* or *backend_remote*
+    (e.g. "backend_remote btrfs-progs-btrbk").
 +
 --
 btrfs-progs::
@@ -381,13 +384,17 @@ btrfs-progs-sudo::
     btrfs commands are prefixed with "sudo -n" (e.g. "sudo -n btrfs
     subvolume show" instead of "btrfs subvolume show"). Make sure to
     have appropriate (root) permissions for the "btrfs" command groups
-    and the "readlink" command in /etc/sudoers.
+    as well as the "readlink" and "test" commands in /etc/sudoers.
 --
 +
-For convenience, it is also possible to set *backend_local* or
-*backend_remote* options, which will override the backend only for
-local or remote sources/targets (e.g. "backend_remote
-btrfs-progs-btrbk").
+
+
+*compat* busybox|no::
+    If set to ``busybox'', use busybox compatible commands. Defaults
+    to ``no''.
+    If you want to set this option for local or remote hosts only, you
+    can set *compat_local* or *compat_remote*
+    (e.g. "compat_remote busybox").
 
 
 === Btrfs Specific Options
