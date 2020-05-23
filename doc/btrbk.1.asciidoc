@@ -365,7 +365,7 @@ different output formats.
 *diff* <from> <to>::
     Print new files since subvolume <from> for subvolume <to>.
 
-*ls* <path>::
+*ls* <path>|<url>...::
     List all btrfs subvolumes below <path>. Use the '--format' command
     line option to switch between different output formats.
 

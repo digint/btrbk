@@ -222,10 +222,10 @@ my %table_formats = (
                    raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
                  },
 
-  fs_list     => { table => [ qw( mount_source id flags mount_subvol mount_point subvolume_path subvolume_rel_path path ) ],
-                   short => [ qw( mount_source id flags              mount_point                                   path ) ],
-                   long  => [ qw( mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
-                   raw   => [ qw( mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
+  fs_list     => { table => [ qw( -host mount_source id flags mount_subvol mount_point subvolume_path subvolume_rel_path path ) ],
+                   short => [ qw( -host mount_source id flags              mount_point                                   path ) ],
+                   long  => [ qw( -host mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
+                   raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
                  },
 );
 
@@ -2281,6 +2281,7 @@ sub btr_tree($$$$)
   # if we return already present tree (see above), the value of
   # host_mount_source will still point to the mount_source of the
   # first machine.
+  $tree_root->{mount_source} = $mount_source;
   $tree_root->{host_mount_source} = $host_mount_source; # unique identifier, e.g. "LOCAL:/dev/sda1" or "ssh://hostname[:port]/dev/sda1"
 
   $vol_root = $id{$vol_root_id};
@@ -2675,6 +2676,7 @@ sub vinfo_init_raw_root($;@)
     # create fake btr_tree
     $tree_root = { id => 5,
                    is_root => 1,
+                   mount_source => '@raw_tree',                      # for completeness (this is never used)
                    host_mount_source => $droot->{URL} . '@raw_tree', # for completeness (this is never used)
                    GEN_MAX => 1,
                    SUBTREE => [],
@@ -4995,10 +4997,10 @@ MAIN:
   my ($action_run, $action_usage, $action_resolve, $action_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive, $action_ls);
   my @filter_args;
   my @subvol_args;
-  my @dir_args;
   my $args_expected_min = 0;
   my $args_expected_max = 9999;
   my $fallback_default_config;
+  my $subvol_args_allow_relative;
   if(($command eq "run") || ($command eq "dryrun")) {
     $action_run = 1;
     $dryrun = 1 if($command eq "dryrun");
@@ -5039,7 +5041,8 @@ MAIN:
     $action_ls = 1;
     $fallback_default_config = 1;
     $args_expected_min = 1;
-    @dir_args = @ARGV;
+    @subvol_args = @ARGV;
+    $subvol_args_allow_relative = 1;
   }
   elsif ($command eq "diff") {
     $action_diff = 1;
@@ -5106,26 +5109,26 @@ MAIN:
   # input validation
   foreach (@subvol_args) {
     my ($url_prefix, $path) = check_url($_);
+    if(!defined($path) && $subvol_args_allow_relative) {
+      # map relative path to absolute
+      $url_prefix = "";
+      if(-d $_) {
+        $path = $1 if($_ =~ /^(.*)$/); # untaint ANY argument, real check below
+        $path = `readlink -f -q '$path'` if(defined($path));
+        $path = check_file($path, { absolute => 1 });
+      }
+      unless(defined($path)) {
+        ERROR "Bad argument: not a valid path: $_";
+        HELP_MESSAGE(0);
+        exit 2;
+      }
+    }
     unless(defined($path)) {
       ERROR "Bad argument: not a subvolume declaration: $_";
       HELP_MESSAGE(0);
       exit 2;
     }
     $_ = $url_prefix . $path;
-  }
-  foreach (@dir_args) {
-    # map relative path to absolute
-    my $path = $_;
-    if(-d $path) {
-      $path = `readlink -e -q '$path'`;
-    }
-    $path = check_file($path, { absolute => 1 });
-    unless($path) {
-      ERROR "Bad argument: not a directory: $_";
-      HELP_MESSAGE(0);
-      exit 2;
-    }
-    $_ = $path;
   }
   my @filter_vf;
   foreach (@filter_args) {
@@ -5291,9 +5294,9 @@ MAIN:
     # print accessible subvolumes for local path
     #
     my $exit_status = 0;
-    my @data;
-    foreach my $path (@dir_args) {
-      my $root_vol = vinfo($path, $config);
+    my %data_uniq;
+    foreach my $url (@subvol_args) {
+      my $root_vol = vinfo($url, $config);
 
       # map url to real path (we need to match against mount points below)
       my $root_path = system_realpath($root_vol);
@@ -5302,8 +5305,9 @@ MAIN:
         $exit_status = 1;
         next;
       }
-      $root_vol = vinfo($root_path, $config);
+      $root_vol = vinfo($root_vol->{URL_PREFIX} . $root_path, $config);
       $root_path .= '/' unless($root_path =~ /\/$/);  # append trailing slash
+      INFO "Listing subvolumes for directory: $root_vol->{PRINT}";
 
       my $mountinfo = $mountinfo_cache{$root_vol->{MACHINE_ID}};
       unless($mountinfo) {
@@ -5323,8 +5327,12 @@ MAIN:
         if(($mnt->{fs_type} eq "btrfs") &&
            (($root_path =~ /^\Q$mnt_path\E/) || ($mnt_path =~ /^\Q$root_path\E/)))
         {
-          $realpath_cache{$mnt->{mount_point}} = $mnt->{mount_point}; # we know those are real paths, prevents calling readlink in btrfs_mountpoint
-          my $vol = vinfo($mnt->{mount_point}, $config);
+          # we know those are real paths, prevents calling readlink in btrfs_mountpoint
+          $realpath_cache{$root_vol->{URL_PREFIX} . $mnt->{mount_point}} = $mnt->{mount_point};
+
+          my $vol = vinfo($root_vol->{URL_PREFIX} . $mnt->{mount_point}, $config);
+          DEBUG "Processing btrfs mount point: $mnt_path";
+
           unless(vinfo_init_root($vol)) {
             ERROR "Failed to fetch subvolume detail for: $vol->{PRINT}", @stderr;
             $exit_status = 1;
@@ -5332,41 +5340,53 @@ MAIN:
           }
 
           my $subvol_list = vinfo_subvol_list($vol);
+          my $count_added = 0;
           foreach my $svol ($vol, @$subvol_list) {
             my $svol_path = $svol->{PATH};
             $svol_path =~ s/^\/\//\//;  # sanitize "//" (see vinfo_child)
-            $svol_path .= '/' unless($svol_path =~ /\/$/);  # append trailing slash
 
-            next unless($svol_path =~ /^\Q$root_path\E/);
-
-            if(grep { $svol_path =~ /^\Q$_\E/ } @mnt_path_hidden) {
+            my $svol_path_ts = $svol_path . ($svol_path =~ /\/$/ ? "" : "/"); # append trailing slash
+            next unless($svol_path_ts =~ /^\Q$root_path\E/);
+            if(grep { $svol_path_ts =~ /^\Q$_\E/ } @mnt_path_hidden) {
               DEBUG "subvolume is hidden by another mount point: $svol->{PRINT}";
               next;
             }
 
-            push @data, {
+            $data_uniq{$svol->{PRINT}} = {
               %{$svol->{node}}, # copy node
               top => $svol->{node}{top_level}, # alias (narrow column)
               mount_point => $svol->{VINFO_MOUNTPOINT}{PATH},
-              mount_source => $svol->{node}{TREE_ROOT}{host_mount_source},
+              mount_source => $svol->{node}{TREE_ROOT}{mount_source},
               mount_subvolid => $mnt->{MNTOPS}{subvolid},
               mount_subvol => $mnt->{MNTOPS}{subvol},
               subvolume_path => $svol->{node}{path},
               subvolume_rel_path => $svol->{node}{REL_PATH},
-              path => $svol->{PATH},
+              host => $svol->{HOST},
+              path => $svol_path,
               flags => ($svol->{node}{readonly} ? "readonly" : undef),
             };
+            $count_added++;
           }
+          DEBUG "Listing $count_added/" . (scalar(@$subvol_list) + 1) . " subvolumes for btrfs mount: $vol->{PRINT}";
         }
+        else {
+          DEBUG "Skipping mount point: $mnt_path (fs_type=$mnt->{fs_type})";
+        }
+
+
         last if($root_path =~ /^\Q$mnt_path\E/);
         push @mnt_path_hidden, $mnt_path;
       }
     }
 
-    my @sorted = sort { $a->{path} cmp $b->{path} } @data;
+    my @sorted = sort { (($a->{host} // "") cmp ($b->{host} // "")) ||
+                        ($a->{mount_point} cmp $b->{mount_point}) ||
+                        ($a->{path} cmp $b->{path})
+                      } values %data_uniq;
     $output_format ||= "short";
-    print_formatted("fs_list", \@sorted);
-    #print join("\n", map { $_->{path} } @sorted) . "\n";
+    # dont print headers for empty list
+    print_formatted("fs_list", \@sorted, no_header => !scalar(@sorted));
+
     exit $exit_status;
   }
 
