@@ -6176,8 +6176,9 @@ MAIN:
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snapshot_name = config_key($svol, "snapshot_name") // die;
-          # note: we list all snapshot children within $sroot here, not only the ones matching btrbk naming
-          foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_related_snapshots($sroot, $svol)) {
+          my $snaproot = vinfo_snapshot_root($svol);
+          # note: we list all snapshot children within $snaproot here, not only the ones matching btrbk naming
+          foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_related_snapshots($snaproot, $svol)) {
             my $snapshot_data = { type => "snapshot",
                                   status => ($snapshot->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
                                   vinfo_prefixed_keys("source", $svol),
@@ -6208,8 +6209,9 @@ MAIN:
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snapshot_name = config_key($svol, "snapshot_name") // die;
-          # note: we list all snapshot children within $sroot here, not only the ones matching btrbk naming
-          my @related_snapshots = get_related_snapshots($sroot, $svol);
+          my $snaproot = vinfo_snapshot_root($svol);
+          # note: we list all snapshot children within $snaproot here, not only the ones matching btrbk naming
+          my @related_snapshots = get_related_snapshots($snaproot, $svol);
           my $stats_snapshot_uptodate = "";
           foreach my $snapshot (@related_snapshots) {
             if($snapshot->{node}{cgen} == $svol->{node}{gen}) {
