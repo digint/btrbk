@@ -88,6 +88,10 @@ below. Accepted formats are:
   ssh://<hostname>[:<port>]/<directory>
   <hostname>:<directory>
 
+Where '<hostname>' is either a host name, an IPv4 address in
+dotted-decimal form, or an IP literal encapsulated within square
+brackets (e.g. "[2001:db8::7]").
+
 If you are connecting to virtual machines, consider configuring
 several 'volume' sections for a '<hostname>', with distinct '<port>'
 numbers for each machine.

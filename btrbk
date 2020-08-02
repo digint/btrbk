@@ -57,7 +57,8 @@ my %compression = (
  );
 
 my $compress_format_alt = join '|', map { $_->{format} } values %compression; # note: this contains duplicate alternations
-my $ip_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
+my $ipv4_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
+my $ipv6_addr_match = qr/[a-fA-F0-9]*:[a-fA-F0-9]*:[a-fA-F0-9:]+/; # simplified (contains at least two colons), matches "::1", "2001:db8::7"
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
 my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 my $glob_match = qr/[0-9a-zA-Z_@\+\-\.\/\*]+/;  # file_match plus '*'
@@ -2438,21 +2439,20 @@ sub vinfo($$)
   if($url_prefix) {
     $host = $url_prefix;
     die unless($host =~ s/^ssh:\/\///);
-    if($host =~ s/:([1-9][0-9]*)$//) {
-      $port = $1;
-      $print = "$host\[$port\]:$path";  # hostname[port]:/path
-    } else {
-      $print = "$host:$path";           # hostname:/path
-    }
+    $port = $1 if($host =~ s/:([1-9][0-9]*)$//);
+    $print = $host . (defined($port) ? "[$port]:" : ":") . $path;
+    $host =~ s/^\[//; # remove brackets from ipv6_addr
+    $host =~ s/\]$//; # remove brackets from ipv6_addr
   }
 
   # Note that PATH and URL have no trailing slash, except if "/".
+  # Note that URL and URL_PREFIX can contain ipv6 address in brackets (e.g. "[::1]").
   return {
-    HOST       => $host,                   # hostname|<undef>
+    HOST       => $host,                   # hostname|ipv4_address|ipv6_address|<undef>
     PORT       => $port,                   # port|<undef>
     NAME       => $name,
     PATH       => $path,
-    PRINT      => $print,
+    PRINT      => $print,                  # "hostname:/path" or "hostname[port]:/path"
     URL        => $url_prefix . $path,     # ssh://hostname[:port]/path
     URL_PREFIX => $url_prefix,             # ssh://hostname[:port]  (or "" if local)
     MACHINE_ID => $url_prefix || "LOCAL:", # unique: "LOCAL:" or hostname and port
@@ -3017,9 +3017,18 @@ sub vinfo_filter_statement($) {
   }
 
   $ret{group_eq} = $filter if($filter =~ /^$group_match$/);
-  $ret{host_port_eq} = $filter if($filter =~ /^($ip_addr_match|$host_name_match)(:[1-9][0-9]*)?$/);
 
-  TRACE 'vinfo_filter_statement: filter="' . $filter . '" url_regex="' . ($ret{url_regex} // "<undef>") . '" group_eq="' . ($ret{group_eq} // "<undef>") . '" host_port_eq="' . ($ret{host_port_eq} // "<undef>") . '"';
+  if($filter =~ /^(?<host>$host_name_match|$ipv4_addr_match|\[$ipv6_addr_match\])(:(?<port>[1-9][0-9]*))?$/) {
+    my ($host, $port) = ( $+{host}, $+{port} );
+    $host =~ s/^\[//; # remove brackets from ipv6_addr
+    $host =~ s/\]$//; # remove brackets from ipv6_addr
+    $ret{host_port_eq} = { host => $host, port => $port };
+  }
+  elsif($filter =~ /^$ipv6_addr_match$/) {
+    $ret{host_port_eq} = { host => $filter } ;
+  }
+
+  TRACE 'vinfo_filter_statement: filter="' . $filter . '" url_regex="' . ($ret{url_regex} // "<undef>") . '" group_eq="' . ($ret{group_eq} // "<undef>") . '" host_port_eq="' . ($ret{host_port_eq} ? $ret{host_port_eq}{host} . ":" . ($ret{host_port_eq}{port} // "<undef>") : "<undef>") . '"';
   return undef unless(exists($ret{url_regex}) || exists($ret{group_eq}) || exists($ret{host_port_eq}));
   return \%ret;
 }
@@ -3052,18 +3061,17 @@ sub vinfo_match($$;@)
       $ff->{$flag_matched} = 1;
       $count++;
     }
-    if(defined($ff->{host_port_eq})) {
-      if(my $host = $vinfo->{HOST}) {
-        if($ff->{host_port_eq} =~ /:/) {
-          $host .= ":" . ($vinfo->{PORT} // "");
-        }
-        if($host eq $ff->{host_port_eq}) {
-          TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} host: $vinfo->{PRINT}";
-          return $ff unless($flag_matched);
-          #push @{$ff->{$flag_matched}}, $vinfo->{CONFIG}{CONTEXT} . '=' . $vinfo->{PRINT};
-          $ff->{$flag_matched} = 1;
-          $count++;
-        }
+    if(defined($ff->{host_port_eq}) && defined($vinfo->{HOST})) {
+      my $host = $ff->{host_port_eq}{host};
+      my $port = $ff->{host_port_eq}{port};
+      if(($host eq $vinfo->{HOST}) &&
+         (!defined($port) || (defined($vinfo->{PORT}) && ($port == $vinfo->{PORT}))))
+      {
+        TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} host: $vinfo->{PRINT}";
+        return $ff unless($flag_matched);
+        #push @{$ff->{$flag_matched}}, $vinfo->{CONFIG}{CONTEXT} . '=' . $vinfo->{PRINT};
+        $ff->{$flag_matched} = 1;
+        $count++;
       }
     }
   }
@@ -3508,15 +3516,15 @@ sub check_url($;@)
   my $url_prefix = "";
 
   if($url =~ /^ssh:\/\//) {
-    if($url =~ s/^(ssh:\/\/($ip_addr_match|$host_name_match)(:[1-9][0-9]*)?)\//\//) {
+    if($url =~ s/^(ssh:\/\/($host_name_match|$ipv4_addr_match|\[$ipv6_addr_match\])(:[1-9][0-9]*)?)\//\//) {
       $url_prefix = $1;
     }
-    # if no match, treat it as file and let check_file() print errors
   }
-  elsif($url =~ s/^($ip_addr_match|$host_name_match)://) {
-    # convert "my.host.com:/my/path" to ssh url
+  elsif($url =~ s/^($host_name_match|$ipv4_addr_match|\[$ipv6_addr_match\]):\//\//) {
+    # convert "my.host.com:/my/path", "[2001:db8::7]:/my/path" to ssh url
     $url_prefix = "ssh://" . $1;
   }
+  # if no url prefix match, treat it as file and let check_file() print errors
 
   return ( $url_prefix, check_file($url, { absolute => 1, wildcards => $opts{accept_wildcards} }, sanitize => 1, %opts) );
 }
