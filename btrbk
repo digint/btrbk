@@ -4071,7 +4071,7 @@ sub macro_send_receive(@)
       INFO "Creating incremental backup...";
     }
     elsif($incremental ne "strict") {
-      INFO "No common parent subvolume present, creating full backup...";
+      INFO "No common parent subvolume present, creating non-incremental backup...";
     }
     else {
       WARN "Backup to $target->{PRINT} failed: no common parent subvolume found for \"$source->{PRINT}\", and option \"incremental\" is set to \"strict\"";
@@ -4083,7 +4083,7 @@ sub macro_send_receive(@)
     push @clone_src, map { --$ic < 0 ? () : $_ } @$clone_src_extra if($ic);
   }
   else {
-    INFO "Creating full backup...";
+    INFO "Creating non-incremental backup...";
     $parent = undef;
     @clone_src = ();
     delete $info{parent};
@@ -6607,7 +6607,6 @@ MAIN:
                   next;
                 }
 
-                INFO "Creating subvolume backup (send-receive) for: $snapshot->{PRINT}";
                 my ($clone_src, $clone_src_extra, $target_parent_node);
                 my $parent = get_best_parent($snapshot, $snaproot, $droot,
                                              strict_related     => ((config_key($droot, "incremental") // "") eq "strict"),
