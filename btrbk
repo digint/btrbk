@@ -2538,7 +2538,7 @@ sub vinfo_cmd($$@)
   my $cmd = shift || die;
   my @cmd_args = @_;
   my $ret;
-  my $backend = $vinfo->{HOST} ? config_key($vinfo, "backend_remote") : config_key($vinfo, "backend_local");
+  my $backend = defined($vinfo->{HOST}) ? config_key($vinfo, "backend_remote") : config_key($vinfo, "backend_local");
   $backend = $backend // config_key($vinfo, "backend") // die;
   my $cmd_mapped = $backend_cmd_map{$backend}{$cmd};
   if(defined($cmd_mapped)) {
