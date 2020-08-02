@@ -1782,9 +1782,9 @@ sub btrfs_send_to_file($$$;$$)
 
   print STDOUT "Creating raw backup: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
 
+  INFO "[send-to-raw] target: $vol_received->{PRINT}";
   INFO "[send-to-raw] source: $source->{PRINT}";
   INFO "[send-to-raw] parent: $parent->{PRINT}" if($parent);
-  INFO "[send-to-raw] target: $vol_received->{PRINT}";
 
   start_transaction("send-to-raw",
                     vinfo_prefixed_keys("target", $vol_received),
