@@ -3008,7 +3008,7 @@ sub vinfo_filter_statement($) {
   }
   if($path) {
     # support "*some*file*", "*/*"
-    my $regex = join('[^\/]*', map(quotemeta($_), split(/\*+/, $url_prefix . $path, -1)));
+    my $regex = join('[^\/]*', map(quotemeta($_), split(/\*+/, lc($url_prefix) . $path, -1)));
     if($path =~ /^\//) {
       $ret{url_regex} = qr/^$regex$/;    # absolute path, match full string
     } else {
@@ -3044,7 +3044,7 @@ sub vinfo_match($$;@)
   # match URL against sane path (can contain "//", see vinfo_child),
   # no wildcards
   my ($url_prefix, $path) = check_url($vinfo->{URL});
-  my $url = defined($path) ? $url_prefix . $path : undef;
+  my $url = defined($path) ? lc($url_prefix) . $path : undef;
   my $count = 0;
   foreach my $ff (@$filter) {
     if(defined($ff->{group_eq}) && (grep { $ff->{group_eq} eq $_ } @{$vinfo->{CONFIG}{group}})) {
@@ -3064,7 +3064,7 @@ sub vinfo_match($$;@)
     if(defined($ff->{host_port_eq}) && defined($vinfo->{HOST})) {
       my $host = $ff->{host_port_eq}{host};
       my $port = $ff->{host_port_eq}{port};
-      if(($host eq $vinfo->{HOST}) &&
+      if((lc($host) eq lc($vinfo->{HOST})) &&
          (!defined($port) || (defined($vinfo->{PORT}) && ($port == $vinfo->{PORT}))))
       {
         TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} host: $vinfo->{PRINT}";
