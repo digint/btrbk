@@ -106,7 +106,7 @@ OPTIONS
     on disk space (ENOSPC).
 
 -v, --verbose::
-    Verbose output (shortcut for "--loglevel=info").
+    Increase the logging level, see "--loglevel".
 
 -q, --quiet::
     Quiet operation. If set, btrbk does not print the summary after
@@ -114,8 +114,8 @@ OPTIONS
     commands.
 
 -l, --loglevel <level>::
-    Set the level of verbosity. Accepted levels are warn, info, debug,
-    and trace.
+    Set the level of verbosity for the stderr logging. Accepted levels
+    are: error, warn, info, debug, and trace. Default is info.
 
 -t, --table::
     Print output in table format (shortcut for "--format=table").

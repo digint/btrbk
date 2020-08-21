@@ -360,9 +360,9 @@ options:
        --preserve-snapshots  preserve snapshots (do not delete snapshots)
        --preserve-backups    preserve backups (do not delete backups)
        --wipe                delete all but latest snapshots
-   -v, --verbose             be verbose (set loglevel=info)
+   -v, --verbose             be more verbose (increase logging level)
    -q, --quiet               be quiet (do not print backup summary)
-   -l, --loglevel=LEVEL      set logging level (warn, info, debug, trace)
+   -l, --loglevel=LEVEL      set logging level (error, warn, info, debug, trace)
    -t, --table               change output to table format
    -L, --long                change output to long format
        --format=FORMAT       change output format, FORMAT=table|long|raw
@@ -5043,12 +5043,12 @@ MAIN:
 
   # assign command line options
   @config_src = ( $config_cmdline ) if($config_cmdline);
-  if   (lc($loglevel) eq "warn")  { $loglevel = 1; }
-  elsif(lc($loglevel) eq "info")  { $loglevel = 2; }
-  elsif(lc($loglevel) eq "debug") { $loglevel = 3; }
-  elsif(lc($loglevel) eq "trace") { $loglevel = 4; }
-  elsif($loglevel =~ /^[0-9]+$/)  { ; }
-  else                            { $loglevel = 1; }
+  $loglevel = { error => 0, warn => 1, warning => 1, info => 2, debug => 3, trace => 4 }->{$loglevel} // $loglevel;
+  unless($loglevel =~ /^[0-9]+$/) {
+    ERROR "Unknown loglevel: $loglevel";
+    HELP_MESSAGE(0);
+    exit 2;
+  }
   require_data_dumper() if(($loglevel >= 4) || ($VERSION =~ /-dev$/));
 
   # DEPRECATED options
