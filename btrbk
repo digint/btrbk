@@ -227,8 +227,8 @@ my %table_formats = (
                    raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
                  },
 
-  fs_list     => { table => [ qw( -host mount_source id flags mount_subvol mount_point subvolume_path subvolume_rel_path path ) ],
-                   short => [ qw( -host mount_source id flags              mount_point                                   path ) ],
+  fs_list     => { table => [ qw( -host mount_source id flags mount_subvol mount_point subvolume_path path ) ],
+                   short => [ qw( -host mount_source id flags                                         path ) ],
                    long  => [ qw( -host mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
                    raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
                  },
