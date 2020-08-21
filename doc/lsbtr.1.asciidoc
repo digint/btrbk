@@ -1,0 +1,113 @@
+lsbtr(1)
+========
+:date: 2020-02-09
+:release-version: 0.29.1
+:man manual: Btrbk Manual
+:man source: Btrbk {release-version}
+
+
+NAME
+----
+
+lsbtr - list btrfs subvolumes
+
+
+SYNOPSIS
+--------
+
+[verse]
+lsbtr [-h|--help] [--version]
+      [-l|--long] [-u|--uuid] [--raw]
+      [-v|--verbose]
+      [-c|--config <file>]
+      [--override <config_option>=<value>]
+      [<path>|<url>...]
+
+
+DESCRIPTION
+-----------
+
+List btrfs subvolumes and their mount points visible by the file
+system below '<path>'.
+
+*lsbtr* is part of *btrbk* (basically a shortcut for "btrbk ls"), and
+takes some global configuration options from btrbk.conf(5) if present.
+
+*lsbtr* requires 'root privileges' to run correctly. Alternatively,
+consider using "btrfs-progs-sudo" or "btrfs-progs-btrbk" backends,
+both of which allows you to run lsbtr as a regular user. Refer to
+configuration option 'backend' in btrbk.conf(5) for more details.
+
+
+OPTIONS
+-------
+
+-h, --help::
+    Prints the synopsis and a list of the commands.
+
+--version::
+    Prints the btrbk version.
+
+-l, --long::
+    Print output in long table format (additionally print subvolume
+    path).
+
+-u, --uuid::
+    Print UUID table (parent/received relations).
+
+--raw::
+    Print space-separated key="value" pairs (machine readable).
+
+-v, --verbose::
+    Increase the level of verbosity.
+
+-c, --config <file>::
+    Read the configuration from <file>.
+
+--override <config_option>=<value>::
+    Override a configuration option <config_option> with <value>.
+
+
+FILES
+-----
+
++/etc/btrbk.conf+::
++/etc/btrbk/btrbk.conf+::
+    Default configuration file. The file format and configuration
+    options are described in *btrbk.conf*(5).
+
+
+EXIT STATUS
+-----------
+
+*lsbtr* returns the following error codes:
+
+ifndef::backend-docbook,backend-manpage[]
+[horizontal]
+endif::backend-docbook,backend-manpage[]
+0::   No problems occurred.
+1::   Generic error code.
+2::   Parse error: when parsing command-line options or configuration
+      file.
+255:: Script error.
+
+
+AVAILABILITY
+------------
+
+Please refer to the btrbk project page *<https://digint.ch/btrbk/>*
+for further details.
+
+
+SEE ALSO
+--------
+
+*btrbk*(1),
+*btrbk.conf*(5),
+*btrfs*(8)
+
+
+AUTHOR
+------
+
+Axel Burri <axel@tty0.ch>

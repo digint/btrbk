@@ -1,6 +1,7 @@
 DOCS       = FAQ.md \
              upgrade_to_v0.23.0.md
 MAN_MAN1   = btrbk.1 \
+             lsbtr.1 \
              ssh_filter_btrbk.1
 MAN_MAN5   = btrbk.conf.5
 
