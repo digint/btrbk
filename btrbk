@@ -2315,7 +2315,7 @@ sub btr_tree($$$$)
     $node->{SUBTREE} = [];
   }
   my $tree_root = $id{5} // die "missing btrfs root";
-  $tree_root->{MOUNTPOINTS} = $mountpoints; # { file, mount_source, node }
+  $tree_root->{MOUNTPOINTS} = $mountpoints; # arrayref of { file, subvolid }
   $tree_root->{ID_HASH} = \%id;
   $tree_root->{UUID_HASH} = \%uuid_hash;
   $tree_root->{RECEIVED_UUID_HASH} = \%received_uuid_hash;
@@ -2363,7 +2363,7 @@ sub btr_tree($$$$)
       WARN "Unknown subvolid=$_->{subvolid} (in btrfs tree of $host_mount_source) for mountpoint: $vol->{URL_PREFIX}$_->{file}";
       next;
     }
-    $node->{MOUNTPOINT_URL} = $vol->{URL_PREFIX} . $_->{file};
+    push @{$node->{MOUNTPOINT_URL}}, $vol->{URL_PREFIX} . $_->{file};
   }
 
   TRACE "btr_tree: returning tree at id=$vol_root->{id}";
@@ -2410,12 +2410,14 @@ sub btr_tree_inject_node($$$)
 }
 
 
+# returns array of path
+# NOTE: shows subvolumes hidden by other mountpoint
 sub _fs_path
 {
   my $node = shift // die;
-  return $node->{MOUNTPOINT_URL} if($node->{MOUNTPOINT_URL});
-  return "<$node->{host_mount_source}>" if($node->{is_root});
-  return _fs_path($node->{TOP_LEVEL}) . '/' . $node->{REL_PATH};
+  return @{$node->{MOUNTPOINT_URL}} if($node->{MOUNTPOINT_URL});
+  return ("<$node->{host_mount_source}>") if($node->{is_root});
+  return map { $_ . '/' . $node->{REL_PATH} } _fs_path($node->{TOP_LEVEL});
 }
 
 
@@ -2726,7 +2728,7 @@ sub vinfo_init_raw_root($;@)
                    SUBTREE => [],
                    UUID_HASH => {},
                    RECEIVED_UUID_HASH => {},
-                   MOUNTPOINT_URL => $droot->{URL},
+                   MOUNTPOINT_URL => [ $droot->{URL} ],
                  };
     $tree_root->{TREE_ROOT} = $tree_root;
 
