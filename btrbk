@@ -2044,7 +2044,7 @@ sub btrfs_mountpoint
         $mnt->{MNTOPS}->{subvolid} = $detail->{id} || die;  # also affects %mountinfo_cache
       }
       TRACE "using btrfs mount point (mount_source=$mnt->{mount_source}, subvolid=$mnt->{MNTOPS}->{subvolid}): $mnt->{mount_point}";
-      push(@same_source_mounts, { file => $mnt->{mount_point}, subvolid => $mnt->{MNTOPS}->{subvolid} } );
+      push(@same_source_mounts, $mnt);
     }
   }
 
@@ -2241,11 +2241,11 @@ sub btr_tree($$$$)
   my $vol = shift;
   my $vol_root_id = shift || die;
   my $mount_source = shift || die;  # aka device
-  my $mountpoints = shift || die; # all known mountpoints for this filesystem: arrayref of { file, subvolid }
+  my $mountpoints = shift || die; # all known mountpoints for this filesystem: arrayref of mountinfo
   die unless($vol_root_id >= 5);
 
   # return parsed tree from %mount_source_cache if present
-  my $host_mount_source = $vol->{URL_PREFIX} . $mount_source;  # printed in _fs_path()
+  my $host_mount_source = $vol->{URL_PREFIX} . $mount_source;
   my $cached_tree = $mount_source_cache{$host_mount_source};
   TRACE "mount_source_cache " . ($cached_tree ? "HIT" : "MISS") . ": $host_mount_source";
   if($cached_tree) {
@@ -2315,19 +2315,19 @@ sub btr_tree($$$$)
     $node->{SUBTREE} = [];
   }
   my $tree_root = $id{5} // die "missing btrfs root";
-  $tree_root->{MOUNTPOINTS} = $mountpoints; # arrayref of { file, subvolid }
   $tree_root->{ID_HASH} = \%id;
   $tree_root->{UUID_HASH} = \%uuid_hash;
   $tree_root->{RECEIVED_UUID_HASH} = \%received_uuid_hash;
   $tree_root->{PARENT_UUID_HASH} = \%parent_uuid_hash;
   $tree_root->{GEN_MAX} = $gen_max;
+  $tree_root->{URL_PREFIX} = $vol->{URL_PREFIX}; # hacky, first url prefix for logging
 
   # NOTE: host_mount_source is NOT dependent on MACHINE_ID:
   # if we return already present tree (see above), the value of
   # host_mount_source will still point to the mount_source of the
   # first machine.
   $tree_root->{mount_source} = $mount_source;
-  $tree_root->{host_mount_source} = $host_mount_source; # unique identifier, e.g. "LOCAL:/dev/sda1" or "ssh://hostname[:port]/dev/sda1"
+  $tree_root->{host_mount_source} = $host_mount_source; # unique identifier, e.g. "/dev/sda1" or "ssh://hostname[:port]/dev/sda1"
 
   $vol_root = $id{$vol_root_id};
   unless($vol_root) {
@@ -2357,14 +2357,18 @@ sub btr_tree($$$$)
   }
 
   # add known mountpoints to nodes
+  my %mountpoints_hash;
   foreach(@$mountpoints) {
-    my $node = $id{$_->{subvolid}};
+    my $node_id = $_->{MNTOPS}{subvolid};
+    my $node = $id{$node_id};
     unless($node) {
-      WARN "Unknown subvolid=$_->{subvolid} (in btrfs tree of $host_mount_source) for mountpoint: $vol->{URL_PREFIX}$_->{file}";
+      WARN "Unknown subvolid=$_->{subvolid} (in btrfs tree of $host_mount_source) for mountpoint: $vol->{URL_PREFIX}$_->{mount_point}";
       next;
     }
-    push @{$node->{MOUNTPOINT_URL}}, $vol->{URL_PREFIX} . $_->{file};
+    $mountpoints_hash{$node_id} = $node;
+    push @{$node->{MOUNTINFO}}, $_;  # if present, node is mounted at MOUNTINFO
   }
+  $tree_root->{MOUNTED_NODES} = [ (values %mountpoints_hash) ]; # list of mounted nodes
 
   TRACE "btr_tree: returning tree at id=$vol_root->{id}";
   VINFO($vol_root, "node") if($loglevel >=4);
@@ -2410,14 +2414,28 @@ sub btr_tree_inject_node($$$)
 }
 
 
-# returns array of path
-# NOTE: shows subvolumes hidden by other mountpoint
-sub _fs_path
+# returns array of { path, mountinfo }
+# NOTE: includes subvolumes hidden by other mountpoint
+sub __fs_info
+{
+  my $node = shift;
+  my $url_prefix = shift;
+  my @ret = $node->{MOUNTINFO} ? map +{ path => $url_prefix . $_->{mount_point}, mountinfo => $_ }, @{$node->{MOUNTINFO}} : ();
+  return @ret if($node->{is_root});
+  return ((map +{ path => $_->{path} . '/' . $node->{REL_PATH}, mountinfo => $_->{mountinfo} }, __fs_info($node->{TOP_LEVEL}, $url_prefix)), @ret);
+}
+
+sub _fs_info
 {
   my $node = shift // die;
-  return @{$node->{MOUNTPOINT_URL}} if($node->{MOUNTPOINT_URL});
-  return ("<$node->{host_mount_source}>") if($node->{is_root});
-  return map { $_ . '/' . $node->{REL_PATH} } _fs_path($node->{TOP_LEVEL});
+  my $url_prefix = shift // $node->{TREE_ROOT}{URL_PREFIX};
+  my @ret = __fs_info($node, $url_prefix);
+  return scalar(@ret) ? @ret : ({ path => "$url_prefix<$node->{TREE_ROOT}{mount_source}>/$node->{path}", mountinfo => undef });
+}
+
+sub _fs_path
+{
+  return map $_->{path}, _fs_info(@_);
 }
 
 
@@ -2722,13 +2740,14 @@ sub vinfo_init_raw_root($;@)
     # create fake btr_tree
     $tree_root = { id => 5,
                    is_root => 1,
-                   mount_source => '@raw_tree',                      # for completeness (this is never used)
+                   mount_source => '@raw_tree',                      # for _fs_path (logging)
                    host_mount_source => $droot->{URL} . '@raw_tree', # for completeness (this is never used)
                    GEN_MAX => 1,
                    SUBTREE => [],
                    UUID_HASH => {},
                    RECEIVED_UUID_HASH => {},
-                   MOUNTPOINT_URL => [ $droot->{URL} ],
+                   URL_PREFIX => $droot->{URL_PREFIX},                 # for _fs_path (logging)
+                   MOUNTINFO => [ { mount_point => $droot->{PATH} } ], # for _fs_path (logging)
                  };
     $tree_root->{TREE_ROOT} = $tree_root;
 
@@ -2908,15 +2927,14 @@ sub vinfo_resolved_all_mountpoints($$)
   my $node = shift || die;
   my $vol = shift || die;
   my $tree_root = $vol->{node}{TREE_ROOT};
-  foreach (@{$tree_root->{MOUNTPOINTS}}) {
-    my $mnt_path = $_->{file};
-    my $mnt_node = $tree_root->{ID_HASH}{$_->{subvolid}};
-    next unless($mnt_node);
-    my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
-    $mnt_vol->{node} = $mnt_node;
-    TRACE "vinfo_resolved_all_mountpoints: trying mountpoint: $mnt_vol->{PRINT}";
-    my $vinfo = vinfo_resolved($node, $mnt_vol, allow_equal => 1);
-    return $vinfo if($vinfo);
+  foreach my $mnt_node (@{$tree_root->{MOUNTED_NODES}}) {
+    foreach my $mountinfo (@{$mnt_node->{MOUNTINFO}}) {
+      my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mountinfo->{mount_point}, $vol->{CONFIG});
+      $mnt_vol->{node} = $mnt_node;
+      TRACE "vinfo_resolved_all_mountpoints: trying mountpoint: $mnt_vol->{PRINT}";
+      my $vinfo = vinfo_resolved($node, $mnt_vol, allow_equal => 1);
+      return $vinfo if($vinfo);
+    }
   }
   return undef;
 }
