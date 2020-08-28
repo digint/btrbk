@@ -5459,9 +5459,8 @@ MAIN:
           DEBUG "Listing $count_added/" . (scalar(@$subvol_list) + 1) . " subvolumes for btrfs mount: $vol->{PRINT}";
         }
         else {
-          DEBUG "Skipping mount point: $mnt_path (fs_type=$mnt->{fs_type})";
+          TRACE "Skipping mount point: $mnt_path (fs_type=$mnt->{fs_type})";
         }
-
 
         last if($root_path =~ /^\Q$mnt_path\E/);
         push @mnt_path_hidden, $mnt_path;
@@ -5473,7 +5472,6 @@ MAIN:
                         ($a->{path} cmp $b->{path})
                       } values %data_uniq;
     $output_format ||= "short";
-    # dont print headers for empty list
     print_formatted("fs_list", \@sorted, no_header => !scalar(@sorted));
 
     exit $exit_status;
