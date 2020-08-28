@@ -290,6 +290,7 @@ my $loglevel = 1;
 my $quiet;
 my @exclude_vf;
 my $do_dumper;
+my $do_trace;
 my $show_progress = 0;
 my $output_format;
 my $output_pretty = 0;
@@ -408,7 +409,7 @@ sub ERROR { _log_cont("ERROR: ",   @_) }
 
 sub WARN_ONCE {
   my $t = shift;
-  if($warn_once{$t}) { TRACE("WARNING(again): $t", @_); return 0; }
+  if($warn_once{$t}) { TRACE("WARNING(again): $t", @_) if($do_trace); return 0; }
   else { $warn_once{$t} = 1; WARN($t, @_); return 1; }
 }
 
@@ -492,9 +493,9 @@ sub require_data_dumper
     $Data::Dumper::Quotekeys = 0;
     $do_dumper = 1;
     # silence perl warning: Name "Data::Dumper::Sortkeys" used only once: possible typo at...
-    TRACE "Successfully loaded Dumper module: sortkeys=$Data::Dumper::Sortkeys, quotekeys=$Data::Dumper::Quotekeys";
+    TRACE "Successfully loaded Dumper module: sortkeys=$Data::Dumper::Sortkeys, quotekeys=$Data::Dumper::Quotekeys" if($do_trace);
   } else {
-    WARN "Perl module \"Data::Dumper\" not found: data trace dumps disabled!" if($loglevel >=4);
+    WARN "Perl module \"Data::Dumper\" not found: data trace dumps disabled!" if($do_trace);
   }
 }
 
@@ -849,7 +850,7 @@ sub run_cmd(@)
     chomp(@stdout = readline($out_fh));
     chomp(@stderr = readline($err_fh));
     waitpid($pid, 0);
-    if($loglevel >= 4) {
+    if($do_trace) {
       TRACE map("[stdout] $_", @stdout);
       TRACE map("[stderr] $_", @stderr);
     }
@@ -984,7 +985,7 @@ sub btrfs_filesystem_usage($)
       $detail{global_reserve_used} = $2;
     }
     else {
-      TRACE "Failed to parse filesystem usage line \"$_\" for: $vol->{PRINT}";
+      TRACE "Failed to parse filesystem usage line \"$_\" for: $vol->{PRINT}" if($do_trace);
     }
   }
   DEBUG "Parsed " . scalar(keys %detail) . " filesystem usage detail items: $vol->{PRINT}";
@@ -999,7 +1000,7 @@ sub btrfs_filesystem_usage($)
     }
   }
 
-  TRACE(Data::Dumper->Dump([\%detail], ["btrfs_filesystem_usage($vol->{URL})"])) if($do_dumper);
+  TRACE(Data::Dumper->Dump([\%detail], ["btrfs_filesystem_usage($vol->{URL})"])) if($do_trace && $do_dumper);
   return \%detail;
 }
 
@@ -1902,7 +1903,7 @@ sub system_list_mountinfo($)
     $line{MNTOPS}->{rw} = 0 if($line{MNTOPS}->{ro}); # e.g. mount_options="ro", super_options="rw"
     push @mountinfo, \%line;
   }
-  # TRACE(Data::Dumper->Dump([\@mountinfo], ["mountinfo"])) if($do_dumper);
+  # TRACE(Data::Dumper->Dump([\@mountinfo], ["mountinfo"])) if($do_trace && $do_dumper);
   return \@mountinfo;
 }
 
@@ -1981,7 +1982,7 @@ sub btrfs_mountpoint
 
   # get all mountpoints
   my $mountinfo = $mountinfo_cache{$vol->{MACHINE_ID}};
-  TRACE "mountinfo_cache " . ($mountinfo ? "HIT" : "MISS") . ": $vol->{MACHINE_ID}";
+  TRACE "mountinfo_cache " . ($mountinfo ? "HIT" : "MISS") . ": $vol->{MACHINE_ID}" if($do_trace);
   unless($mountinfo) {
     $mountinfo = system_list_mountinfo($vol);
     return undef unless($mountinfo);
@@ -2004,7 +2005,7 @@ sub btrfs_mountpoint
     ERROR "No mount point found for: $vol->{PRINT} (realpath=\"$realpath\")";
     return undef;
   }
-  TRACE "resolved mount point (mount_source=$mountpoint->{mount_source}, subvolid=" . ($mountpoint->{MNTOPS}->{subvolid} // '<undef>') . "): $mountpoint->{mount_point}";
+  TRACE "resolved mount point (mount_source=$mountpoint->{mount_source}, subvolid=" . ($mountpoint->{MNTOPS}->{subvolid} // '<undef>') . "): $mountpoint->{mount_point}" if($do_trace);
 
   # handle autofs
   if($mountpoint->{fs_type} eq 'autofs') {
@@ -2043,7 +2044,7 @@ sub btrfs_mountpoint
         return undef unless($detail);
         $mnt->{MNTOPS}->{subvolid} = $detail->{id} || die;  # also affects %mountinfo_cache
       }
-      TRACE "using btrfs mount point (mount_source=$mnt->{mount_source}, subvolid=$mnt->{MNTOPS}->{subvolid}): $mnt->{mount_point}";
+      TRACE "using btrfs mount point (mount_source=$mnt->{mount_source}, subvolid=$mnt->{MNTOPS}->{subvolid}): $mnt->{mount_point}" if($do_trace);
       push(@same_source_mounts, $mnt);
     }
   }
@@ -2126,7 +2127,7 @@ sub system_read_raw_info_dir($)
   }
 
   DEBUG("Parsed " . @raw_targets . " raw info files in path: $droot->{PATH}");
-  TRACE(Data::Dumper->Dump([\@raw_targets], ["system_read_raw_info_dir($droot->{URL})"])) if($do_dumper);
+  TRACE(Data::Dumper->Dump([\@raw_targets], ["system_read_raw_info_dir($droot->{URL})"])) if($do_trace && $do_dumper);
 
   #
   # read DEPRECATED raw format (btrbk < v0.26.0)
@@ -2193,7 +2194,7 @@ sub system_write_raw_info($$)
 
   DEBUG "Creating raw info file " . ($raw_info->{INCOMPLETE} ? "(incomplete)" : "(complete)") . ": $info_file";
   my $echo_text = (join '\n', @line);
-  TRACE "DUMP INFO_FILE=$info_file\n" . join("\n", @line);
+  TRACE "DUMP INFO_FILE=$info_file\n" . join("\n", @line) if($do_trace);
 
   my $ret = run_cmd(
     { cmd => [ 'echo', '-e', '-n', '"' . (join '\n', @line) . '\n"' ] },
@@ -2247,9 +2248,9 @@ sub btr_tree($$$$)
   # return parsed tree from %mount_source_cache if present
   my $host_mount_source = $vol->{URL_PREFIX} . $mount_source;
   my $cached_tree = $mount_source_cache{$host_mount_source};
-  TRACE "mount_source_cache " . ($cached_tree ? "HIT" : "MISS") . ": $host_mount_source";
+  TRACE "mount_source_cache " . ($cached_tree ? "HIT" : "MISS") . ": $host_mount_source" if($do_trace);
   if($cached_tree) {
-    TRACE "btr_tree: returning cached tree at id=$vol_root_id";
+    TRACE "btr_tree: returning cached tree at id=$vol_root_id" if($do_trace);
     my $node = $cached_tree->{ID_HASH}{$vol_root_id};
     ERROR "Unknown subvolid=$vol_root_id in btrfs tree of $host_mount_source" unless($node);
     return $node;
@@ -2259,7 +2260,7 @@ sub btr_tree($$$$)
   return undef unless(ref($node_list) eq "ARRAY");
   my $vol_root;
 
-  TRACE "btr_tree: processing subvolume list of: $vol->{PRINT}";
+  TRACE "btr_tree: processing subvolume list of: $vol->{PRINT}" if($do_trace);
 
   # return a reference to the cached root if we already know the tree,
   # making sure every tree is only stored once, which is essential
@@ -2277,11 +2278,11 @@ sub btr_tree($$$$)
     next unless($node_uuid);
     if($uuid_cache{$node_uuid}) {
       # at least one uuid of $node_list is already known
-      TRACE "uuid_cache HIT: $node_uuid";
+      TRACE "uuid_cache HIT: $node_uuid" if($do_trace);
       $vol_root = $uuid_cache{$node_uuid}->{TREE_ROOT}->{ID_HASH}->{$vol_root_id};
       die "Duplicate UUID on different file systems"  unless($vol_root);
       INFO "Assuming same filesystem: \"$vol_root->{TREE_ROOT}->{host_mount_source}\", \"$host_mount_source\"";
-      TRACE "btr_tree: returning already parsed tree at id=$vol_root->{id}";
+      TRACE "btr_tree: returning already parsed tree at id=$vol_root->{id}" if($do_trace);
       $mount_source_cache{$host_mount_source} = $vol_root->{TREE_ROOT};
       return $vol_root;
     }
@@ -2370,7 +2371,7 @@ sub btr_tree($$$$)
   }
   $tree_root->{MOUNTED_NODES} = [ (values %mountpoints_hash) ]; # list of mounted nodes
 
-  TRACE "btr_tree: returning tree at id=$vol_root->{id}";
+  TRACE "btr_tree: returning tree at id=$vol_root->{id}" if($do_trace);
   VINFO($vol_root, "node") if($loglevel >=4);
 
   $mount_source_cache{$host_mount_source} = $tree_root;
@@ -2550,7 +2551,7 @@ sub vinfo_child($$;$)
     VINFO_MOUNTPOINT => $parent->{VINFO_MOUNTPOINT},
    };
 
-  # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}";
+  # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}" if($do_trace);
   return $vinfo;
 }
 
@@ -2606,12 +2607,12 @@ sub vinfo_cmd($$@)
   $backend = $backend // config_key($vinfo, "backend") // die;
   my $cmd_mapped = $backend_cmd_map{$backend}{$cmd};
   if(defined($cmd_mapped)) {
-    TRACE "vinfo_cmd: found mapping for backend=$backend cmd=\"$cmd\": " . join(' ', @$cmd_mapped);
+    TRACE "vinfo_cmd: found mapping for backend=$backend cmd=\"$cmd\": " . join(' ', @$cmd_mapped) if($do_trace);
     $ret = [ @$cmd_mapped, @cmd_args ];
   }
   else {
     my @ret_cmd = split(/\s/, $cmd);
-    TRACE "vinfo_cmd: no mapping found for backend=$backend cmd=\"$cmd\", assuming btrfs-progs: " . join(' ', @ret_cmd);
+    TRACE "vinfo_cmd: no mapping found for backend=$backend cmd=\"$cmd\", assuming btrfs-progs: " . join(' ', @ret_cmd) if($do_trace);
     $ret = [ @ret_cmd, @cmd_args ];
   }
   return $ret;
@@ -2725,12 +2726,12 @@ sub vinfo_init_raw_root($;@)
 {
   my $droot = shift || die;
   my $tree_root = $raw_url_cache{$droot->{URL}};
-  TRACE "raw_url_cache " . ($tree_root ? "HIT" : "MISS") . ": URL=$droot->{URL}";
+  TRACE "raw_url_cache " . ($tree_root ? "HIT" : "MISS") . ": URL=$droot->{URL}" if($do_trace);
   unless($tree_root) {
     if(my $real_path = $realpath_cache{$droot->{URL}}) {
       my $real_url = $droot->{URL_PREFIX} . $real_path;
       $tree_root = $raw_url_cache{$real_url};
-      TRACE "raw_url_cache " . ($tree_root ? "HIT" : "MISS") . ": REAL_URL=$real_url";
+      TRACE "raw_url_cache " . ($tree_root ? "HIT" : "MISS") . ": REAL_URL=$real_url" if($do_trace);
     }
   }
 
@@ -2873,7 +2874,7 @@ sub vinfo_subvol_list($;@)
   my $vol = shift || die;
   my %opts = @_;
 
-  TRACE "Creating subvolume list for: $vol->{PRINT}";
+  TRACE "Creating subvolume list for: $vol->{PRINT}" if($do_trace);
 
   # recurse into tree from $vol->{node}, returns arrayref of vinfo
   my $subvol_list = _vinfo_subtree_list($vol->{node}, $vol, $opts{readonly}, $opts{btrbk_direct_leaf});
@@ -2931,7 +2932,7 @@ sub vinfo_resolved_all_mountpoints($$)
     foreach my $mountinfo (@{$mnt_node->{MOUNTINFO}}) {
       my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mountinfo->{mount_point}, $vol->{CONFIG});
       $mnt_vol->{node} = $mnt_node;
-      TRACE "vinfo_resolved_all_mountpoints: trying mountpoint: $mnt_vol->{PRINT}";
+      TRACE "vinfo_resolved_all_mountpoints: trying mountpoint: $mnt_vol->{PRINT}" if($do_trace);
       my $vinfo = vinfo_resolved($node, $mnt_vol, allow_equal => 1);
       return $vinfo if($vinfo);
     }
@@ -2976,7 +2977,7 @@ sub vinfo_inject_child($$$;$)
   return undef unless(add_btrbk_filename_info($node, $raw_info));
 
   $vinfo_child->{node} = $node;
-  TRACE "vinfo_inject_child: injected child id=$node->{id} to $vinfo->{PRINT}";
+  TRACE "vinfo_inject_child: injected child id=$node->{id} to $vinfo->{PRINT}" if($do_trace);
   return $vinfo_child;
 }
 
@@ -3092,7 +3093,7 @@ sub vinfo_filter_statement($) {
     $ret{host_port_eq} = { host => $filter } ;
   }
 
-  TRACE 'vinfo_filter_statement: filter="' . $filter . '" url_regex="' . ($ret{url_regex} // "<undef>") . '" group_eq="' . ($ret{group_eq} // "<undef>") . '" host_port_eq="' . ($ret{host_port_eq} ? $ret{host_port_eq}{host} . ":" . ($ret{host_port_eq}{port} // "<undef>") : "<undef>") . '"';
+  TRACE 'vinfo_filter_statement: filter="' . $filter . '" url_regex="' . ($ret{url_regex} // "<undef>") . '" group_eq="' . ($ret{group_eq} // "<undef>") . '" host_port_eq="' . ($ret{host_port_eq} ? $ret{host_port_eq}{host} . ":" . ($ret{host_port_eq}{port} // "<undef>") : "<undef>") . '"' if($do_trace);
   return undef unless(exists($ret{url_regex}) || exists($ret{group_eq}) || exists($ret{host_port_eq}));
   return \%ret;
 }
@@ -3112,14 +3113,14 @@ sub vinfo_match($$;@)
   my $count = 0;
   foreach my $ff (@$filter) {
     if(defined($ff->{group_eq}) && (grep { $ff->{group_eq} eq $_ } @{$vinfo->{CONFIG}{group}})) {
-      TRACE "filter \"$ff->{unparsed}\" equals $vinfo->{CONFIG}{CONTEXT} group: $vinfo->{PRINT}";
+      TRACE "filter \"$ff->{unparsed}\" equals $vinfo->{CONFIG}{CONTEXT} group: $vinfo->{PRINT}" if($do_trace);
       return $ff unless($flag_matched);
       #push @{$ff->{$flag_matched}}, 'group=' . $ff->{group_eq};
       $ff->{$flag_matched} = 1;
       $count++;
     }
     if(defined($ff->{url_regex}) && defined($url) && ($url =~ /$ff->{url_regex}/)) {
-      TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} url: $vinfo->{PRINT}";
+      TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} url: $vinfo->{PRINT}" if($do_trace);
       return $ff unless($flag_matched);
       #push @{$ff->{$flag_matched}}, $vinfo->{CONFIG}{CONTEXT} . '=' . $vinfo->{PRINT};
       $ff->{$flag_matched} = 1;
@@ -3131,7 +3132,7 @@ sub vinfo_match($$;@)
       if((lc($host) eq lc($vinfo->{HOST})) &&
          (!defined($port) || (defined($vinfo->{PORT}) && ($port == $vinfo->{PORT}))))
       {
-        TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} host: $vinfo->{PRINT}";
+        TRACE "filter \"$ff->{unparsed}\" matches $vinfo->{CONFIG}{CONTEXT} host: $vinfo->{PRINT}" if($do_trace);
         return $ff unless($flag_matched);
         #push @{$ff->{$flag_matched}}, $vinfo->{CONFIG}{CONTEXT} . '=' . $vinfo->{PRINT};
         $ff->{$flag_matched} = 1;
@@ -3151,7 +3152,7 @@ sub get_related_snapshots($$;$)
   my @ret = map( { vinfo_resolved($_, $snaproot, btrbk_direct_leaf => $btrbk_basename) // () }
                  @{get_related_nodes($svol, readonly => 1, omit_self => 1)} );
 
-  if($loglevel >= 4) { TRACE "get_related_snapshots: found: $_->{PRINT}" foreach(@ret); }
+  if($do_trace) { TRACE "get_related_snapshots: found: $_->{PRINT}" foreach(@ret); }
   DEBUG "Found " . scalar(@ret) . " related snapshots of \"$svol->{PRINT}\" in: $snaproot->{PRINT}" . (defined($btrbk_basename) ? "/$btrbk_basename.*" : "");
   return @ret;
 }
@@ -3189,7 +3190,7 @@ sub _correlated_nodes($$)
   }
 
   @ret = grep($_->{readonly}, @match);
-  TRACE "correlated_nodes: droot=\"$droot->{PRINT}/\", src_vol=\"$src_vol->{PRINT}\": [" . join(", ", map _fs_path($_),@ret) . "]" if($loglevel >= 4);
+  TRACE "correlated_nodes: droot=\"$droot->{PRINT}/\", src_vol=\"$src_vol->{PRINT}\": [" . join(", ", map _fs_path($_),@ret) . "]" if($do_trace);
   return @ret;
 }
 
@@ -3206,16 +3207,16 @@ sub get_receive_targets($$;@)
   foreach (@correlated) {
     my $vinfo = vinfo_resolved($_, $droot); # returns undef if not below $droot
     if(exists($_->{BTRBK_RAW})) {
-      TRACE "get_receive_targets: found raw receive target: " . _fs_path($_);
+      TRACE "get_receive_targets: found raw receive target: " . _fs_path($_) if($do_trace);
     }
     elsif($vinfo && ($vinfo->{SUBVOL_PATH} eq $src_vol->{NAME})) { # direct leaf, (SUBVOL_DIR = "", matching NAME)
-      TRACE "get_receive_targets: found receive target (exact-match): $vinfo->{PRINT}";
+      TRACE "get_receive_targets: found receive target (exact-match): $vinfo->{PRINT}" if($do_trace);
     }
     elsif($vinfo && (not $opts{exact})) {
-      TRACE "get_receive_targets: found receive target (non-exact-match): $vinfo->{PRINT}";
+      TRACE "get_receive_targets: found receive target (non-exact-match): $vinfo->{PRINT}" if($do_trace);
     }
     else {
-      TRACE "get_receive_targets: skip unexpected match: " . _fs_path($_);
+      TRACE "get_receive_targets: skip unexpected match: " . _fs_path($_) if($do_trace);
       ${$opts{ret_unexpected}} = 1 if($opts{ret_unexpected});
       if($opts{warn}) {
         WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: " . ($vinfo ? $vinfo->{PRINT} : _fs_path($_));
@@ -3257,7 +3258,7 @@ sub get_related_nodes($;@)
 {
   my $vol = shift // die;
   my %opts = @_;
-  TRACE "related_nodes: resolving related subvolumes of: $vol->{PATH}";
+  TRACE "related_nodes: resolving related subvolumes of: $vol->{PATH}" if($do_trace);
 
   # iterate parent chain
   my @related_nodes;
@@ -3272,7 +3273,7 @@ sub get_related_nodes($;@)
   while(($distance < $abort_distance) && defined($node) && ($node->{parent_uuid} ne "-")) {
     $uuid = $node->{parent_uuid};
     $node = $uuid_hash->{$uuid};
-    TRACE "related_nodes: d=$distance uuid=$uuid : parent: " . ($node ? _fs_path($node) : "<deleted>") if($loglevel >= 4);
+    TRACE "related_nodes: d=$distance uuid=$uuid : parent: " . ($node ? _fs_path($node) : "<deleted>") if($do_trace);
     $distance++;
   }
   if($distance >= $abort_distance) {
@@ -3280,7 +3281,7 @@ sub get_related_nodes($;@)
     DEBUG $logmsg;
     WARN_ONCE $logmsg unless($opts{nowarn});
   }
-  TRACE "related_nodes: d=$distance uuid=$uuid : top of parent chain";
+  TRACE "related_nodes: d=$distance uuid=$uuid : top of parent chain" if($do_trace);
 
   # push related children (even if parent node is missing -> siblings)
   my @nn;
@@ -3299,7 +3300,7 @@ sub get_related_nodes($;@)
       }
     }
 
-    if($loglevel >= 4) {
+    if($do_trace) {
       if($node) {
         if($node->{readonly}) {
           TRACE "related_nodes: d=$distance uuid=$uuid : push related readonly: " . _fs_path($node);
@@ -3318,7 +3319,7 @@ sub get_related_nodes($;@)
     if(exists($node->{MARK_DISTANCE})) {
       # marker reached, restore distance
       $distance = $node->{MARK_DISTANCE};
-      TRACE "related_nodes: d=$distance uuid=$node->{MARK_UUID} : processing children" if($loglevel >= 4);
+      TRACE "related_nodes: d=$distance uuid=$node->{MARK_UUID} : processing children" if($do_trace);
       $node = shift @nn;
     }
     $uuid = $node->{uuid};
@@ -3327,10 +3328,10 @@ sub get_related_nodes($;@)
   if($opts{omit_self}) {
     my $vol_node_id = $vol->{node}{id};
     my @filtered = grep { $_->{id} != $vol_node_id } @related_nodes;
-    TRACE "related_nodes: found total=" . scalar(@filtered) . " related readonly subvolumes";
+    TRACE "related_nodes: found total=" . scalar(@filtered) . " related readonly subvolumes" if($do_trace);
     return \@filtered;
   }
-  TRACE "related_nodes: found total=" . scalar(@related_nodes) . " related readonly subvolumes (including self)";
+  TRACE "related_nodes: found total=" . scalar(@related_nodes) . " related readonly subvolumes (including self)" if($do_trace);
   return \@related_nodes;
 }
 
@@ -3347,7 +3348,7 @@ sub get_best_parent($$$;@)
   my $ret_target_parent_node = $opts{target_parent_node};
   my $strict_related         = $opts{strict_related};
 
-  TRACE "get_best_parent: resolving best common parent for subvolume: $svol->{PRINT}  (droot=$droot->{PRINT})";
+  TRACE "get_best_parent: resolving best common parent for subvolume: $svol->{PRINT}  (droot=$droot->{PRINT})" if($do_trace);
 
   # honor incremental_resolve option
   my $source_incremental_resolve = config_key($svol, "incremental_resolve");
@@ -3419,8 +3420,8 @@ sub get_best_parent($$$;@)
     @c_snapdir_newer = map { $c_rel_id{$_->{node}{id}} // get_best_correlated($resolve_droot, $_, %gbc_opts) // () } @sbdl_newer;
   }
 
-  if($loglevel >= 4) {
-    TRACE "get_best_parent: related reference cgen=$svol->{node}{cgen}";
+  if($do_trace) {
+    TRACE "get_best_parent: related reference cgen=$svol->{node}{cgen}" if($do_trace);
     TRACE map("get_best_parent: related older: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_related_older);
     TRACE map("get_best_parent: related newer: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_related_newer);
     TRACE map("get_best_parent: snapdir older: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_snapdir_older);
@@ -3483,7 +3484,7 @@ sub get_best_parent($$$;@)
     push @extra_clones, $cc->[0] unless(grep { $_->[0]{node}{id} == $cc->[0]{node}{id} } @parent);
   }
   DEBUG "Resolved " . (scalar @extra_clones) . " extra clone sources";
-  if($loglevel >= 4) {
+  if($do_trace) {
     TRACE "get_best_parent: parent,clones: $_->[0]{PRINT}" foreach(@parent);
     TRACE "get_best_parent: extra clone  : $_->{PRINT}" foreach(@extra_clones);
   }
@@ -3603,7 +3604,7 @@ sub config_key($$;@)
   $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
 
   if(exists($config_override{$key})) {
-    TRACE "config_key: OVERRIDE key=$key to value=" . ($config_override{$key} // "<undef>");
+    TRACE "config_key: OVERRIDE key=$key to value=" . ($config_override{$key} // "<undef>") if($do_trace);
     return $config_override{$key};
   }
 
@@ -3783,7 +3784,7 @@ sub append_config_option($$$$;@)
   if($value eq "") {
     if(grep(/^yes$/, @{$opt->{accept}})) {
       $value = "yes";
-      TRACE "option \"$key\" has no value, accepted map to \"yes\"";
+      TRACE "option \"$key\" has no value, accepted map to \"yes\"" if($do_trace);
     }
     else {
       ERROR "Unsupported empty value for option \"$key\" $error_statement";
@@ -3791,10 +3792,10 @@ sub append_config_option($$$$;@)
     }
   }
   elsif(grep(/^\Q$value\E$/, @{$opt->{accept}})) {
-    TRACE "option \"$key=$value\" found in accept list";
+    TRACE "option \"$key=$value\" found in accept list" if($do_trace);
   }
   elsif($opt->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
-    TRACE "option \"$key=$value\" is numeric, accepted";
+    TRACE "option \"$key=$value\" is numeric, accepted" if($do_trace);
   }
   elsif($opt->{accept_file})
   {
@@ -3802,13 +3803,13 @@ sub append_config_option($$$$;@)
     $value = check_file($value, $opt->{accept_file}, sanitize => 1, error_statement => ($error_statement ? "for option \"$key\" $error_statement" : undef));
     return undef unless(defined($value));
 
-    TRACE "option \"$key=$value\" is a valid file, accepted";
+    TRACE "option \"$key=$value\" is a valid file, accepted" if($do_trace);
     $value = "no" if($value eq ".");  # maps to undef later
   }
   elsif($opt->{accept_regexp}) {
     my $match = $opt->{accept_regexp};
     if($value =~ m/$match/) {
-      TRACE "option \"$key=$value\" matched regexp, accepted";
+      TRACE "option \"$key=$value\" matched regexp, accepted" if($do_trace);
     }
     else {
       ERROR "Value \"$value\" failed input validation for option \"$key\" $error_statement";
@@ -3832,7 +3833,7 @@ sub append_config_option($$$$;@)
       ERROR "Value \"$value\" failed input validation for option \"$key\" $error_statement";
       return undef;
     }
-    TRACE "adding preserve matrix $context context:" . Data::Dumper->new([\%preserve], [ $key ])->Indent(0)->Pad(' ')->Quotekeys(0)->Pair('=>')->Dump() if($do_dumper);
+    TRACE "adding preserve matrix $context context:" . Data::Dumper->new([\%preserve], [ $key ])->Indent(0)->Pad(' ')->Quotekeys(0)->Pair('=>')->Dump() if($do_trace && $do_dumper);
     $config->{$key} = \%preserve;
     return $config;
   }
@@ -3884,7 +3885,7 @@ sub append_config_option($$$$;@)
     else {
       push(@$aref, $value);
     }
-    TRACE "pushing option \"$key=$value\" to $aref=[" . join(',', @$aref) . "]";
+    TRACE "pushing option \"$key=$value\" to $aref=[" . join(',', @$aref) . "]" if($do_trace);
     $value = $aref;
   }
   elsif(exists($config->{$key})) {
@@ -3893,7 +3894,7 @@ sub append_config_option($$$$;@)
     }
   }
 
-  TRACE "adding option \"$key=$value\" to $context context";
+  TRACE "adding option \"$key=$value\" to $context context" if($do_trace);
   $value = undef if($value eq "no");  # we don't want to check for "no" all the time
   $config->{$key} = $value;
   return $config;
@@ -3907,12 +3908,12 @@ sub parse_config_line($$$$$)
   if($key eq "volume")
   {
     $cur = $root;
-    TRACE "config: context forced to: $cur->{CONTEXT}";
+    TRACE "config: context forced to: $cur->{CONTEXT}" if($do_trace);
 
     # be very strict about file options, for security sake
     my ($url_prefix, $path) = check_url($value, error_statement => "for option \"$key\" in \"$file\" line $.");
     return undef unless(defined($path));
-    TRACE "config: adding volume \"$url_prefix$path\" to global context";
+    TRACE "config: adding volume \"$url_prefix$path\" to global context" if($do_trace);
     die unless($cur->{CONTEXT} eq "global");
     my $volume = { CONTEXT    => "volume",
                    PARENT     => $cur,
@@ -3930,7 +3931,7 @@ sub parse_config_line($$$$$)
         return undef;
       }
       $cur = $cur->{PARENT} || die;
-      TRACE "config: context changed to: $cur->{CONTEXT}";
+      TRACE "config: context changed to: $cur->{CONTEXT}" if($do_trace);
     }
     # be very strict about file options, for security sake
     my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, sanitize => 1, error_statement => "for option \"$key\" in \"$file\" line $.");
@@ -3941,7 +3942,7 @@ sub parse_config_line($$$$$)
     $default_snapshot_name =~ s/^.*\///;
     $default_snapshot_name = 'ROOT' if($default_snapshot_name eq ""); # if volume="/"
 
-    TRACE "config: adding subvolume \"$rel_path\" to volume context: $cur->{url}";
+    TRACE "config: adding subvolume \"$rel_path\" to volume context: $cur->{url}" if($do_trace);
     my $subvolume = { CONTEXT       => "subvolume",
                       PARENT        => $cur,
                       # SUBSECTION    => [],  # handled by target propagation
@@ -3957,7 +3958,7 @@ sub parse_config_line($$$$$)
   {
     if($cur->{CONTEXT} eq "target") {
       $cur = $cur->{PARENT} || die;
-      TRACE "config: context changed to: $cur->{CONTEXT}";
+      TRACE "config: context changed to: $cur->{CONTEXT}" if($do_trace);
     }
     if($value =~ /^((?<target_type>\S+)\s+)?(?<url>\S+)$/)
     {
@@ -3972,7 +3973,7 @@ sub parse_config_line($$$$$)
       my ($url_prefix, $path) = check_url($url, error_statement => "for option \"$key\" in \"$file\" line $.");
       return undef unless(defined($path));
 
-      TRACE "config: adding target \"$url_prefix$path\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "");
+      TRACE "config: adding target \"$url_prefix$path\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "") if($do_trace);
       my $target = { CONTEXT => "target",
                      PARENT => $cur,
                      target_type => $target_type,
@@ -4004,7 +4005,7 @@ sub _config_propagate_target
   foreach my $subsection (@{$cur->{SUBSECTION}}) {
     my @propagate_target;
     foreach my $target (@{$cur->{TARGET}}) {
-      TRACE "propagating target \"$target->{url}\" from $cur->{CONTEXT} context to: $subsection->{CONTEXT} $subsection->{url}";
+      TRACE "propagating target \"$target->{url}\" from $cur->{CONTEXT} context to: $subsection->{CONTEXT} $subsection->{url}" if($do_trace);
       die if($target->{SUBSECTION});
 
       # don't propagate if a target of same target_type and url already exists in subsection
@@ -4063,7 +4064,7 @@ sub init_config(@)
 sub _config_file(@) {
   my @config_files = @_;
   foreach my $file (@config_files) {
-    TRACE "config: checking for file: $file";
+    TRACE "config: checking for file: $file" if($do_trace);
     return $file if(-r "$file");
   }
   return undef;
@@ -4077,14 +4078,14 @@ sub parse_config($)
   my $root = init_config(SRC_FILE => $file);
   my $cur = $root;
 
-  TRACE "config: open configuration file: $file";
+  TRACE "config: open configuration file: $file" if($do_trace);
   open(FILE, '<', $file) or die $!;
   while (<FILE>) {
     chomp;
     s/#.*//;         # remove comments
     s/\s*$//;        # remove trailing whitespace
     next if /^\s*$/; # ignore empty lines
-    TRACE "config: parsing line $. with context=$cur->{CONTEXT}: \"$_\"";
+    TRACE "config: parsing line $. with context=$cur->{CONTEXT}: \"$_\"" if($do_trace);
     if(/^(\s*)([a-zA-Z_]+)(\s+(.*))?$/)
     {
       # NOTE: we do not perform checks on indentation!
@@ -4095,7 +4096,7 @@ sub parse_config($)
         $root = undef;
         last;
       }
-      TRACE "line processed: new context=$cur->{CONTEXT}";
+      TRACE "line processed: new context=$cur->{CONTEXT}" if($do_trace);
     }
     else
     {
@@ -4241,7 +4242,7 @@ sub macro_delete($$$$$;@)
     unless($vol->{node}{BTRBK_DATE} &&
            ($vol->{SUBVOL_DIR} eq $subvol_dir) &&
            ($vol->{node}{BTRBK_BASENAME} eq $subvol_basename)) {
-      TRACE "Target subvolume does not match btrbk filename scheme, skipping: $vol->{PRINT}";
+      TRACE "Target subvolume does not match btrbk filename scheme, skipping: $vol->{PRINT}" if($do_trace);
       next;
     }
     push(@schedule, { value      => $vol,
@@ -4564,7 +4565,7 @@ sub schedule(@)
       $count_defined++;
     }
 
-    TRACE join(" ", "schedule: $href->{value}{PRINT}", ($href->{informative_only} ? "(informative_only)" : uc($result_action_text || "-")), ($result_reason_text // "-")) if(($loglevel >= 4) && $href->{value} && $href->{value}{PRINT});
+    TRACE join(" ", "schedule: $href->{value}{PRINT}", ($href->{informative_only} ? "(informative_only)" : uc($result_action_text || "-")), ($result_reason_text // "-")) if($do_trace && $href->{value} && $href->{value}{PRINT});
     push @$results_list, { %result_base,
                            action => $result_action_text,
                            reason => $result_reason_text,
@@ -5069,7 +5070,8 @@ MAIN:
     HELP_MESSAGE(0);
     exit 2;
   }
-  require_data_dumper() if(($loglevel >= 4) || ($VERSION =~ /-dev$/));
+  $do_trace = 1 if($loglevel >= 4);
+  require_data_dumper() if($do_trace || ($VERSION =~ /-dev$/));
 
   # DEPRECATED options
   if($resume_only_DEPRECATED) {
@@ -5459,7 +5461,7 @@ MAIN:
           DEBUG "Listing $count_added/" . (scalar(@$subvol_list) + 1) . " subvolumes for btrfs mount: $vol->{PRINT}";
         }
         else {
-          TRACE "Skipping mount point: $mnt_path (fs_type=$mnt->{fs_type})";
+          TRACE "Skipping mount point: $mnt_path (fs_type=$mnt->{fs_type})" if($do_trace);
         }
 
         last if($root_path =~ /^\Q$mnt_path\E/);
@@ -5769,16 +5771,16 @@ MAIN:
 
         # support "*some*file*", "*/*"
         my $match = join('[^\/]*', map(quotemeta($_), split(/\*+/, $globs, -1)));
-        TRACE "translated globs \"$globs\" to regex \"$match\"";
+        TRACE "translated globs \"$globs\" to regex \"$match\"" if($do_trace);
         my $expand_count = 0;
         foreach my $vol (@{vinfo_subvol_list($sroot_glob, sort => 'path')})
         {
           if($vol->{node}{readonly}) {
-            TRACE "skipping readonly subvolume: $vol->{PRINT}";
+            TRACE "skipping readonly subvolume: $vol->{PRINT}" if($do_trace);
             next;
           }
           unless($vol->{SUBVOL_PATH} =~ /^$match$/) {
-            TRACE "skipping non-matching subvolume: $vol->{PRINT}";
+            TRACE "skipping non-matching subvolume: $vol->{PRINT}" if($do_trace);
             next;
           }
           unless(defined(check_file($vol->{SUBVOL_PATH}, { relative => 1 }))) {
@@ -5808,7 +5810,7 @@ MAIN:
     }
     $config_vol->{SUBSECTION} = \@vol_subsection_expanded;
   }
-  TRACE(Data::Dumper->Dump([$config], ["config"])) if($do_dumper);
+  TRACE(Data::Dumper->Dump([$config], ["config"])) if($do_trace && $do_dumper);
 
 
   #
@@ -6597,7 +6599,7 @@ MAIN:
             push(@lookup, map { $_->{SUBVOL_PATH} } @{vinfo_subvol_list($droot)});
           }
           @lookup = grep /^\Q$snapshot_basename.$timestamp\E(_[0-9]+)?$/ ,@lookup;
-          TRACE "Present snapshot names for \"$svol->{PRINT}\": " . join(', ', @lookup);
+          TRACE "Present snapshot names for \"$svol->{PRINT}\": " . join(', ', @lookup) if($do_trace);
           @lookup = map { /_([0-9]+)$/ ? $1 : 0 } @lookup;
           @lookup = sort { $b <=> $a } @lookup;
           my $postfix_counter = $lookup[0] // -1;
