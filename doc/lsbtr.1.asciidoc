@@ -16,22 +16,20 @@ SYNOPSIS
 --------
 
 [verse]
-lsbtr [-h|--help] [--version]
-      [-l|--long] [-u|--uuid] [--raw]
-      [-v|--verbose]
-      [-c|--config <file>]
-      [--override <config_option>=<value>]
-      [<path>|<url>...]
+lsbtr [options] [(<path> | <url>)...]
+lsbtr -r [options] <subvolume>
 
 
 DESCRIPTION
 -----------
 
 List btrfs subvolumes and their mount points visible by the file
-system below '<path>'.
+system below '<path>', or, if the '-r' option is present, list all
+related subvolumes of '<subvolume>'.
 
-*lsbtr* is part of *btrbk* (basically a shortcut for "btrbk ls"), and
-takes some global configuration options from btrbk.conf(5) if present.
+*lsbtr* is part of *btrbk* (basically a more powerful variant of
+"btrbk ls"), and takes some global configuration options from
+btrbk.conf(5) if present.
 
 *lsbtr* requires 'root privileges' to run correctly. Alternatively,
 consider using "btrfs-progs-sudo" or "btrfs-progs-btrbk" backends,
@@ -47,6 +45,10 @@ OPTIONS
 
 --version::
     Prints the btrbk version.
+
+-r, --related::
+   Print (deep) related subvolumes. Includes the whole "parent of
+   parent" and "children of children" chain.
 
 -l, --long::
     Print output in long table format (additionally print subvolume

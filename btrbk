@@ -333,11 +333,13 @@ sub HELP_MESSAGE
 #80-----------------------------------------------------------------------------
   if($program_name eq "lsbtr") {
     print STDERR <<"END_HELP_LSBTR";
-usage: lsbtr [options] [path]...
+usage: lsbtr [options] [(<path> | <url>)...]
+   or: lsbtr -r [options] <subvolume>
 
 options:
    -h, --help                display this help message
        --version             display version information
+   -r, --related             print related subvolumes
    -l, --long                use long listing format
    -u, --uuid                print uuid table (parent/received relations)
        --raw                 print raw table format
@@ -5013,6 +5015,7 @@ MAIN:
   my ($config_cmdline, $lockfile_cmdline, $print_schedule,
       $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups,
       $archive_raw,
+      $ls_related,
       $resume_only_DEPRECATED,  # as of btrbk-v0.26.0
      );
 
@@ -5035,6 +5038,7 @@ MAIN:
    );
   push @cmdline_options, ($program_name eq "lsbtr") ? (
     # "lsbtr" options
+    'related|r'          => \$ls_related,
     'long|l'             => sub { $output_format = "table" },
     'uuid|u'             => sub { $output_format = "long" },
     'raw'                => sub { $output_format = "raw" },
@@ -5140,6 +5144,7 @@ MAIN:
     $action_ls = 1;
     $fallback_default_config = 1;
     $args_expected_min = 1;
+    $args_expected_max = 1 if($ls_related);
     @subvol_args = @ARGV;
     $subvol_args_allow_relative = 1;
   }
@@ -5385,6 +5390,44 @@ MAIN:
     exit 0;
   }
 
+
+  if($action_ls && $ls_related)
+  {
+    #
+    # print related subvolumes for subvolume
+    #
+    my $vol = vinfo($subvol_args[0], $config);
+    unless(vinfo_init_root($vol)) {
+      ERROR "Failed to fetch subvolume detail for: $vol->{PRINT}", @stderr;
+      exit 1;
+    }
+    my @data;
+    foreach my $node (@{get_related_nodes($vol)}) {
+      foreach my $fs_info (_fs_info($node)) {
+        my $mountinfo = $fs_info->{mountinfo} // {};
+        push @data, {
+          %{$node}, # copy node
+          top => $node->{top_level}, # alias (narrow column)
+          mount_source   => $mountinfo->{mount_source},
+          mount_point    => $mountinfo->{mount_point},
+          mount_subvolid => $mountinfo->{MNTOPS}{subvolid}, # $fs_info->{mountpoint_node}{id}
+          mount_subvol   => $mountinfo->{MNTOPS}{subvol},
+          subvolume_path => $node->{path},
+          subvolume_rel_path => $node->{REL_PATH},
+          host => $vol->{HOST},
+          path => $fs_info->{path},
+          flags => ($node->{readonly} ? "readonly" : undef),
+        };
+      }
+    }
+    my @sorted = sort { ($a->{path} cmp $b->{path}) } @data;
+
+    DEBUG "Listing " . scalar(@sorted) . " related subvolumes for: $vol->{PRINT}";
+    $output_format ||= "short";
+    print_formatted("fs_list", \@sorted, no_header => !scalar(@sorted));
+
+    exit 0;
+  }
 
   if($action_ls)
   {
