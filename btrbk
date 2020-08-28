@@ -1089,7 +1089,7 @@ sub btrfs_subvolume_show($;@)
   }
 
   if($detail{id} == 5) {
-    DEBUG "found btrfs root: $vol->{PRINT}";
+    DEBUG "Found btrfs root: $vol->{PRINT}";
     $detail{is_root} = 1;
   }
 
@@ -1965,10 +1965,10 @@ sub btrfs_mountpoint
   # handle autofs
   if($mountpoint->{fs_type} eq 'autofs') {
     if($autofs_retry) {
-      DEBUG "non-btrfs autofs mount point for: $vol->{PRINT}";
+      DEBUG "Non-btrfs autofs mount point for: $vol->{PRINT}";
       return undef;
     }
-    DEBUG "autofs mount point found, triggering automount on $mountpoint->{mount_point} for: $vol->{PRINT}";
+    DEBUG "Found autofs mount point, triggering automount on $mountpoint->{mount_point} for: $vol->{PRINT}";
     btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mountpoint->{mount_point}, $vol->{CONFIG}));
     $mountinfo_cache{$vol->{MACHINE_ID}} = undef;
     return btrfs_mountpoint($vol, 1);
@@ -5161,7 +5161,6 @@ MAIN:
     if(/(.*?)=(.*)/) {
       my $key = $1;
       my $value = $2;
-      DEBUG "config_override: \"$key=$value\"";
       unless(append_config_option(\%config_override, $key, $value, "OVERRIDE", error_statement => "in option \"--override\"")) {
         HELP_MESSAGE(0);
         exit 2;
