@@ -2,154 +2,251 @@
 
 ## Wrapper script running "btrbk" and sending email with results
 
-set -uf
-declare -A rsync_src rsync_dst rsync_log rsync_key rsync_opt
 now=$(date +%Y%m%d)
-
 
 #####  start config section  #####
 
 # Email recipients, separated by whitespace:
-mailto=$MAILTO
-
-# List of mountpoints to be mounted/unmounted (whitespace-separated)
-# mount_targets="/mnt/btr_pool /mnt/backup"
-mount_targets=
-umount_targets=$mount_targets
-
-# btrbk configuration file:
-config="/etc/btrbk/btrbk.conf"
-
-# Uncomment this if you only want to receive error messages:
-#btrbk_opts="-q"
-#skip_empty_mail=yes
+mailto=${MAILTO:-root}
 
 # Email subject:
 mail_subject_prefix="btrbk <${HOSTNAME:-localhost}>"
 
-# rsync declarations (repeat complete block for more declarations):
-rsync_src[example_data]=user@example.com:/data/
-rsync_dst[example_data]=/mnt/backup/example.com/data/
-rsync_log[example_data]=/mnt/backup/example.com/data-${now}.log
-rsync_key[example_data]=/mnt/backup/ssh_keys/id_rsa
-rsync_opt[example_data]="-az --inplace --delete"
+# Add summary and/or detail (rsync/btrbk command output) to mail body.
+# If both are not set, a mail is only sent on errors.
+mail_summary=yes
+mail_detail=no
 
-# Enabled rsync declarations (space separated list)
+# List of mountpoints to be mounted/unmounted (whitespace-separated)
+# mount_targets="/mnt/btr_pool /mnt/backup"
+mount_targets=
+
+# rsync declarations (repeat complete block for more declarations):
+rsync_src[example_data]="user@example.com:/data/"
+rsync_dst[example_data]="/mnt/backup/example.com/data/"
+rsync_log[example_data]="/mnt/backup/example.com/data-${now}.log"
+rsync_rsh[example_data]="ssh -i /mnt/backup/ssh_keys/id_rsa"
+rsync_opt[example_data]="-az --delete --inplace --numeric-ids --acls --xattrs"
+# If set, add "rsync_dst" to "sync_fs" (see below) if rsync reports files transferred
+#sync_fs_onchange[example_data]=yes
+
+# Enabled rsync declarations (whitespace-separated list)
 #rsync_enable="example_data"
 rsync_enable=
 
-# Log level (1=error, 2=warn, 3=info)
-loglevel=2
+# If set, do not run btrbk if all rsync reports no changes.
+# If set to "quiet", do not send mail.
+#skip_btrbk_if_unchanged=quiet
+
+# Array of directories to sync(1) prior to running btrbk. This is
+# useful for source subvolumes having "snapshot_create ondemand"
+# configured in btrbk.conf.
+#sync_fs=("/mnt/btr_data" "/mnt/btr_pool")
+
+# btrbk command / options:
+btrbk_command="run"
+btrbk_opts="-c /etc/btrbk/btrbk.conf"
 
 
 #####  end config section  #####
 
-mail_body=""
+
+check_options()
+{
+    [[ -n "$btrbk_command" ]] || die "btrbk_command is not set"
+    for key in $rsync_enable; do
+        [[ -n "${rsync_src[$key]}" ]] || die "rsync_src is not set for \"$key\""
+        [[ -n "${rsync_dst[$key]}" ]] || die "rsync_dst is not set for \"$key\""
+        [[ -n "${rsync_opt[$key]}" ]] || die "rsync_opt is not set for \"$key\""
+    done
+}
+
+send_mail()
+{
+    # assemble mail subject
+    local subject="$mail_subject_prefix"
+    [[ -n "$has_errors" ]] && subject+=" ERROR";
+    [[ -n "$status"     ]] && subject+=" - $status";
+    [[ -n "$xstatus"    ]] && subject+=" (${xstatus:2})";
+
+    # assemble mail body
+    local body=
+    if [[ -n "$info" ]] && [[ -n "$has_errors" ]] || [[ "${mail_summary:-no}" = "yes" ]]; then
+        body+="$info"
+    fi
+    if [[ -n "$detail" ]] && [[ -n "$has_errors" ]] || [[ "${mail_detail:-no}" = "yes" ]]; then
+        [[ -n "$body" ]] && body+="\n\nDETAIL:\n"
+        body+="$detail"
+    fi
+
+    # skip sending mail on empty body
+    if [[ -z "$body" ]] && [[ -n "$has_errors" ]]; then
+        body+="FATAL: something went wrong (errors present but empty mail body)\n"
+    fi
+    [[ -z "$body" ]] && exit 0
+
+    # send mail
+    echo -e "$body" | mail -s "$subject" $mailto
+    if [[ $? -ne 0 ]]; then
+        echo -e "$0: Failed to send btrbk mail to \"$mailto\", dumping mail:\n" 1>&2
+        echo -e "<mail_subject>$subject</mail_subject>\n<mail_body>\n$body</mail_body>" 1>&2
+    fi
+}
+
+einfo()
+{
+    info+="$1\n"
+}
+
+ebegin()
+{
+    ebtext=$1
+    detail+="\n### $1\n"
+}
+
+eend()
+{
+    if [[ $1 -eq 0 ]]; then
+        eetext=${3-success}
+        detail+="\n"
+    else
+        has_errors=1
+        eetext="ERROR (code=$1)"
+        [[ -n "$2" ]] && eetext+=": $2"
+        detail+="\n### $eetext\n"
+    fi
+    info+="$ebtext: $eetext\n"
+    return $1
+}
 
 die()
 {
-    echo "$0 FATAL: $1"      1>&2
-    echo "$0 FATAL: exiting" 1>&2
+    einfo "FATAL: ${1}, exiting"
+    has_errors=1
+    send_mail
     exit 1
 }
-log_error()   { [ $loglevel -ge 1 ] && echo "$0 ERROR: $1"   1>&2 ; }
-log_warning() { [ $loglevel -ge 2 ] && echo "$0 WARNING: $1" 1>&2 ; }
-log_info()    { [ $loglevel -ge 3 ] && echo "$0 INFO: $1"    1>&2 ; }
+
+mount_all()
+{
+    # mount all mountpoints listed in $mount_targets
+    mounted=""
+    for mountpoint in $mount_targets; do
+        ebegin "Mounting $mountpoint"
+        detail+=`(set -x; findmnt -n $mountpoint) 2>&1`
+        if [[ $? -eq 0 ]]; then
+            eend -1 "already mounted"
+        else
+            detail+="\n"
+            detail+=`(set -x; mount --target $mountpoint) 2>&1`
+            eend $? && mounted+=" $mountpoint"
+        fi
+    done
+}
+
+umount_mounted()
+{
+    for mountpoint in $mounted; do
+        ebegin "Unmounting $mountpoint"
+        detail+=`(set -x; umount $mountpoint) 2>&1`
+        eend $?
+    done
+}
 
 
-#
-# mount all mountpoints listed in $mount_targets
-#
-for mountpoint in $mount_targets; do
-    $(findmnt -r -n -t btrfs $mountpoint 1>&2)
-    if [ $? = 0 ]; then
-	log_warning "btrfs filesystem already mounted: $mountpoint"
-    else
-	log_info "mount $mountpoint"
-	$(mount --target $mountpoint 1>&2)
-	[ $? = 0 ] || log_error "mount failed: $mountpoint"
-    fi
-done
+check_options
+mount_all
 
 
 #
 # run rsync for all $rsync_enable
 #
 for key in $rsync_enable; do
-    log_info "starting rsync: $key"
+    ebegin "Running rsync[$key]"
+    if [[ -d "${rsync_dst[$key]}" ]]; then
+        # There is no proper way to get a proper machine readable
+        # output of "rsync did not touch anything at destination", so
+        # we add "--info=stats2" and parse the output.
+        # NOTE: This also appends the stats to the log file (rsync_log).
+        # Another approach to count the files would be something like:
+        # "rsync --out-format='' | wc -l"
+        ret=`(set -x; \
+              rsync ${rsync_opt[$key]} \
+                    --info=stats2 \
+                    ${rsync_log[$key]:+--log-file="${rsync_log[$key]}"} \
+                    ${rsync_rsh[$key]:+-e "${rsync_rsh[$key]}"} \
+                    "${rsync_src[$key]}" \
+                    "${rsync_dst[$key]}"
+             ) 2>&1`
+        exitcode=$?
+        detail+=$ret
 
-    [ -n "${rsync_src[$key]}" ] || die "rsync_src is not set for \"$key\""
-    [ -n "${rsync_dst[$key]}" ] || die "rsync_dst is not set for \"$key\""
-    [ -n "${rsync_log[$key]}" ] || die "rsync_log is not set for \"$key\""
-    [ -n "${rsync_key[$key]}" ] || die "rsync_key is not set for \"$key\""
-    [ -n "${rsync_opt[$key]}" ] || die "rsync_opt is not set for \"$key\""
+        # parse stats2 (count created/deleted/transferred files)
+        REGEXP=$'\n''Number of created files: ([0-9]+)'
+        REGEXP+='.*'$'\n''Number of deleted files: ([0-9]+)'
+        REGEXP+='.*'$'\n''Number of regular files transferred: ([0-9]+)'
+        if [[ $ret =~ $REGEXP ]]; then
+            rsync_stats="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
+            rsync_stats_long="${BASH_REMATCH[1]} created, ${BASH_REMATCH[2]} deleted, ${BASH_REMATCH[3]} transferred"
+            nfiles=$(( ${BASH_REMATCH[1]} + ${BASH_REMATCH[2]} + ${BASH_REMATCH[3]} ))
+        else
+            rsync_stats_long="failed to parse stats, assuming files transferred"
+            rsync_stats="-1/-1/-1"
+            nfiles=-1
+        fi
 
-    rsync_header="### rsync ${rsync_opt[$key]} ${rsync_src[$key]} ${rsync_dst[$key]}"
+        eend $exitcode "$rsync_stats_long" "$rsync_stats_long"
+        xstatus+=", rsync[$key]=$rsync_stats"
 
-    if [ -d ${rsync_dst[$key]} ]; then
-	echo "$rsync_header" >> ${rsync_log[$key]}
-	ret=$(rsync ${rsync_opt[$key]} --info=STATS --log-file=${rsync_log[$key]} -e "ssh -i ${rsync_key[$key]}" ${rsync_src[$key]} ${rsync_dst[$key]})
-	if [ $? != 0 ]; then
-	    log_error "rsync failed: $key"
-	    ret+="\nERROR: rsync failed with exit code $?\n"
-	fi
-	mail_body+="$rsync_header$ret\n\n"
+        if [[ $nfiles -ne 0 ]]; then
+            # NOTE: on error, we assume files are transferred
+            rsync_files_transferred=1
+            [[ -n "${sync_fs_onchange[$key]}" ]] && sync_fs+=("${rsync_dst[$key]}")
+        fi
     else
-	ret="rsync destination directory not found for \"$key\", skipping: ${rsync_dst[$key]}"
-	mail_body+="$rsync_header\n$ret\n\n"
-	log_error "$ret"
+        eend -1 "Destination directory not found, skipping: ${rsync_dst[$key]}"
     fi
 done
+
+# honor skip_btrbk_if_unchanged (only if rsync is enabled and no files were transferred)
+if [[ -n "$rsync_enable" ]] && [[ -n "$skip_btrbk_if_unchanged" ]] && [[ -z "$rsync_files_transferred" ]]; then
+     einfo "No files transferred, exiting"
+     status="No files transferred"
+     umount_mounted
+     if [[ "$skip_btrbk_if_unchanged" != "quiet" ]] || [[ -n "$has_errors" ]]; then
+         send_mail
+     fi
+     exit 0
+fi
+
+
+#
+# sync filesystems in sync_fs
+#
+if [[ ${#sync_fs[@]} -gt 0 ]]; then
+    ebegin "Syncing filesystems at ${sync_fs[@]}"
+    detail+=`(set -x; sync -f "${sync_fs[@]}") 2>&1`
+    eend $?
+fi
 
 
 #
 # run btrbk
 #
-log_info "running btrbk"
-ret=$(btrbk -c "$config" ${btrbk_opts:-} run 2>&1)
+ebegin "Running btrbk"
+detail+=`(set -x; btrbk ${btrbk_opts:-} ${btrbk_command}) 2>&1`
 exitcode=$?
 case $exitcode in
     0)  status="All backups successful"
-	;;
+        ;;
     3)  status="Another instance of btrbk is running, no backup tasks performed!"
-	;;
-    10) status="ERROR: At least one backup task aborted!"
-	;;
-    *)  status="ERROR: btrbk failed with error code $exitcode"
-	;;
+        ;;
+    10) status="At least one backup task aborted!"
+         ;;
+    *)  status="btrbk failed with error code $exitcode"
+        ;;
 esac
+eend $exitcode "$status"
 
-mail_body+=$ret
-
-if [ "${skip_empty_mail:-no}" = "yes" ] && [ -z "$mail_body" ] && [ $exitcode -eq 0 ]; then
-    : # skip email sending if skip_empty_mail=yes
-else
-    # send email
-    echo -e "$mail_body" | mail -s "$mail_subject_prefix - $status" $mailto
-    if [ $? != 0 ]; then
-	log_error "failed to send btrbk mail to \"$mailto\", dumping mail body:"
-	echo -e "$mail_body" 1>&2
-    fi
-fi
-
-
-#
-# sync all mountpoints listed in $umount_targets
-#
-# exit on failure!
-#for mountpoint in $umount_targets; do
-#    log_info "btrfs filesystem sync $mountpoint"
-#    $(btrfs filesystem sync $mountpoint 1>&2)
-#    [ $? = 0 ] || die "btrfs filesystem sync failed: $mountpoint"
-#    sleep 1
-#done
-
-
-#
-# unmount all mountpoints listed in $umount_targets
-#
-for mountpoint in $umount_targets; do
-    log_info "umount $mountpoint"
-    $(umount $mountpoint 1>&2)
-    [ $? = 0 ] || log_error "umount failed: $mountpoint"
-done
+umount_mounted
+send_mail
