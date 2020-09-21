@@ -23,7 +23,7 @@ btrbk is in portage:
 
 ### Debian Based Distros
 
-btrbk is in `stretch (testing) (utils)`: https://packages.debian.org/stretch/btrbk
+btrbk is in debian stable (utils): https://packages.debian.org/stable/utils/btrbk
 
 Packages are also available via NeuroDebian: http://neuro.debian.net/pkgs/btrbk.html
 
@@ -42,9 +42,10 @@ btrbk is in AUR: https://aur.archlinux.org/packages/btrbk/
 
 ### Alpine Linux
 
-btrbk is in `testing`, install with:
+btrbk is in the community repository
 
     apk add btrbk
+
 
 ### Void Linux
 
