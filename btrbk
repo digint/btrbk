@@ -131,6 +131,7 @@ my %config_options = (
   backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
   backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
   backend_remote              => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
+  backend_local_user          => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
 
   compat                      => { default => undef,     accept => [ "no", "busybox" ] },
   compat_local                => { default => undef,     accept => [ "no", "busybox" ] },
@@ -2603,8 +2604,14 @@ sub vinfo_cmd($$@)
   my $cmd = shift || die;
   my @cmd_args = @_;
   my $ret;
-  my $backend = defined($vinfo->{HOST}) ? config_key($vinfo, "backend_remote") : config_key($vinfo, "backend_local");
-  $backend = $backend // config_key($vinfo, "backend") // die;
+  my $backend;
+  if(defined($vinfo->{HOST})) {
+    $backend //= config_key($vinfo, "backend_remote");
+  } else {
+    $backend //= config_key($vinfo, "backend_local_user") if($>); # $EUID, $EFFECTIVE_USER_ID
+    $backend //= config_key($vinfo, "backend_local");
+  }
+  $backend //= config_key($vinfo, "backend") // die;
   my $cmd_mapped = $backend_cmd_map{$backend}{$cmd};
   if(defined($cmd_mapped)) {
     TRACE "vinfo_cmd: found mapping for backend=$backend cmd=\"$cmd\": " . join(' ', @$cmd_mapped) if($do_trace);

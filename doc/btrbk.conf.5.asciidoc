@@ -364,27 +364,31 @@ constraints.
 *backend* btrfs-progs|btrfs-progs-btrbk|btrfs-progs-sudo::
     Backend filesystem utilities to be used for btrfs specific
     operations. Defaults to ``btrfs-progs''.
-    If you want to set this option for local or remote hosts only, you
-    can set *backend_local* or *backend_remote*
-    (e.g. "backend_remote btrfs-progs-btrbk").
 +
 --
-btrfs-progs::
+*btrfs-progs*::
     Default backend, btrfs commands are called as specified in
     btrfs(8) (e.g. "btrfs subvolume show").
 
-btrfs-progs-btrbk::
+*btrfs-progs-btrbk*::
     btrfs commands are separated by a dash instead of a whitespace
     (e.g. "btrfs-subvolume-show" instead of "btrfs subvolume
     show"). Useful for setting suid or file capabilities (setcap) on
     specific btrfs commands, as implemented in
     <https://github.com/digint/btrfs-progs-btrbk>.
 
-btrfs-progs-sudo::
+*btrfs-progs-sudo*::
     btrfs commands are prefixed with "sudo -n" (e.g. "sudo -n btrfs
     subvolume show" instead of "btrfs subvolume show"). Make sure to
     have appropriate (root) permissions for the "btrfs" command groups
     as well as the "readlink" and "test" commands in /etc/sudoers.
+
+If you want to set this option for local or remote hosts only, set
+*backend_local* or *backend_remote* (e.g. "backend_remote
+btrfs-progs-btrbk").
+
+If you want to set this option for regular (non-root) user only, set
+*backend_local_user*.
 --
 +
 
