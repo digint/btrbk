@@ -207,6 +207,11 @@ not be certain about this, such operations are disallowed in
     <<_retention_policy,RETENTION POLICY>> below). If set to ``no'',
     preserve snapshots according to 'snapshot_preserve_min'
     only. Defaults to ``no''.
++
+--
+Note that 'snapshot_preserve' has no effect if 'snapshot_preserve_min'
+is set to ``all'' (the default).
+--
 
 *snapshot_preserve_min* all|latest|<number>{h,d,w,m,y}::
     Preserve all snapshots for a minimum amount of hours (h), days
@@ -219,6 +224,11 @@ not be certain about this, such operations are disallowed in
     <<_retention_policy,RETENTION POLICY>> below). If set to ``no'',
     preserve backups according to 'target_preserve_min' only. Defaults
     to ``no''.
++
+--
+Note that 'target_preserve' has no effect if 'target_preserve_min' is
+set to ``all'' (the default).
+--
 
 *target_preserve_min*  all|latest|no|<number>{h,d,w,m,y}::
     Preserve all backups for a minimum amount of hours (h), days (d),
