@@ -136,7 +136,7 @@ Retention policy:
 /etc/cron.daily/btrbk:
 
     #!/bin/sh
-    exec /usr/sbin/btrbk -q -c /etc/btrbk/btrbk-mylaptop.conf run
+    exec /usr/bin/btrbk -q -c /etc/btrbk/btrbk-mylaptop.conf run
 
 
   * This will create snapshots on a daily basis:
@@ -221,7 +221,7 @@ regular basis:
 /etc/cron.hourly/btrbk:
 
     #!/bin/sh
-    exec /usr/sbin/btrbk -q run
+    exec /usr/bin/btrbk -q run
 
 Note that you can run btrbk more than once an hour, e.g. by calling
 `sudo btrbk run` from the command line. With this setup, all those
