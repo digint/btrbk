@@ -1,7 +1,7 @@
 ssh_filter_btrbk(1)
 ===================
-:date: 2020-02-09
-:release-version: 0.29.1
+:date: 2020-09-23
+:release-version: 0.30.0
 :man manual: Btrbk Manual
 :man source: Btrbk {release-version}
 

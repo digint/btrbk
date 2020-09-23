@@ -1,3 +1,17 @@
+btrbk-0.30.0
+
+  * MIGRATION
+    - In your scripts (e.g. cron jobs, systemd units), replace
+      "/usr/sbin/btrbk" with "/usr/bin/btrbk".
+  * Install to "/usr/bin" instead of "/usr/sbin".
+  * Support IPv6 addresses (close #332).
+  * Add "compat busybox" configuration option (close #327).
+  * Create "lsbtr" symlink (alias for "btrbk ls").
+  * Improve action "ls" (allow url, bugfixes).
+  * Add "backend_local_user" configuration option.
+  * btrbk-mail: add more elaborated email and rsync options.
+  * Minor bugfixes and framework improvements.
+
 btrbk-0.29.1
 
   * Allow multiple path arguments for action "ls".
