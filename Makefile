@@ -54,7 +54,7 @@ install-bin:
 	install -d -m 755 "$(DESTDIR)$(BINDIR)"
 	install -p -m 755 $(BIN) "$(DESTDIR)$(BINDIR)"
 
-install-bin-links:
+install-bin-links: install-bin
 	@echo 'installing symlinks...'
 	for name in $(BIN_LINKS); do \
 		ln -s -n -f $(BIN) "$(DESTDIR)$(BINDIR)/$$name"; \
