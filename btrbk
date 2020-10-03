@@ -80,6 +80,7 @@ my %config_options = (
   timestamp_format            => { default => "short",   accept => [ "short", "long", "long-iso" ], context => [ "global", "volume", "subvolume" ] },
   snapshot_dir                => { default => undef,     accept_file => { relative => 1 }, context => [ "global", "volume", "subvolume" ] },
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
+  snapshot_name_prefix_fullpath => { default => "no",    accept => ["yes", "no" ] },
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "global", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
   incremental_clones          => { default => 0,         accept_numeric => 1 },
@@ -6612,6 +6613,12 @@ MAIN:
           my $postfix_counter = $lookup[0] // -1;
           $postfix_counter++;
           my $snapshot_name = $snapshot_basename . '.' . $timestamp . ($postfix_counter ? "_$postfix_counter" : "");
+          if ( config_key($svol, "snapshot_name_prefix_fullpath") eq "yes" ) {
+              my $sanitized_snaproot = $snaproot->{PATH};
+              # replace all /s with _ in the root
+              $sanitized_snaproot =~ s/\//_/msxg;
+              $snapshot_name = $sanitized_snaproot.$snapshot_name;
+          }
 
           if(@unconfirmed_target_name) {
             INFO "Assuming non-present subvolume \"$snapshot_name\" in skipped targets: " . join(", ", map { "\"$_->{PRINT}\"" } @unconfirmed_target_name);
