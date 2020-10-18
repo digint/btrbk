@@ -2364,7 +2364,7 @@ sub btr_tree($$$$)
     my $node_id = $_->{MNTOPS}{subvolid};
     my $node = $id{$node_id};
     unless($node) {
-      WARN "Unknown subvolid=$_->{subvolid} (in btrfs tree of $host_mount_source) for mountpoint: $vol->{URL_PREFIX}$_->{mount_point}";
+      WARN "Unknown subvolid=$node_id (in btrfs tree of $host_mount_source) for mountpoint: $vol->{URL_PREFIX}$_->{mount_point}";
       next;
     }
     $mountpoints_hash{$node_id} = $node;
