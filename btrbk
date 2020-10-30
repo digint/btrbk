@@ -228,6 +228,12 @@ my %table_formats = (
                    raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
                  },
 
+  diff        => { table => [ qw(             size file ) ],
+                   long  => [ qw( flags count size file ) ],
+                   raw   => [ qw( flags count size file ) ],
+                   RALIGN => { count=>1, size=>1 },
+                 },
+
   fs_list     => { table => [ qw( -host mount_source mount_subvol mount_point id flags subvolume_path path ) ],
                    short => [ qw( -host mount_source                          id flags                path ) ],
                    long  => [ qw( -host mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
@@ -5359,6 +5365,24 @@ MAIN:
     my $ret = btrfs_subvolume_find_new($target_vol, $lastgen);
     exit 1 unless(ref($ret));
 
+    my $files = $ret->{files};
+    my $total_len = 0;
+    my @data;
+    foreach my $name (sort keys %$files) {
+      my $finfo = $files->{$name};
+      $total_len += $finfo->{len};
+      push @data, {
+        flags => ($finfo->{new}               ? '+' : '.') .
+                 ($finfo->{flags}->{compress} ? 'c' : '.') .
+                 ($finfo->{flags}->{inline}   ? 'i' : '.'),
+        count => scalar(keys(%{$finfo->{gen}})),
+        size => print_size($finfo->{len}),
+        file => $name,
+       };
+    }
+
+    $output_format //= "long";
+    my $raw = ($output_format && $output_format eq "raw");
     print_header(title => "Subvolume Diff",
                  time => $start_time,
                  info => [
@@ -5379,37 +5403,9 @@ MAIN:
                    "<count> file was modified in <count> generations",
                    "<size>  file was modified for a total of <size> bytes",
                   ]
-                );
-
-    my $files = $ret->{files};
-
-    # calculate the character offsets
-    my $total_len = 0;
-    my $len_charlen = 0;
-    my $gen_charlen = 0;
-    foreach (values %$files) {
-      my $len = length($_->{len});
-      my $gen = length(scalar(keys(%{$_->{gen}})));
-      $len_charlen = $len if($len > $len_charlen);
-      $gen_charlen = $gen if($gen > $gen_charlen);
-      $total_len += $_->{len};
-    }
-
-    # finally print the output
-    foreach my $name (sort keys %$files) {
-      print ($files->{$name}->{new}               ? '+' : '.');
-      print ($files->{$name}->{flags}->{compress} ? 'c' : '.');
-      print ($files->{$name}->{flags}->{inline}   ? 'i' : '.');
-
-      # make nice table
-      my $gens = scalar(keys(%{$files->{$name}->{gen}}));
-      my $len = $files->{$name}->{len};
-      print "  " . (' ' x ($gen_charlen - length($gens))) .  $gens;
-      print "  " . (' ' x ($len_charlen - length($len))) .  $len;
-
-      print "  $name\n";
-    }
-    print "\nTotal size: $total_len bytes\n";
+                ) unless($quiet || $raw);
+    print_formatted("diff", \@data, no_header => !$output_pretty);
+    print "\nTotal size: " . print_size($total_len) . "\n" unless($raw);
     exit 0;
   }
 
