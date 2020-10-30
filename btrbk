@@ -295,6 +295,7 @@ my $do_trace;
 my $show_progress = 0;
 my $output_format;
 my $output_pretty = 0;
+my @output_unit;
 my $lockfile;
 my $tlog_fh;
 my $syslog_enabled = 0;
@@ -4895,6 +4896,28 @@ sub print_formatted(@)
 }
 
 
+sub print_size($)
+{
+  my $size = shift;
+  if($output_format && ($output_format eq "raw")) {
+    return $size;
+  }
+  return "-" if($size == 0);
+  my ($unit, $mul);
+  if(@output_unit) {
+    ($unit, $mul) = @output_unit;
+  }
+  else {
+    ($unit, $mul) = ("KiB", 1024);
+    ($unit, $mul) = ("MiB", $mul * 1024) if($size > $mul * 1024);
+    ($unit, $mul) = ("GiB", $mul * 1024) if($size > $mul * 1024);
+    ($unit, $mul) = ("TiB", $mul * 1024) if($size > $mul * 1024);
+  }
+  return $size if($mul == 1);
+  return sprintf('%.2f', ($size / $mul)) . " $unit";
+}
+
+
 sub _origin_tree
 {
   my $prefix = shift;
@@ -5052,6 +5075,11 @@ MAIN:
     'long|L'             => sub { $output_format = "long" },
     'print-schedule|S'   => \$print_schedule,
     'raw'                => \$archive_raw,
+    'bytes'              => sub { @output_unit = ("",    1                         ) },
+    'kbytes'             => sub { @output_unit = ("KiB", 1024                      ) },
+    'mbytes'             => sub { @output_unit = ("MiB", 1024 * 1024               ) },
+    'gbytes'             => sub { @output_unit = ("GiB", 1024 * 1024 * 1024        ) },
+    'tbytes'             => sub { @output_unit = ("TiB", 1024 * 1024 * 1024 * 1024 ) },
    );
   unless(GetOptions(@cmdline_options)) {
     VERSION_MESSAGE();
