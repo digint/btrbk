@@ -4819,7 +4819,7 @@ sub print_formatted(@)
     my %maxlen;
     my @sane_data;
     foreach my $key (@keys) {
-      $maxlen{$key} = length($key); # initialize with size of key
+      $maxlen{$key} = $args{no_header} ? 0 : length($key); # initialize with size of key
     }
     foreach my $row (@$data) {
       foreach my $key (@keys) {
