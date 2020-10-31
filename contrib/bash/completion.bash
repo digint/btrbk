@@ -106,4 +106,32 @@ _btrbk()
   fi
 } && complete -F _btrbk btrbk
 
+_lsbtr()
+{
+  local cur prev words cword split
+  _init_completion -s || return
+
+  case "$prev" in
+    '-c' | '--config')
+      _filedir
+      return
+      ;;
+    '--override')
+      return
+      ;;
+  esac
+
+  $split && return
+
+  if [[ $cur == -* ]]; then
+    COMPREPLY=($(compgen -W '$(_parse_help "$1")' -- "$cur"))
+    [[ $COMPREPLY == *= ]] && compopt -o nospace
+    return
+  else
+    # <path>|<url>...
+    _filedir -d
+    return
+  fi
+} && complete -F _lsbtr lsbtr
+
 # ex: filetype=bash

@@ -71,6 +71,9 @@ install-completion:
 	@echo 'installing bash completion...'
 	install -d -m 755 "$(DESTDIR)$(BASHCOMPDIR)"
 	install -p -m 644 contrib/bash/completion.bash "$(DESTDIR)$(BASHCOMPDIR)/$(BIN)"
+	for name in $(BIN_LINKS); do \
+		ln -s -n -f $(BIN) "$(DESTDIR)$(BASHCOMPDIR)/$$name"; \
+	done
 
 install-systemd:
 	@echo 'installing systemd service units...'
