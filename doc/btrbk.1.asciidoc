@@ -409,7 +409,8 @@ execution times and high ram usage. Consider setting 'cache_dir'.
 
 *ls* <path>|<url>...::
     List all btrfs subvolumes below <path>. Use the '--format' command
-    line option to switch between different output formats.
+    line option to switch between different output formats. See
+    lsbtr(1).
 
 *config* print|print-all::
     Prints the parsed configuration file. Use the '--format' command
