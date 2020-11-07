@@ -331,7 +331,7 @@ $SIG{__DIE__} = sub {
 };
 
 $SIG{INT} = sub {
-  print STDERR "\nERROR: Cought SIGINT, dumping transaction log:\n";
+  print STDERR "\nERROR: Caught SIGINT, dumping transaction log:\n";
   action("signal", status => "SIGINT");
   print_formatted("transaction", \@transaction_log, output_format => "tlog", outfile => *STDERR);
   exit 1;
@@ -628,7 +628,7 @@ sub stream_buffer_cmd_text($)
 
   # NOTE: mbuffer takes defaults from /etc/mbuffer.rc
   my @cmd = ( "mbuffer" );
-  push @cmd, ( "-v", "1" ); # disable warnings (they arrive asynchronously and cant be cought)
+  push @cmd, ( "-v", "1" ); # disable warnings (they arrive asynchronously and cant be caught)
   push @cmd, "-q" unless($progress);
   push @cmd, ( "-s", $blocksize ) if($blocksize);
   push @cmd, ( "-m", lc($bufsize) ) if($bufsize);
@@ -5665,7 +5665,7 @@ MAIN:
     my @data;
     # print results on ctrl-c
     $SIG{INT} = sub {
-      print STDERR "\nERROR: Cought SIGINT, dumping incomplete list:\n";
+      print STDERR "\nERROR: Caught SIGINT, dumping incomplete list:\n";
       print_formatted("extent_diff", \@data);
       exit 1;
     };
