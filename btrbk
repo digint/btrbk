@@ -145,6 +145,7 @@ my %config_options = (
   archive_exclude_older       => { default => undef,     accept => [ "yes", "no" ] },
 
   cache_dir                   => { default => undef,     accept_file => { absolute => 1 }, allow_multiple => 1, context => [ "global" ] },
+  ignore_extent_data_inline   => { default => "yes",     accept => [ "yes", "no" ] },
 
   # deprecated options
   ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1,
@@ -2328,7 +2329,7 @@ sub filefrag_extentmap($)
   my $vol = shift || die;
   my $starttime = time;
 
-  INFO("Fetching extent information for: $vol->{PRINT}");
+  INFO("Fetching extent information (filefrag) for: $vol->{PRINT}");
 
   # NOTE: this returns exitstatus=0 if file is not found, or no files found
   my $ret = run_cmd({ cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f',
@@ -2338,18 +2339,32 @@ sub filefrag_extentmap($)
     ERROR "Failed to fetch extent map for: $vol->{PRINT}", @stderr;
     return undef;
   }
+  WARN_ONCE "Configuration option \"ignore_extent_data_inline=no\" not available for filefrag (please install \"IO::AIO\" perl module)" unless(config_key($vol, "ignore_extent_data_inline"));
+
   my @range; # array of [start,end]
-  my $extents = 0;
   foreach (@$ret) {
+    #my $file = $1 if(/^File size of (.*?) is/);
     if(/^\s*[0-9]+:\s*[0-9]+\.\.\s*[0-9]+:\s*([0-9]+)\.\.\s*([0-9]+):/) {
-      $extents++;
-      next if /inline/; # ignore inline data, this seems wrong
+      # NOTE: filefrag (v1.45.5) returns wrong (?) physical_offset for
+      #       "inline" regions unless run with `-b1` (blocksize=1) option.
+      #
+      # For btrfs file systems it does not make much sense to consider
+      # the "inline" extents anyways: these are stored in metadata
+      # section and are not really part of the used disk space.
+      #
+      # # filefrag -v MYFILE
+      # File size of MYFILE is 2307 (1 block of 4096 bytes)
+      #  ext:     logical_offset:        physical_offset: length:   expected: flags:
+      #    0:        0..    4095:          0..      4095:   4096:             last,not_aligned,inline,eof
+      # # filefrag -v -b1 MYFILE
+      # File size of MYFILE is 2307 (4096 block of 1 bytes)
+      #  ext:     logical_offset:        physical_offset: length:   expected: flags:
+      #    0:        0..    4095:          0..      4095:   4096:             last,not_aligned,inline,eof
+      next if(/inline/);
       push @range, [ $1, $2 ];
     }
   }
   DEBUG("Parsed " . scalar(@range) . " regions in " . (time - $starttime) . "s for: $vol->{PRINT}");
-  DEBUG("Ignored "  . ($extents - scalar(@range)) . " \"inline\" extents for: $vol->{PRINT}");
-
   return extentmap_merge(\@range);
 }
 
@@ -2359,6 +2374,7 @@ sub aio_extentmap($)
 {
   my $vol = shift || die;
   my $starttime = time;
+  my $ignore_inline = config_key($vol, "ignore_extent_data_inline");
 
   INFO("Fetching extent information (IO::AIO) for: $vol->{PRINT}");
 
@@ -2378,34 +2394,31 @@ sub aio_extentmap($)
   # Note: aio_fiemap returns byte range (not blocks)
   my @range;
   my $count = 0;
-  my $inline = 0;
+  my $inline_count = 0;
   foreach my $file (@$ret) {
     IO::AIO::aio_open($file, IO::AIO::O_RDONLY(), 0, sub {
       return unless($_[0]); # graceful abort on file open errors (check $count below)
       IO::AIO::aio_fiemap($_[0], 0, undef, 0, undef, sub {
         $count++;
         foreach(@{$_[0]}) { # [$logical, $physical, $length, $flags]
-          if($_->[3] & IO::AIO::FIEMAP_EXTENT_DATA_INLINE() ) {
-            # ignore inline data: for some reason, filefrag reports different size (x 4096 ?)
-            $inline++;
-            next;
+          if($_->[3] & IO::AIO::FIEMAP_EXTENT_DATA_INLINE()) {
+            WARN_ONCE "Ambigous inline region [$_->[1] .. $_->[1] + $_->[2] - 1] for $file" if(!$ignore_inline && (($_->[1] != 0) || ($_->[2] != 4096)));
+            $inline_count++;
+            next if($ignore_inline);
           }
           push @range, [ $_->[1], $_->[1] + $_->[2] - 1 ];
         }
       });
     });
-
     # poll, or the above eats up all our filedescriptors
     IO::AIO::poll_cb(); # takes "max_outstanding" and "max_poll_reqs" settings
-    #TRACE "aio_fiemap: processed $ret : $count files (inline=$inline), " . scalar(@range) . " regions" if($loglevel >= 4);
   }
 
   IO::AIO::flush();
 
   WARN "Failed to open $count / " . scalar(@$ret) . " files" if($count != scalar(@$ret));
 
-  DEBUG("Parsed " . scalar(@range) . " regions for $count files in " . (time - $starttime) . "s for: $vol->{PRINT}");
-  DEBUG("Ignored $inline \"inline\" extents for: $vol->{PRINT}") if($inline);
+  DEBUG("Parsed " . scalar(@range) . " regions (" . ($ignore_inline ? "ignored " : "") . "$inline_count \"inline\") for $count files in " . (time - $starttime) . "s for: $vol->{PRINT}");
   return extentmap_merge(\@range);
 }
 
