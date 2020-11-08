@@ -5729,15 +5729,9 @@ MAIN:
     if($extents_diff_related) {
       # add all related subvolumes
       foreach my $svol (@subvol_args) {
-        # filter gen for r/w subvolumes, cgen on readonly subvolumes
-        # ("gen" is increased on readonly subvolume if it is being snapshotted)
         my $svol_gen = $svol->{node}{readonly} ? $svol->{node}{cgen} : $svol->{node}{gen};
         my @related = map({ vinfo_resolved_all_mountpoints($_, $svol->{VINFO_MOUNTPOINT}) // () }
-                          grep { ($_->{readonly} ? $_->{cgen} : $_->{gen}) <= $svol_gen }  # show only older
                           @{get_related_nodes($svol)}); # includes $svol
-        unless(scalar(@related) > 1) {
-          WARN "Could not resolve any older (by generation) related subvolume for: $svol->{PRINT}";
-        }
         push @resolved_vol, @related;
       }
     }
@@ -5754,10 +5748,12 @@ MAIN:
     };
 
     my $prev_data;
-    # sort descending by gen: crawl descending, but display ascending (unshift)
+    # sort by gen for r/w subvolumes, cgen on readonly subvolumes, as
+    # "gen" is increased on readonly subvolume when snapshotted.
+    # crawl descending, but display ascending (unshift):
     foreach my $vol (sort { ($b->{node}{readonly} ? $b->{node}{cgen} : $b->{node}{gen}) <=>
                             ($a->{node}{readonly} ? $a->{node}{cgen} : $a->{node}{gen}) }
-             @resolved_vol) {
+                     @resolved_vol) {
       next if($prev_data && ($prev_data->{_vinfo}{node}{id} == $vol->{node}{id})); # skip duplicates
 
       # read extents map
