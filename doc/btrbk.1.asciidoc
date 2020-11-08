@@ -366,12 +366,17 @@ different output formats.
     Print new files since subvolume <from> for subvolume <to>.
 
 *extents-diff* <path>... [exclusive <filter>...]  _*experimental*_::
-   List estimated size and diff from extent information (FIEMAP ioctl)
-   from filefrag(8). The 'diff' column shows the data added (relative
-   complement of block regions) from the 'subvol' of the previous
-   line. In the best case (if no other files hold references to the
-   extents in question) the 'diff' data would be freed when deleting
-   the subvolume.
+
+   List accurate size and diff from extent information (FIEMAP ioctl,
+   slow!).
++
+The DIFF column shows the data added to the previous subvolume
+(relative complement of block regions).
++
+The EXCLUSIVE column shows the set-exclusive data (relative complement
+of block regions of all other listed (!) subvolumes). If all
+subvolumes which hold references to the extents in question are
+listed, the exclusive data would be freed when deleting the subvolume.
 +
 If called with the 'exclusive' keyword, subvolumes matching '<filter>'
 are added to a separate set, and the exclusive data is computed for
