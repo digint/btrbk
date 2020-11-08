@@ -2329,14 +2329,14 @@ sub filefrag_extentmap($)
   my $vol = shift || die;
   my $starttime = time;
 
-  INFO("Fetching extent information (filefrag) for: $vol->{PRINT}");
+  INFO("Fetching extent map (filefrag): $vol->{PRINT}");
 
   # NOTE: this returns exitstatus=0 if file is not found, or no files found
   my $ret = run_cmd({ cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f',
                                '-exec', 'filefrag -b1 -v \{\} +' ],
                       large_output => 1});
   unless(defined($ret)) {
-    ERROR "Failed to fetch extent map for: $vol->{PRINT}", @stderr;
+    ERROR "Failed to fetch extent map: $vol->{PRINT}", @stderr;
     return undef;
   }
   WARN_ONCE "Configuration option \"ignore_extent_data_inline=no\" not available for filefrag (please install \"IO::AIO\" perl module)" unless(config_key($vol, "ignore_extent_data_inline"));
@@ -2376,7 +2376,7 @@ sub aio_extentmap($)
   my $starttime = time;
   my $ignore_inline = config_key($vol, "ignore_extent_data_inline");
 
-  INFO("Fetching extent information (IO::AIO) for: $vol->{PRINT}");
+  INFO("Fetching extent map: $vol->{PRINT}");
 
   # NOTE: this returns exitstatus=0 if file is not found, or no files found
   my $ret = run_cmd( cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f' ],
@@ -2391,20 +2391,23 @@ sub aio_extentmap($)
   IO::AIO::max_outstanding(128);  # < 1024 (max file descriptors)
   IO::AIO::max_poll_reqs(32);
 
-  # Note: aio_fiemap returns byte range (not blocks)
   my @range;
   my $count = 0;
   my $inline_count = 0;
   foreach my $file (@$ret) {
     IO::AIO::aio_open($file, IO::AIO::O_RDONLY(), 0, sub {
-      return unless($_[0]); # graceful abort on file open errors (check $count below)
+      # graceful abort on file open errors (check $count below)
+      return unless($_[0]); # [ $fh ]
+
+      # note: aio_fiemap returns byte range (not blocks)
+      # see: Documentation/filesystems/fiemap.rst
       IO::AIO::aio_fiemap($_[0], 0, undef, 0, undef, sub {
         $count++;
-        foreach(@{$_[0]}) { # [$logical, $physical, $length, $flags]
+        foreach(@{$_[0]}) { # [ $logical, $physical, $length, $flags ]
           if($_->[3] & IO::AIO::FIEMAP_EXTENT_DATA_INLINE()) {
-            WARN_ONCE "Ambigous inline region [$_->[1] .. $_->[1] + $_->[2] - 1] for $file" if(!$ignore_inline && (($_->[1] != 0) || ($_->[2] != 4096)));
             $inline_count++;
             next if($ignore_inline);
+            WARN_ONCE "Ambigous inline region [$_->[1] .. $_->[1] + $_->[2] - 1] for $file" if((($_->[1] != 0) || ($_->[2] != 4096)));
           }
           push @range, [ $_->[1], $_->[1] + $_->[2] - 1 ];
         }
@@ -5713,16 +5716,18 @@ MAIN:
       };
     }
     elsif(eval_quiet { require IO::AIO; }) {
-      # this is slightly faster than filefrag
+      # this is slightly faster (multithreaded) than filefrag
       $extentmap_fn=\&aio_extentmap;
     }
     elsif(check_exe("filefrag")) {
+      INFO "IO::AIO module not present, falling back to 'filefrag' (slower)";
       $extentmap_fn=\&filefrag_extentmap;
     }
     else {
-      ERROR 'Please install either "filefrag" (from e2fsprogs package), or "IO::AIO" perl module';
+      ERROR 'Please install either "IO::AIO" perl module or "filefrag" (from e2fsprogs package)';
       exit 1;
     }
+    INFO "Extent map caching disabled (consider setting \"cache_dir\" configuration option)" unless(config_key($config, 'cache_dir'));
 
     # resolve related subvolumes
     my @resolved_vol;
@@ -5756,9 +5761,9 @@ MAIN:
                      @resolved_vol) {
       next if($prev_data && ($prev_data->{_vinfo}{node}{id} == $vol->{node}{id})); # skip duplicates
 
-      # read extents map
+      # read extent map
       if($vol->{EXTENTMAP} = read_extentmap_cache($vol)) {
-        INFO "Using cached extents map for: $vol->{PRINT}";
+        INFO "Using cached extent map: $vol->{PRINT}";
       } else {
         $vol->{EXTENTMAP} = $extentmap_fn->($vol);
         write_extentmap_cache($vol);
@@ -5794,7 +5799,7 @@ MAIN:
 
     # calculate "exclusive" column only if needed
     if(grep /^exclusive$/, @{$table_formats{extent_diff}{$output_format // "table"}}) {
-      INFO "Calculating exclusive extents for " . scalar(@data) . " subvolumes";
+      INFO "Calculating set-exclusive size for " . scalar(@data) . " subvolumes";
       foreach my $d (@data) {
         my $vol = $d->{_vinfo};
         DEBUG "Calculating exclusive for: $vol->{PRINT}";
@@ -5804,6 +5809,7 @@ MAIN:
     }
 
     if(scalar(@filter_vf)) {
+      INFO "Calculating set difference (X \\ A)";
       my @excl;
       my @others;
       foreach(@data) {
@@ -5815,14 +5821,13 @@ MAIN:
           push @others, $_->{_vinfo}{EXTENTMAP};
         }
       }
-      INFO "Calculating exclusive extents for " . scalar(@excl) . "/" . scalar(@data) . " subvolumes";
       push @summary, {
         a => "Exclusive data ( X \\ A ):",
         b => print_size(extentmap_size(extentmap_diff(extentmap_merge(@excl), extentmap_merge(@others)))),
        };
     }
 
-    INFO "Printing extents map set-difference: (extents \\ extents-on-prev-line)";
+    INFO "Printing extents map set difference: (extents \\ extents-on-prev-line)";
 
     print_formatted("extent_diff", \@data, paragraph => 1);
     print_formatted({ table => [ qw( a b ) ], RALIGN => { b=>1 } },
