@@ -2273,9 +2273,9 @@ sub read_extentmap_cache($)
     if(open(my $fh, '<:raw', $file)) {
       my @range;
       my $buf;
-      read($fh, $buf, 24 + 8 * 3); # read header
-      my ($v, $gen, $time, $blocksize) = unpack('a24Q<Q<Q<', $buf);
-      unless(($v =~ /^btrbk_extentmap_v1/) && $gen && $time && $blocksize) {
+      read($fh, $buf, 24 + 8 * 2); # read header
+      my ($v, $gen, $time) = unpack('a24Q<Q<', $buf);
+      unless(($v =~ /^btrbk_extentmap_v1/) && $gen && $time) {
         ERROR "Ambigous cache file: $file";
         next;
       }
@@ -2287,8 +2287,8 @@ sub read_extentmap_cache($)
         push @range, [ unpack('Q<Q<', $buf) ];
         #TRACE "read_extentmap_cache: range " . join("..", @{$range[-1]});
       };
-      DEBUG "Read " . scalar(@range) . " block regions (blocksize=$blocksize, timestamp='" . localtime($time) . "') from: $file";
-      return { blocksize => $blocksize, rmap => \@range, CACHED => $file };
+      DEBUG "Read " . scalar(@range) . " regions (gen=$gen, timestamp='" . localtime($time) . "') from: $file";
+      return \@range;
     } else {
       ERROR "Failed to open '$file': $!";
     }
@@ -2313,8 +2313,8 @@ sub write_extentmap_cache($)
     INFO "Writing extentmap cache: $file";
     if(open(my $fh, '>:raw', $file)) {
       # pack Q: unsigned quad (64bit, Documentation/filesystems/fiemap.txt)
-      print $fh pack('a24Q<Q<Q<', "btrbk_extentmap_v1", $vol->{node}{gen}, time, $extmap->{blocksize});
-      print $fh pack('Q<*', map(@{$_}, @{$extmap->{rmap}}));
+      print $fh pack('a24Q<Q<', "btrbk_extentmap_v1", $vol->{node}{gen}, time);
+      print $fh pack('Q<*', map(@{$_}, @$extmap));
       close($fh);
     } else {
       ERROR "Failed to create '$file': $!";
@@ -2326,14 +2326,13 @@ sub write_extentmap_cache($)
 sub filefrag_extentmap($)
 {
   my $vol = shift || die;
-  my $blocksize;
   my $starttime = time;
 
   INFO("Fetching extent information for: $vol->{PRINT}");
 
   # NOTE: this returns exitstatus=0 if file is not found, or no files found
   my $ret = run_cmd({ cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f',
-                               '-exec', 'filefrag -v \{\} +' ],
+                               '-exec', 'filefrag -b1 -v \{\} +' ],
                       large_output => 1});
   unless(defined($ret)) {
     ERROR "Failed to fetch extent map for: $vol->{PRINT}", @stderr;
@@ -2342,28 +2341,16 @@ sub filefrag_extentmap($)
   my @range; # array of [start,end]
   my $extents = 0;
   foreach (@$ret) {
-    # blocksize = 4096 = 2^12
     if(/^\s*[0-9]+:\s*[0-9]+\.\.\s*[0-9]+:\s*([0-9]+)\.\.\s*([0-9]+):/) {
       $extents++;
       next if /inline/; # ignore inline data, this seems wrong
       push @range, [ $1, $2 ];
     }
-    elsif(/blocks of ([0-9]+) bytes\)$/) {
-      $blocksize //= $1;
-      if($1 != $blocksize) {
-        ERROR "filefrag reports mixed blocksize ($1 != $blocksize) in: $vol->{PRINT}";
-        return undef;
-      }
-    }
   }
-  unless($blocksize) {
-    ERROR "Failed to parse filefrag results (missing blocksize): $vol->{PRINT}";
-    return undef;
-  }
-  DEBUG("Parsed " . scalar(@range) . " regions (blocksize=$blocksize) in " . (time - $starttime) . "s for: $vol->{PRINT}");
+  DEBUG("Parsed " . scalar(@range) . " regions in " . (time - $starttime) . "s for: $vol->{PRINT}");
   DEBUG("Ignored "  . ($extents - scalar(@range)) . " \"inline\" extents for: $vol->{PRINT}");
 
-  return extentmap_merge({ blocksize => $blocksize, rmap => \@range });
+  return extentmap_merge(\@range);
 }
 
 
@@ -2380,23 +2367,23 @@ sub extentmap_total_blocks($)
 
 sub extentmap_size($)
 {
-  my $extmap = shift;
-  return undef unless($extmap && $extmap->{rmap} && $extmap->{blocksize});
-  return (extentmap_total_blocks($extmap) * $extmap->{blocksize});
+  my $extmap = shift; # merged ranges
+  return undef unless($extmap);
+  my $size = 0;
+  foreach(@$extmap) {
+    $size += $_->[1] - $_->[0] + 1;
+  }
+  return $size;
 }
 
 
 sub extentmap_merge(@) {
   return undef unless(scalar(@_));
-  my $blocksize = $_[0]->{blocksize} // die;
-  die unless(grep { $_->{blocksize} == $blocksize } @_);
-
+  my @range = sort { $a->[0] <=> $b->[0] } map @$_, @_;
   my @merged;
-  my @range = map { @{$_->{rmap}} } @_;
   my $start = -1;
   my $end = -2;
-  foreach (sort { $a->[0] <=> $b->[0] } @range)
-  {
+  foreach (@range) {
     if($_->[0] <= $end + 1) {
       # range overlaps the preceeding one, or is adjacent to it
       $end = $_->[1] if($_->[1] > $end);
@@ -2409,20 +2396,17 @@ sub extentmap_merge(@) {
   }
   push @merged, [ $start, $end ] if($start >= 0);
   DEBUG "extentmap: merged " . scalar(@range) . " regions into " . scalar(@merged) . " regions";
-  return { blocksize => $blocksize, rmap => \@merged };
+  return \@merged;
 }
 
 
 # ( A \ B ) : data in A that is not in B (relative complement of B in A)
 sub extentmap_diff($$)
 {
-  my $extmap_l = shift // die; # A, sorted
-  my $extmap_r = shift;        # B, sorted
-  return $extmap_l unless($extmap_r); # A \ 0 = A
-  die unless($extmap_l->{blocksize} == $extmap_r->{blocksize});
+  my $l = shift // die; # A, sorted
+  my $r = shift;        # B, sorted
+  return $l unless($r); # A \ 0 = A
 
-  my $l = $extmap_l->{rmap};
-  my $r = $extmap_r->{rmap};
   my $i = 0;
   my $rn = scalar(@$r);
   my @diff;
@@ -2447,7 +2431,7 @@ sub extentmap_diff($$)
     push @diff, [ $l_start, $l_end ] if($l_start <= $l_end);
   }
   DEBUG "extentmap: relative complement ( B=" . scalar(@$r) . ' \ A=' . scalar(@$l) . " ) = " . scalar(@diff) . " regions";
-  return { blocksize => $extmap_l->{blocksize}, rmap => \@diff };
+  return \@diff;
 }
 
 
@@ -5759,7 +5743,7 @@ MAIN:
        };
     }
 
-    INFO "Printing extents map difference (relative complement): (blocks \\ blocks-on-prev-line) * blocksize";
+    INFO "Printing extents map set-difference: (extents \\ extents-on-prev-line)";
 
     print_formatted("extent_diff", \@data, paragraph => 1);
     print_formatted({ table => [ qw( a b ) ], RALIGN => { b=>1 } },
