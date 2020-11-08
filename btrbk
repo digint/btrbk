@@ -243,10 +243,10 @@ my %table_formats = (
                    raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
                  },
 
-  extent_diff => { table => [ qw( total diff           -set  subvol          ) ],
-                   long  => [ qw( total diff exclusive -set  subvol cgen gen ) ],
-                   raw   => [ qw( total diff                 subvol cgen gen ) ],
-                   RALIGN => { total=>1, diff=>1, exclusive=>1, set=>1, cgen=>1, gen=>1 },
+  extent_diff => { table => [ qw( total exclusive diff -set subvol          ) ],
+                   long  => [ qw( total exclusive diff -set subvol cgen gen ) ],
+                   raw   => [ qw( total exclusive diff -set subvol cgen gen ) ],
+                   RALIGN => { total=>1, exclusive=>1, diff=>1, set=>1, cgen=>1, gen=>1 },
                  },
 );
 
@@ -5797,15 +5797,12 @@ MAIN:
       b => print_size(extentmap_size(extentmap_merge(@universe_set)))
      };
 
-    # calculate "exclusive" column only if needed
-    if(grep /^exclusive$/, @{$table_formats{extent_diff}{$output_format // "table"}}) {
-      INFO "Calculating set-exclusive size for " . scalar(@data) . " subvolumes";
-      foreach my $d (@data) {
-        my $vol = $d->{_vinfo};
-        DEBUG "Calculating exclusive for: $vol->{PRINT}";
-        my @others = grep { $_ != $vol->{EXTENTMAP} } @universe_set;
-        $d->{exclusive} = print_size(extentmap_size(extentmap_diff($vol->{EXTENTMAP}, extentmap_merge(@others)))),
-      }
+    INFO "Calculating set-exclusive size for " . scalar(@data) . " subvolumes";
+    foreach my $d (@data) {
+      my $vol = $d->{_vinfo};
+      DEBUG "Calculating exclusive for: $vol->{PRINT}";
+      my @others = grep { $_ != $vol->{EXTENTMAP} } @universe_set;
+      $d->{exclusive} = print_size(extentmap_size(extentmap_diff($vol->{EXTENTMAP}, extentmap_merge(@others)))),
     }
 
     if(scalar(@filter_vf)) {
