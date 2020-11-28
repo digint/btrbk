@@ -127,7 +127,7 @@ Retention policy:
     snapshot_dir           btrbk_snapshots
 
     volume /mnt/btr_pool
-      target /mnt/btr_backup/mylaptop
+      target send-receive /mnt/btr_backup/mylaptop
       subvolume rootfs
       subvolume home
       [...]
@@ -167,8 +167,8 @@ this:
 
     volume /mnt/btr_pool
       subvolume rootfs
-        target /mnt/btr_backup/mylaptop
-        target ssh://myserver.mydomain.com/mnt/btr_backup/mylaptop
+        target send-receive /mnt/btr_backup/mylaptop
+        target send-receive ssh://myserver.mydomain.com/mnt/btr_backup/mylaptop
 
 In addition to the backups on your local usb-disk mounted at
 `/mnt/btr_backup/mylaptop`, incremental backups would also be pushed
@@ -184,12 +184,12 @@ fileserver, the config would be something like:
     ssh_identity /etc/btrbk/ssh/id_rsa
 
     volume ssh://alpha.mydomain.com/mnt/btr_pool
-      target /mnt/btr_backup/alpha
+      target send-receive /mnt/btr_backup/alpha
       subvolume rootfs
       subvolume home
 
     volume ssh://beta.mydomain.com/mnt/btr_pool
-      target /mnt/btr_backup/beta
+      target send-receive /mnt/btr_backup/beta
       subvolume rootfs
       subvolume dbdata
 
@@ -241,7 +241,7 @@ to only fetch the snapshots.
     target_preserve            0d 10w *m
 
     volume ssh://192.168.0.42/mnt/btr_pool
-      target /mnt/btr_backup/my-laptop
+      target send-receive /mnt/btr_backup/my-laptop
       subvolume home
         snapshot_dir           btrbk_snapshots
         snapshot_preserve_min  all
@@ -261,7 +261,7 @@ host, but distinct port numbers for each machine.
 /etc/btrbk/btrbk.conf:
 
     # This propagates to all subvolume sections:
-    target /mnt/btr_backup/
+    target send-receive /mnt/btr_backup/
 
     volume ssh://localhost:2201/mnt/btr_pool
       group vm vm01
