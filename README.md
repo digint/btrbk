@@ -1,7 +1,7 @@
 Introduction
 ============
 
-btrbk is a backup tool for btrfs subvolumes, taking advantage of btrfs
+Btrbk is a backup tool for btrfs subvolumes, taking advantage of btrfs
 specific capabilities to create atomic snapshots and transfer them
 incrementally to your backup locations.
 
@@ -26,7 +26,7 @@ Key Features:
   * Resolve and trace btrfs parent-child and received-from relationships
   * Display file changes between two backups
 
-btrbk is designed to run as a cron job for triggering periodic
+Btrbk is designed to run as a cron job for triggering periodic
 snapshots and backups, as well as from the command line (e.g. for
 instantly creating additional snapshots).
 
