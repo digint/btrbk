@@ -293,21 +293,13 @@ Assuming same filesystem: "ssh://localhost:2201/dev/sda1", "ssh://localhost:2202
 Example: backup from non-btrfs source
 -------------------------------------
 
-First create a btrfs subvolume on the backup server:
+If you want to make backups from a filesystem other than btrfs
+(e.g. ext4 or reiserfs), you need to create a *synchronization
+subvolume* on the backup disk:
 
     # btrfs subvolume create /mnt/btr_backup/myhost_sync
 
-In your daily cron script, prior to running btrbk, sync your source to
-`myhost_sync`, something like:
-
-    #!/bin/sh
-    rsync -az --delete \
-          --inplace --numeric-ids --acls --xattrs \
-          -e 'ssh -i /etc/btrbk/ssh/id_rsa' \
-          myhost.mydomain.com:/data/ \
-          /mnt/btr_backup/myhost_sync/
-
-Then run btrbk, with myhost_sync configured *without any targets*:
+Configure btrbk to use `myhost_sync` as source subvolume:
 
     volume /mnt/btr_backup
       subvolume myhost_sync
@@ -316,11 +308,25 @@ Then run btrbk, with myhost_sync configured *without any targets*:
         snapshot_preserve_min   latest
         snapshot_preserve       14d 20w *m
 
-This will produce daily snapshots `/mnt/btr_backup/myhost.20150101`,
-with retention as defined with the snapshot_preserve option.
+The btrbk package provides the "btrbk-mail" script, which automates
+the synchronization using rsync, and can be run as cron job or systemd
+timer unit. For configuration details, see the config section in
+"/contrib/cron/btrbk-mail".
 
-Note that the provided script: "contrib/cron/btrbk-mail" has support
-for this!
+Alternatively, you can run any synchronization software prior to
+running btrbk. Something like:
+
+    #!/bin/sh
+    rsync -az --delete \
+          --inplace --numeric-ids --acls --xattrs \
+          -e 'ssh -i /etc/btrbk/ssh/id_rsa' \
+          myhost.mydomain.com:/data/ \
+          /mnt/btr_backup/myhost_sync/
+
+    exec /usr/bin/btrbk -q run
+
+This will produce snapshots `/mnt/btr_backup/myhost.20150101`, with
+retention as defined with the snapshot_preserve option.
 
 
 Example: encrypted backup to non-btrfs target
