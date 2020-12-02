@@ -34,7 +34,7 @@ rsync_opt[example_data]="-az --delete --inplace --numeric-ids --acls --xattrs"
 #rsync_enable="example_data"
 rsync_enable=
 
-# If set, do not run btrbk if all rsync reports no changes.
+# If set, do not run btrbk if rsync reports no changes.
 # If set to "quiet", do not send mail.
 #skip_btrbk_if_unchanged=quiet
 
