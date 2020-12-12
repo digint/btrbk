@@ -243,9 +243,9 @@ my %table_formats = (
                    raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
                  },
 
-  extent_diff => { table => [ qw(             total exclusive diff -set subvol ) ],
-                   long  => [ qw( id cgen gen total exclusive diff -set subvol ) ],
-                   raw   => [ qw( id cgen gen total exclusive diff -set subvol ) ],
+  extent_diff => { table => [ qw(             total exclusive -diff -set subvol ) ],
+                   long  => [ qw( id cgen gen total exclusive -diff -set subvol ) ],
+                   raw   => [ qw( id cgen gen total exclusive -diff -set subvol ) ],
                    RALIGN => { total=>1, exclusive=>1, diff=>1, set=>1, cgen=>1, gen=>1 },
                  },
 );
@@ -407,9 +407,10 @@ commands:
       volume             configured volume sections
       target             configured targets
    usage                 print filesystem usage
-   origin <subvol>       print origin information for subvolume
-   diff <from> <to>      shows new files between related subvolumes
    ls <path>             list all btrfs subvolumes below path
+   origin <subvol>       print origin information for subvolume
+   diff <from> <to>      list file changes between related subvolumes
+   extents [diff] <path> calculate accurate disk space usage
 
 For additional information, see $PROJECT_HOME
 END_HELP_BTRBK
@@ -5304,7 +5305,7 @@ MAIN:
   my @exclude_cmdline;
   my ($config_cmdline, $lockfile_cmdline, $print_schedule,
       $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups,
-      $archive_raw, $extents_diff_related,
+      $archive_raw, $extents_related,
       $resume_only_DEPRECATED,  # as of btrbk-v0.26.0
      );
 
@@ -5340,7 +5341,7 @@ MAIN:
     'wipe'               => \$wipe_snapshots,
     'resume-only|r'      => \$resume_only_DEPRECATED,
     'progress'           => \$show_progress,
-    'related'            => \$extents_diff_related,
+    'related'            => \$extents_related,
     'table|t'            => sub { $output_format = "table" },
     'long|L'             => sub { $output_format = "long" },
     'print-schedule|S'   => \$print_schedule,
@@ -5391,7 +5392,7 @@ MAIN:
     WARN 'Found option "--progress", but required executable "mbuffer" does not exist on your system. Please install "mbuffer".';
     $show_progress = 0;
   }
-  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_extents_diff, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive, $action_ls);
+  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_extents, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive, $action_ls);
   my @filter_args;
   my @subvol_args;
   my $args_expected_min = 0;
@@ -5449,8 +5450,16 @@ MAIN:
     $subvol_args_init = "restrict_same_fs deny_root_subvol";
     @subvol_args = @ARGV;
   }
-  elsif ($command eq "extents-diff") {
-    $action_extents_diff = 1;
+  elsif ($command eq "extents") {
+    my $subcommand = shift @ARGV // "";
+    if(($subcommand eq "list") ||
+       ($subcommand eq "diff")) {
+      $action_extents = $subcommand;
+    }
+    else { # defaults to "list"
+      unshift @ARGV, $subcommand;
+      $action_extents = "list";
+    }
     $fallback_default_config = 1;
     $args_expected_min = 1;
     $subvol_args_init = "restrict_same_fs";
@@ -5701,7 +5710,7 @@ MAIN:
   }
 
 
-  if($action_extents_diff)
+  if($action_extents)
   {
     #
     # print extents diff (filefrag)
@@ -5731,7 +5740,7 @@ MAIN:
 
     # resolve related subvolumes
     my @resolved_vol;
-    if($extents_diff_related) {
+    if($extents_related) {
       # add all related subvolumes
       foreach my $svol (@subvol_args) {
         my $svol_gen = $svol->{node}{readonly} ? $svol->{node}{cgen} : $svol->{node}{gen};
@@ -5752,6 +5761,7 @@ MAIN:
       exit 1;
     };
 
+    my $do_diff = ($action_extents eq "diff");
     my $prev_data;
     # sort by gen for r/w subvolumes, cgen on readonly subvolumes, as
     # "gen" is increased on readonly subvolume when snapshotted.
@@ -5773,7 +5783,7 @@ MAIN:
       }
       next unless($vol->{EXTENTMAP});
 
-      if($prev_data) {
+      if($do_diff && $prev_data) {
         my $diff_map = extentmap_diff($prev_data->{_vinfo}{EXTENTMAP}, $vol->{EXTENTMAP});
         $prev_data->{diff} = print_size(extentmap_size($diff_map));
       }
@@ -5823,11 +5833,13 @@ MAIN:
       push @summary, {
         a => "Exclusive data ( X \\ A ):",
         b => print_size(extentmap_size(extentmap_diff(extentmap_merge(@excl), extentmap_merge(@others)))),
-       };
+      };
+    }
+    unless($do_diff) {
+      @data = sort { $a->{subvol} cmp $b->{subvol} } @data;
     }
 
     INFO "Printing extents map set difference: (extents \\ extents-on-prev-line)";
-
     print_formatted("extent_diff", \@data, paragraph => 1);
     print_formatted({ table => [ qw( a b ) ], RALIGN => { b=>1 } },
                     \@summary, output_format => "table", no_header => 1);
