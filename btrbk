@@ -2281,7 +2281,7 @@ sub read_extentmap_cache($)
         next;
       }
       if($gen != $vol->{node}{gen}) {
-        INFO "Subvolume generation has changed (cache=$gen, subvol=$vol->{node}{gen}), ignoring cache: $file";
+        WARN "Subvolume generation has changed (cache=$gen, subvol=$vol->{node}{gen}), ignoring cache: $file";
         next;
       }
       while(read $fh, $buf, 8 * 2) { # read / unpack two words
@@ -5759,7 +5759,10 @@ MAIN:
     foreach my $vol (sort { ($b->{node}{readonly} ? $b->{node}{cgen} : $b->{node}{gen}) <=>
                             ($a->{node}{readonly} ? $a->{node}{cgen} : $a->{node}{gen}) }
                      @resolved_vol) {
-      next if($prev_data && ($prev_data->{_vinfo}{node}{id} == $vol->{node}{id})); # skip duplicates
+      if($prev_data && ($prev_data->{_vinfo}{node}{id} == $vol->{node}{id})) {
+        INFO "Skipping duplicate of \"$prev_data->{_vinfo}{PRINT}\": $vol->{PRINT}";
+        next;
+      }
 
       # read extent map
       if($vol->{EXTENTMAP} = read_extentmap_cache($vol)) {
