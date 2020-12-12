@@ -365,26 +365,27 @@ different output formats.
 *diff* <from> <to>::
     Print new files since subvolume <from> for subvolume <to>.
 
-*extents-diff* <path>... [exclusive <filter>...]  _*experimental*_::
+*extents* [diff] <subvolume>... [exclusive <subvolume>...]::
 
-   List accurate size and diff from extent information (FIEMAP ioctl,
-   slow!).
+   Print accurate disk space usage and diff based on extent data
+   (FIEMAP ioctl, slow!).
++
+Subvolumes following the 'exclusive' keyword are added to a separate
+set, and additional set-exclusive data is printed at the end of the
+list. This gives a hint of how much data will be freed if deleting all
+subvolumes in the set. Example:
+
+    btrbk diff extents /backup/data.* exclusive /backup/data.2010*
+
++
+The EXCLUSIVE column shows the set-exclusive data of all other listed
+(!) subvolumes (relative complement of block regions). Provided that
+all related subvolumes (holding references to extents) are also
+listed, this amount of disk space would be freed when deleting the
+subvolume.
 +
 The DIFF column shows the data added to the previous subvolume
 (relative complement of block regions).
-+
-The EXCLUSIVE column shows the set-exclusive data (relative complement
-of block regions of all other listed (!) subvolumes). If all
-subvolumes which hold references to the extents in question are
-listed, the exclusive data would be freed when deleting the subvolume.
-+
-If called with the 'exclusive' keyword, subvolumes matching '<filter>'
-are added to a separate set, and the exclusive data is computed for
-this set. This gives a hint of how much data will be freed if deleting
-all subvolumes in the set. Example:
-
-    btrbk extents-diff /backup/data.* exclusive /backup/data.2010*
-
 +
 If called with the '--related' option, btrbk also lists all related
 subvolumes. This is not recommended for backups, as parent-uuid
