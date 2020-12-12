@@ -243,9 +243,9 @@ my %table_formats = (
                    raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
                  },
 
-  extent_diff => { table => [ qw( total exclusive diff -set subvol          ) ],
-                   long  => [ qw( total exclusive diff -set subvol cgen gen ) ],
-                   raw   => [ qw( total exclusive diff -set subvol cgen gen ) ],
+  extent_diff => { table => [ qw(             total exclusive diff -set subvol ) ],
+                   long  => [ qw( id cgen gen total exclusive diff -set subvol ) ],
+                   raw   => [ qw( id cgen gen total exclusive diff -set subvol ) ],
                    RALIGN => { total=>1, exclusive=>1, diff=>1, set=>1, cgen=>1, gen=>1 },
                  },
 );
@@ -5775,9 +5775,8 @@ MAIN:
         $prev_data->{diff} = print_size(extentmap_size($diff_map));
       }
       $prev_data = {
+        %{$vol->{node}}, # copy node
         total  => print_size(extentmap_size($vol->{EXTENTMAP})),
-        cgen   => $vol->{node}{cgen},
-        gen    => $vol->{node}{gen},
         subvol => $vol->{PRINT},
         _vinfo => $vol,
       };
