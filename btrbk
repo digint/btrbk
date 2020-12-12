@@ -5206,11 +5206,8 @@ sub _origin_tree
   # note: root subvolumes dont have REL_PATH
   $nodelist //= [ (sort { ($a->{REL_PATH} // "") cmp ($b->{REL_PATH} // "") } values %uuid_cache) ];
 
-  my $out_path;
-  $out_path = _fs_path($node);
-
   my $prefix_spaces = ' ' x (($depth * 4) - ($prefix ? 4 : 0));
-  push(@$lines, { tree          => "${prefix_spaces}${prefix}$out_path",
+  push(@$lines, { tree          => "${prefix_spaces}${prefix}" . _fs_path($node),
                   uuid          => $node->{uuid},
                   parent_uuid   => $node->{parent_uuid},
                   received_uuid => $node->{received_uuid},
@@ -5480,6 +5477,7 @@ MAIN:
   elsif ($command eq "origin") {
     $action_origin = 1;
     $args_expected_min = $args_expected_max = 1;
+    $subvol_args_init = "deny_root_subvol";
     @subvol_args = @ARGV;
   }
   elsif($command eq "list") {
@@ -5857,9 +5855,7 @@ MAIN:
     #
     my $exit_status = 0;
     my %data_uniq;
-    foreach my $url (@subvol_args) {
-      my $root_vol = vinfo($url, $config);
-
+    foreach my $root_vol (@subvol_args) {
       # map url to real path (we need to match against mount points below)
       my $root_path = system_realpath($root_vol);
       unless($root_path) {
@@ -6684,17 +6680,7 @@ MAIN:
     #
     # print origin information
     #
-    my $url = $subvol_args[0] || die;
-    my $vol = vinfo($url, $config);
-    unless(vinfo_init_root($vol)) {
-      ERROR "Failed to fetch subvolume detail for: $url", @stderr;
-      exit 1;
-    }
-    if($vol->{node}{is_root}) {
-      ERROR "Subvolume is btrfs root: $url\n";
-      exit 1;
-    }
-
+    my $vol = $subvol_args[0] || die;
     my $lines = [];
     _origin_tree("", $vol->{node}, $lines);
 
