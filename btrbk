@@ -2702,12 +2702,15 @@ sub _fs_info
   my $node = shift // die;
   my $url_prefix = shift // $node->{TREE_ROOT}{URL_PREFIX};
   my @ret = __fs_info($node, $url_prefix);
-  return scalar(@ret) ? @ret : ({ path => "$url_prefix<$node->{TREE_ROOT}{mount_source}>/$node->{path}", mountinfo => undef });
+  @ret = ({ path => "$url_prefix<$node->{TREE_ROOT}{mount_source}>/$node->{path}",
+            mountinfo => undef }) unless(scalar(@ret));
+  return @ret;
 }
 
 sub _fs_path
 {
-  return map $_->{path}, _fs_info(@_);
+  my @ret = map $_->{path}, _fs_info(@_);
+  return wantarray ? @ret : $ret[0];
 }
 
 
