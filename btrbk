@@ -6789,7 +6789,7 @@ MAIN:
                 $stats_correlated++;
                 my $up_to_date = ($parent_snapshot->{node}{cgen} == $svol->{node}{gen});
                 push @data, { type => "snapshot,backup",
-                              target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
+                              target_type => $target_vol->{CONFIG}{target_type},   # "send-receive" or "raw"
                               vinfo_prefixed_keys("target", $target_vol),
                               vinfo_prefixed_keys("snapshot", $parent_snapshot),
                               vinfo_prefixed_keys("source", $svol),
@@ -6802,7 +6802,7 @@ MAIN:
                 if(vinfo_is_btrbk_snapshot($target_vol, $snapshot_name)) {
                   if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
                   push @data, { type => "backup",
-                                target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
+                                target_type => $target_vol->{CONFIG}{target_type},   # "send-receive" or "raw"
                                 # suppress "orphaned" status here (snapshot column is empty anyways)
                                 # status => ($incomplete_backup ? "incomplete" : "orphaned"),
                                 status => ($incomplete_backup ? "incomplete" : undef),
