@@ -209,6 +209,12 @@ my %table_formats = (
                    # NOTE: snapshot_path is ambigous and does NOT print SUBVOL_PATH here (should be snapshot_subvolume, left as-is for compatibility)
                  },
 
+  stats       => { table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume  -target_host -target_port -target_subvolume snapshots  -backups ) ],
+                   long  => [ qw(  source_host -source_port source_subvolume snapshot_subvolume   target_host -target_port -target_subvolume snapshot_status backup_status snapshots -backups -correlated -orphaned -incomplete ) ],
+                   raw   => [ qw( source_url source_host source_port source_subvolume snapshot_subvolume snapshot_name target_url target_host target_port target_subvolume snapshot_status backup_status snapshots backups correlated orphaned incomplete ) ],
+                   RALIGN => { snapshots=>1, backups=>1, correlated=>1, orphaned=>1, incomplete=>1 },
+                 },
+
   schedule    => { table => [ qw( action -host -port subvolume scheme reason ) ],
                    long  => [ qw( action  host -port root_path subvolume_path scheme reason ) ],
                    raw   => [ qw( topic action url host port path hod dow min h d w m y) ],
@@ -400,8 +406,9 @@ commands:
    clean                 delete incomplete (garbled) backups
    stats                 print snapshot/backup statistics
    list <subcommand>     available subcommands are:
-      backups            all backups and corresponding snapshots
-      snapshots          all snapshots and corresponding backups
+      all                snapshots and backups
+      snapshots          snapshots
+      backups            backups and correlated snapshots
       latest             most recent snapshots and backups
       config             configured source/snapshot/target relations
       source             configured source/snapshot relations
@@ -5490,14 +5497,15 @@ MAIN:
     {
       $action_list = $subcommand;
     }
-    elsif(($subcommand eq "snapshots") ||
+    elsif(($subcommand eq "all") ||
+          ($subcommand eq "snapshots") ||
           ($subcommand eq "backups") ||
           ($subcommand eq "latest"))
     {
       $action_resolve = $subcommand;
     }
     else {
-      $action_list = "config";
+      $action_resolve = "all";
       unshift @ARGV, $subcommand if($subcommand ne "");
     }
     @filter_args = @ARGV;
@@ -6707,198 +6715,116 @@ MAIN:
   if($action_resolve)
   {
     my @data;
-    my @stats_data;
-    my $stats_snapshots_total = 0;
-    my $stats_backups_total = 0;
-    my $stats_backups_total_correlated = 0;
-    my $stats_backups_total_incomplete = 0;
-    my $stats_backups_total_orphaned = 0;
-    if($action_resolve eq "snapshots")
-    {
-      #
-      # print all snapshots and their receive targets
-      #
-      foreach my $sroot (vinfo_subsection($config, 'volume')) {
-        foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $snapshot_name = config_key($svol, "snapshot_name") // die;
-          my $snaproot = vinfo_snapshot_root($svol);
-          # note: we list all snapshot children within $snaproot here, not only the ones matching btrbk naming
-          foreach my $snapshot (sort { $a->{node}{cgen} <=> $b->{node}{cgen} } get_related_snapshots($snaproot, $svol)) {
-            my $snapshot_data = { type => "snapshot",
-                                  status => ($snapshot->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
-                                  vinfo_prefixed_keys("source", $svol),
-                                  vinfo_prefixed_keys("snapshot", $snapshot),
-                                  snapshot_name => $snapshot_name,
-                                };
-            my $found = 0;
-            foreach my $droot (vinfo_subsection($svol, 'target')) {
-              foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
-                push @data, { %$snapshot_data,
-                              type => "snapshot,backup",
-                              target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
-                              vinfo_prefixed_keys("target", $_),
-                            };
-                $found = 1;
-              }
-            }
-            push @data, $snapshot_data unless($found);
-          }
-        }
-      }
-    }
-    elsif(($action_resolve eq "backups") || ($action_resolve eq "stats"))
-    {
-      #
-      # print all targets and their corresponding source snapshots
-      #
-      foreach my $sroot (vinfo_subsection($config, 'volume')) {
-        foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $snapshot_name = config_key($svol, "snapshot_name") // die;
-          my $snaproot = vinfo_snapshot_root($svol);
-          # note: we list all snapshot children within $snaproot here, not only the ones matching btrbk naming
-          my @related_snapshots = get_related_snapshots($snaproot, $svol);
-          my $stats_snapshot_uptodate = "";
-          foreach my $snapshot (@related_snapshots) {
-            if($snapshot->{node}{cgen} == $svol->{node}{gen}) {
-              $stats_snapshot_uptodate = " (up-to-date)";
-              last;
-            }
-          }
-          push @stats_data, [ $svol->{PRINT}, sprintf("%4u snapshots$stats_snapshot_uptodate", scalar(@related_snapshots)) ];
-          $stats_snapshots_total += scalar(@related_snapshots);  # NOTE: this adds ALL related snaphots under $sroot (not only the ones created by btrbk!)
+    my %stats = ( snapshots => 0, backups => 0, correlated => 0, incomplete => 0, orphaned => 0 );
+    foreach my $sroot (vinfo_subsection($config, 'volume')) {
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+        my $snaproot = vinfo_snapshot_root($svol);
+        my $snapshot_name = config_key($svol, "snapshot_name") // die;
+        my @related_snapshots = get_related_snapshots($snaproot, $svol, $snapshot_name);
 
-          foreach my $droot (vinfo_subsection($svol, 'target')) {
-            my $stats_correlated = 0;
-            my $stats_orphaned = 0;
-            my $stats_incomplete = 0;
-            my $target_up_to_date = 0;
-            foreach my $target_vol (@{vinfo_subvol_list($droot, sort => 'path')}) {
-              my $parent_snapshot;
-              my $incomplete_backup;
-              foreach (@related_snapshots) {
-                if($target_vol->{node}{received_uuid} eq '-') {
-                  # incomplete received (garbled) subvolumes have no received_uuid (as of btrfs-progs v4.3.1).
-                  # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
-                  $parent_snapshot = undef;
-                  $incomplete_backup = 1;
-                  last;
-                }
-                if(_is_correlated($_->{node}, $target_vol->{node})) {
-                  $parent_snapshot = $_;
-                  last;
-                }
-              }
-              if($parent_snapshot) {
-                $stats_correlated++;
-                my $up_to_date = ($parent_snapshot->{node}{cgen} == $svol->{node}{gen});
-                push @data, { type => "snapshot,backup",
-                              target_type => $target_vol->{CONFIG}{target_type},   # "send-receive" or "raw"
-                              vinfo_prefixed_keys("target", $target_vol),
-                              vinfo_prefixed_keys("snapshot", $parent_snapshot),
-                              vinfo_prefixed_keys("source", $svol),
-                              status => $up_to_date ? "up-to-date" : undef,
-                            };
-                $target_up_to_date ||= $up_to_date;
-              }
-              else {
-                # don't display all subvolumes in $droot, only the ones matching snapshot_name
-                if(vinfo_is_btrbk_snapshot($target_vol, $snapshot_name)) {
-                  if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
-                  push @data, { type => "backup",
-                                target_type => $target_vol->{CONFIG}{target_type},   # "send-receive" or "raw"
-                                # suppress "orphaned" status here (snapshot column is empty anyways)
-                                # status => ($incomplete_backup ? "incomplete" : "orphaned"),
-                                status => ($incomplete_backup ? "incomplete" : undef),
-                                vinfo_prefixed_keys("target", $target_vol),
-                                vinfo_prefixed_keys("source", $svol),
-                              };
-                }
-              }
+        my %svol_data = (
+          vinfo_prefixed_keys("source", $svol),
+          snapshot_name => $snapshot_name,
+         );
+        my @sdata = map +{
+          %svol_data,
+          type => "snapshot",
+          status => ($_->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : "",
+          vinfo_prefixed_keys("snapshot", $_),
+          _vinfo => $_,
+          _btrbk_date => $_->{node}{BTRBK_DATE},
+        }, @related_snapshots;
+
+        my %svol_stats_data = (
+          %svol_data,
+          snapshot_subvolume => "$snaproot->{PATH}/$snapshot_name.*",
+          snapshot_status => (grep { $_->{status} eq "up-to-date" } @sdata) ? "up-to-date" : "",
+          snapshots => scalar(@sdata),
+         );
+        $stats{snapshots} += scalar(@sdata);
+
+        my (@bdata, @ldata, @stdata);
+        foreach my $droot (vinfo_subsection($svol, 'target')) {
+          my %dstats = ( correlated => 0, orphaned => 0, incomplete => 0, uptodate => 0 );
+          my $latest_backup;
+          foreach my $target_vol (@{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_name, sort => 'path')}) {
+            my $target_data = {
+              %svol_data,
+              type => "backup",
+              target_type => $target_vol->{CONFIG}{target_type},   # "send-receive" or "raw"
+              vinfo_prefixed_keys("target", $target_vol),
+              _btrbk_date => $target_vol->{node}{BTRBK_DATE},
+            };
+
+            # incomplete received (garbled) subvolumes have no received_uuid (as of btrfs-progs v4.3.1).
+            # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
+            if($target_vol->{node}{received_uuid} eq '-') {
+              $dstats{incomplete}++;
+              $target_data->{status} = "incomplete";
+              push @bdata, $target_data;
+              next;
             }
-            my $stats_total = $stats_correlated + $stats_incomplete + $stats_orphaned;
-            $stats_backups_total            += $stats_total;
-            $stats_backups_total_correlated += $stats_correlated;
-            $stats_backups_total_incomplete += $stats_incomplete;
-            $stats_backups_total_orphaned   += $stats_orphaned;
-            my @stats_detail;
-            push @stats_detail, "up-to-date" if($target_up_to_date);
-            push @stats_detail, "$stats_correlated correlated" if($stats_correlated);
-            push @stats_detail, "$stats_incomplete incomplete" if($stats_incomplete);
-            my $stats_detail_print = join(', ', @stats_detail);
-            $stats_detail_print = "   ($stats_detail_print)" if($stats_detail_print);
-            push @stats_data, [ "^-- $droot->{PRINT}/$snapshot_name.*", sprintf("%4u backups$stats_detail_print", $stats_total) ];
-          }
-        }
-      }
-    }
-    elsif($action_resolve eq "latest")
-    {
-      #
-      # print latest common
-      #
-      foreach my $sroot (vinfo_subsection($config, 'volume')) {
-        foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-          my $found = 0;
-          my $snaproot = vinfo_snapshot_root($svol);
-          my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-          my @related_snapshots = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
-                                       get_related_snapshots($snaproot, $svol, $snapshot_basename));
-          foreach my $droot (vinfo_subsection($svol, 'target')) {
-            foreach my $snapshot (@related_snapshots) {
-              my @receive_targets = get_receive_targets($droot, $snapshot, exact => 1);
-              if(scalar(@receive_targets)) {
-                foreach(@receive_targets) {
-                  push @data, { type => "latest_common",
-                                target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
-                                status => ($snapshot->{node}{cgen} == $svol->{node}{gen}) ? "up-to-date" : undef,
-                                vinfo_prefixed_keys("source", $svol),
-                                vinfo_prefixed_keys("snapshot", $snapshot),
-                                vinfo_prefixed_keys("target", $_),
-                              };
-                }
-                $found = 1;
+
+            foreach (@sdata) {
+              if(_is_correlated($_->{_vinfo}{node}, $target_vol->{node})) {
+                $target_data = {
+                  %$_,
+                  %$target_data,
+                  type => "snapshot,backup",
+                  _correlated => 1,
+                };
+                $_->{_correlated} = 1;
                 last;
               }
             }
+            push @bdata, $target_data;
+            $latest_backup = $target_data if(!defined($latest_backup) || (cmp_date($latest_backup->{_btrbk_date}, $target_data->{_btrbk_date}) < 0));
+
+            $dstats{uptodate} ||= ($target_data->{status} // "") eq "up-to-date";
+            $dstats{backups}++;
+            if($target_data->{_correlated}) { $dstats{correlated}++; } else { $dstats{orphaned}++; }
           }
-          if(!$found) {
-            my $latest_snapshot = $related_snapshots[0];
-            push @data, { type => "latest_snapshot",
-                          status => ($latest_snapshot && ($latest_snapshot->{node}{cgen} == $svol->{node}{gen})) ? "up-to-date" : undef,
-                          vinfo_prefixed_keys("source", $svol),
-                          vinfo_prefixed_keys("snapshot", $latest_snapshot), # all unset if no $latest_snapshot
-                        };
-          }
+          push @ldata, $latest_backup;
+
+          push @stdata, {
+            %svol_stats_data,
+            %dstats,
+            vinfo_prefixed_keys("target", $droot),
+            target_subvolume => "$droot->{PATH}/$snapshot_name.*",
+            backup_status => $dstats{uptodate} ? "up-to-date" : "",
+          };
+          $stats{$_} += $dstats{$_} foreach(qw(backups correlated incomplete orphaned));
+        }
+
+        if($action_resolve eq "snapshots") {
+          push @data, @sdata;
+        } elsif($action_resolve eq "backups") {
+          push @data, @bdata;
+        } elsif($action_resolve eq "all") {
+          push @data, sort { cmp_date($a->{_btrbk_date}, $b->{_btrbk_date}) } (@bdata, grep { !$_->{_correlated} } @sdata);
+        } elsif($action_resolve eq "latest") {
+          my $latest_snapshot = (sort { cmp_date($b->{_btrbk_date}, $a->{_btrbk_date}) } (@sdata, @bdata))[0];
+          push @data, $latest_snapshot if($latest_snapshot && !$latest_snapshot->{_correlated});
+          push @data, @ldata;
+        } elsif($action_resolve eq "stats") {
+          @stdata = ( \%svol_stats_data ) unless(@stdata);
+          push @data, @stdata;
         }
       }
     }
-    else {
-      die;
-    }
 
     if($action_resolve eq "stats") {
-      print_header(title  => "Statistics",
-                   config => $config,
-                   time   => $start_time,
-                   legend => [
-                     "up-to-date: latest snapshot/backup is up to date with source subvolume",
-                     "correlated: corresponding (received-from) source snapshot is present",
-                    ],
-                  );
+      my $filter = $config->{CMDLINE_FILTER_LIST} ? " (" . join(", ", @{$config->{CMDLINE_FILTER_LIST}}) . ")" : "";
+      my @backup_total = map { $stats{$_} ? "$stats{$_} $_" : () } qw( correlated incomplete );
+      my $bflags = @backup_total ? "(" . join(', ', @backup_total) . ")" : "";
 
-      print_table(\@stats_data, "  ");
-      print "\n";
-      my $stats_filter = $config->{CMDLINE_FILTER_LIST} ? join("; ", @{$config->{CMDLINE_FILTER_LIST}}) : "";
-      my @stats_total_detail;
-      push @stats_total_detail, "$stats_backups_total_correlated correlated" if($stats_backups_total_correlated);
-      push @stats_total_detail, "$stats_backups_total_incomplete incomplete" if($stats_backups_total_incomplete);
-      my $stats_total_detail_print = join(', ', @stats_total_detail);
-      $stats_total_detail_print = " ($stats_total_detail_print)" if($stats_total_detail_print);
-      print "Total" . ($stats_filter ? " ($stats_filter)" : "") . ":\n";
-      my $maxlen = ($stats_snapshots_total > $stats_backups_total) ? length($stats_snapshots_total) : length($stats_backups_total);
-      printf("%" . $maxlen . "u snapshots\n", $stats_snapshots_total);
-      printf("%" . $maxlen . "u backups$stats_total_detail_print\n",   $stats_backups_total);
-    }
+      print_formatted("stats", \@data, paragraph => 1);
+      print "Total${filter}:\n";
+      print_formatted({ table => [ qw( a b c ) ], RALIGN => { a=>1 } },
+                      [ { a => $stats{snapshots}, b => "snapshots", c => " " },
+                        { a => $stats{backups},   b => "backups", c => $bflags } ],
+                      output_format => "table", no_header => 1);
+   }
     else {
       print_formatted("resolved", \@data);
     }
