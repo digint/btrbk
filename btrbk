@@ -187,15 +187,15 @@ my @config_target_types = qw(send-receive raw);
 
 my %table_formats = (
   list_volume => { table => [ qw( -volume_host -volume_port volume_path ) ],
-                   long  => [ qw(  volume_host  volume_port volume_path ) ],
+                   long  => [ qw(  volume_host  volume_port volume_path volume_rsh ) ],
                    raw   => [ qw( volume_url volume_host volume_port volume_path volume_rsh ) ],
                  },
   list_source => { table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name ) ],
-                   long  => [ qw(  source_host  source_port source_subvolume snapshot_path snapshot_name ) ],
+                   long  => [ qw(  source_host  source_port source_subvolume snapshot_path snapshot_name source_rsh ) ],
                    raw   => [ qw( source_url source_host source_port source_path snapshot_path snapshot_name source_rsh ) ],
                  },
   list_target => { table => [ qw( -target_host -target_port target_path ) ],
-                   long  => [ qw(  target_host  target_port target_path ) ],
+                   long  => [ qw(  target_host  target_port target_path target_rsh ) ],
                    raw   => [ qw( target_url target_host target_port target_path target_rsh ) ],
                  },
   list        => { table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name                   -target_host -target_port target_path ) ],
