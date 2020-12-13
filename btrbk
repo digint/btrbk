@@ -6732,7 +6732,7 @@ MAIN:
             foreach my $droot (vinfo_subsection($svol, 'target')) {
               foreach (sort { $a->{SUBVOL_PATH} cmp $b->{SUBVOL_PATH} } get_receive_targets($droot, $snapshot)) {
                 push @data, { %$snapshot_data,
-                              type => "received",
+                              type => "snapshot,backup",
                               target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
                               vinfo_prefixed_keys("target", $_),
                             };
@@ -6788,7 +6788,7 @@ MAIN:
               if($parent_snapshot) {
                 $stats_correlated++;
                 my $up_to_date = ($parent_snapshot->{node}{cgen} == $svol->{node}{gen});
-                push @data, { type => "received",
+                push @data, { type => "snapshot,backup",
                               target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
                               vinfo_prefixed_keys("target", $target_vol),
                               vinfo_prefixed_keys("snapshot", $parent_snapshot),
@@ -6801,7 +6801,7 @@ MAIN:
                 # don't display all subvolumes in $droot, only the ones matching snapshot_name
                 if(vinfo_is_btrbk_snapshot($target_vol, $snapshot_name)) {
                   if($incomplete_backup) { $stats_incomplete++; } else { $stats_orphaned++; }
-                  push @data, { type => "received",
+                  push @data, { type => "backup",
                                 target_type => $_->{CONFIG}{target_type},   # "send-receive" or "raw"
                                 # suppress "orphaned" status here (snapshot column is empty anyways)
                                 # status => ($incomplete_backup ? "incomplete" : "orphaned"),
