@@ -203,8 +203,8 @@ my %table_formats = (
                    raw   => [ qw( source_url source_host source_port source_subvolume snapshot_path snapshot_name target_url target_host target_port target_path snapshot_preserve target_preserve source_rsh target_rsh ) ],
                  },
 
-  resolved    => { table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume ) ],
-                   long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume target_type ) ],
+  resolved    => { table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port -target_subvolume ) ],
+                   long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port -target_subvolume -target_type ) ],
                    raw   => [ qw( type source_url source_host source_port source_path snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
                    # NOTE: snapshot_path is ambigous and does NOT print SUBVOL_PATH here (should be snapshot_subvolume, left as-is for compatibility)
                  },
