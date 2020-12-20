@@ -6805,8 +6805,8 @@ MAIN:
           push @data, sort { cmp_date($a->{_btrbk_date}, $b->{_btrbk_date}) } (@bdata, grep { !$_->{_correlated} } @sdata);
         } elsif($action_resolve eq "latest") {
           my $latest_snapshot = (sort { cmp_date($b->{_btrbk_date}, $a->{_btrbk_date}) } (@sdata, @bdata))[0];
-          push @data, $latest_snapshot if($latest_snapshot && !$latest_snapshot->{_correlated});
           push @data, @ldata;
+          push @data, $latest_snapshot if($latest_snapshot && !$latest_snapshot->{_correlated});
         } elsif($action_resolve eq "stats") {
           @stdata = ( \%svol_stats_data ) unless(@stdata);
           push @data, @stdata;
