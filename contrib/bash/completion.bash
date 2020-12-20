@@ -70,7 +70,7 @@ _btrbk()
       ;;
     'list')
       if [[ ! -v 'cmds[1]' ]]; then
-        COMPREPLY=($(compgen -W 'backups snapshots latest config source volume target' -- "$cur"))
+        COMPREPLY=($(compgen -W 'all snapshots backups latest config source volume target' -- "$cur"))
       fi
       ;;
     'origin')
