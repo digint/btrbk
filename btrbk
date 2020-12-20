@@ -1307,29 +1307,19 @@ sub btrfs_subvolume_find_new($$;$)
       $files{$name}->{len} += $len;
       $files{$name}->{new} = 1 if($file_offset == 0);
       $files{$name}->{gen}->{$gen} = 1;  # count the generations
-      if($flags eq "COMPRESS") {
-        $files{$name}->{flags}->{compress} = 1;
-      }
-      elsif($flags eq "COMPRESS|INLINE") {
-        $files{$name}->{flags}->{compress} = 1;
-        $files{$name}->{flags}->{inline} = 1;
-      }
-      elsif($flags eq "INLINE") {
-        $files{$name}->{flags}->{inline} = 1;
-      }
-      elsif($flags eq "NONE") {
-      }
-      else {
-        WARN "unparsed flags: $flags";
+      if($flags ne "NONE") {
+        $files{$name}->{flags}{$_} = 1 foreach split(/\|/, $flags);
       }
     }
     elsif(/^transid marker was (\S+)$/) {
       $transid_marker = $1;
     }
     else {
+      ERROR "Failed to parse output from `btrfs subvolume find-new`:", $_;
       $parse_errors++;
     }
   }
+  ERROR "Failed to parse $parse_errors lines from `btrfs subvolume find-new`" if($parse_errors);
 
   return { files => \%files,
            transid_marker => $transid_marker,
@@ -5005,6 +4995,7 @@ sub print_header(@)
     print "\n";
   }
   print "--------------------------------------------------------------------------------\n";
+  print "\n" if($args{paragraph});
 }
 
 
@@ -5696,8 +5687,8 @@ MAIN:
       $total_len += $finfo->{len};
       push @data, {
         flags => ($finfo->{new}               ? '+' : '.') .
-                 ($finfo->{flags}->{compress} ? 'c' : '.') .
-                 ($finfo->{flags}->{inline}   ? 'i' : '.'),
+                 ($finfo->{flags}->{COMPRESS} ? 'c' : '.') .
+                 ($finfo->{flags}->{INLINE}   ? 'i' : '.'),
         count => scalar(keys(%{$finfo->{gen}})),
         size => print_size($finfo->{len}),
         file => $name,
@@ -5725,10 +5716,11 @@ MAIN:
                    "..i     flags INLINE or COMPRESS|INLINE set (at least once)",
                    "<count> file was modified in <count> generations",
                    "<size>  file was modified for a total of <size> bytes",
-                  ]
-                ) unless($quiet || $raw);
-    print_formatted("diff", \@data, no_header => !$output_pretty);
-    print "\nTotal size: " . print_size($total_len) . "\n" unless($raw);
+                  ],
+                 paragraph => 1,
+                ) if($output_pretty && !$raw);
+    print_formatted("diff", \@data, paragraph => 1);
+    print "Total size: " . print_size($total_len) . "\n" unless($raw);
     exit 0;
   }
 
