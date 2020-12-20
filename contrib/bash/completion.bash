@@ -51,7 +51,7 @@ _btrbk()
     [[ $COMPREPLY == *= ]] && compopt -o nospace
   else
     if [[ ! -v 'cmds[0]' ]]; then
-      COMPREPLY=($(compgen -W 'run dryrun snapshot resume prune archive clean stats list usage origin diff ls' -- "$cur"))
+      COMPREPLY=($(compgen -W 'run dryrun snapshot resume prune archive clean stats list usage origin diff extents ls' -- "$cur"))
     fi
   fi
 
@@ -81,6 +81,15 @@ _btrbk()
       ;;
     'ls')
       # <path>|<url>...
+      _filedir -d
+      ;;
+    'extents')
+      # [diff] <path>... [exclusive] <path>...
+      if [[ ! -v 'cmds[1]' ]]; then
+          COMPREPLY+=($(compgen -W 'diff' -- "$cur"))
+      elif [[ ! ${cmds[*]} =~ (^|[[:space:]])"exclusive"($|[[:space:]]) ]]; then
+          COMPREPLY+=($(compgen -W 'exclusive' -- "$cur"))
+      fi
       _filedir -d
       ;;
   esac
