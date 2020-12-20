@@ -5056,6 +5056,14 @@ sub print_formatted(@)
   my $fh = $args{outfile} // *STDOUT;
   my $table_spacing = 2;
 
+  if($format =~ s/^col:\s*(h:)?\s*//) {
+    $args{no_header} = 1 if($1);
+    $key_defs = []; $ralign = {};
+    foreach (split(/\s*,\s*/, $format)) {
+      $ralign->{$_} = 1 if s/:R(ALIGN)?$//i;
+      push @$key_defs, lc($_);
+    }
+  }
   unless($key_defs) {
     WARN "Unsupported output format \"$format\", defaulting to \"$default_format\" format.";
     $key_defs = $table_format->{$default_format} || die;
