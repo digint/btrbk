@@ -243,7 +243,7 @@ my %table_formats = (
                    raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
                  },
 
-  diff        => { table => [ qw(             size file ) ],
+  diff        => { table => [ qw( flags count size file ) ],
                    long  => [ qw( flags count size file ) ],
                    raw   => [ qw( flags count size file ) ],
                    RALIGN => { count=>1, size=>1 },
@@ -5679,6 +5679,11 @@ MAIN:
     my $ret = btrfs_subvolume_find_new($target_vol, $lastgen);
     exit 1 unless(ref($ret));
 
+    INFO "Listing changed files for subvolume: $target_vol->{PRINT}  (gen=$target_vol->{node}{gen})";
+    INFO "Starting at generation after subvolume: $src_vol->{PRINT}  (gen=$src_vol->{node}{gen})";
+    INFO "Listing files modified within generation range: [$lastgen..$target_vol->{node}{gen}]";
+    DEBUG "Newest file generation (transid marker) was: $ret->{transid_marker}";
+
     my $files = $ret->{files};
     my $total_len = 0;
     my @data;
@@ -5695,30 +5700,7 @@ MAIN:
        };
     }
 
-    $output_format //= "long";
     my $raw = ($output_format && $output_format eq "raw");
-    print_header(title => "Subvolume Diff",
-                 time => $start_time,
-                 info => [
-                   "Showing changed files for subvolume:",
-                   "  $target_vol->{PRINT}  (gen=$target_vol->{node}{gen})",
-                   "",
-                   "Starting at generation after subvolume:",
-                   "  $src_vol->{PRINT}  (gen=$src_vol->{node}{gen})",
-                   "",
-                   "This will show all files modified within generation range: [$lastgen..$target_vol->{node}{gen}]",
-                   "Newest file generation (transid marker) was: $ret->{transid_marker}",
-                   ($ret->{parse_errors} ? "Parse errors: $ret->{parse_errors}" : undef),
-                  ],
-                 legend => [
-                   "+..     file accessed at offset 0 (at least once)",
-                   ".c.     flags COMPRESS or COMPRESS|INLINE set (at least once)",
-                   "..i     flags INLINE or COMPRESS|INLINE set (at least once)",
-                   "<count> file was modified in <count> generations",
-                   "<size>  file was modified for a total of <size> bytes",
-                  ],
-                 paragraph => 1,
-                ) if($output_pretty && !$raw);
     print_formatted("diff", \@data, paragraph => 1);
     print "Total size: " . print_size($total_len) . "\n" unless($raw);
     exit 0;
