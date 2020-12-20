@@ -123,11 +123,14 @@ OPTIONS
 -L, --long::
     Print output in long table format (shortcut for "--format=long").
 
---format table|long|raw::
+--format table|long|raw|col:[h:]<columns>::
     Print output in specified format. If set to "raw", prints
-    space-separated key="value" pairs (machine readable). Affects
-    output format for *run*, *snapshot*, *resume*, *prune*, *archive*
-    and *list* commands. Useful for further exporting/scripting.
+    space-separated key="value" pairs (machine readable).
++
+If set to "col:", prints only the <columns> specified (comma-separated
+list). Header lines are ommitted if the "h:" modifier is present.
+Columns prefixed with "-" are collapsed if empty. Columns postfixed
+with ":RALIGN" are right-aligned.
 
 --pretty::
     Print table output with lowercase, underlined column headings
