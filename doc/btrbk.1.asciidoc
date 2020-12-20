@@ -367,10 +367,18 @@ output formats.
     formats.
 
 *diff* <from> <to>::
-    Print new files since subvolume <from> for subvolume <to>.
+    List the modified files since generation (transid) of subvolume
+    <from> in subvolume <to>. Columns:
++
+------------
+SIZE   file was modified for a total of SIZE bytes
+COUNT  file was modified in COUNT generations
+FLAGS  "+"  file accessed at offset 0 (at least once)
+       "c"  COMPRESS flag is set (at least once)
+       "i"  INLINE flag is set (at least once)
+------------
 
 *extents* [diff] <subvolume>... [exclusive <subvolume>...]::
-
    Print accurate disk space usage and diff based on extent data
    (FIEMAP ioctl, slow!).
 +
