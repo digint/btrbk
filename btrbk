@@ -54,6 +54,7 @@ my %compression = (
   xz     => { name => 'xz',     format => 'xz',  compress_cmd => [ 'xz',     '-c' ], decompress_cmd => [ 'xz',     '-d', '-c' ], level_min => 0, level_max => 9, threads => '-T' },
   lzo    => { name => 'lzo',    format => 'lzo', compress_cmd => [ 'lzop',   '-c' ], decompress_cmd => [ 'lzop',   '-d', '-c' ], level_min => 1, level_max => 9 },
   lz4    => { name => 'lz4',    format => 'lz4', compress_cmd => [ 'lz4',    '-c' ], decompress_cmd => [ 'lz4',    '-d', '-c' ], level_min => 1, level_max => 9 },
+  zstd   => { name => 'zstd',   format => 'zst', compress_cmd => [ 'zstd',   '-c' ], decompress_cmd => [ 'zstd',   '-d', '-c' ], level_min => 1, level_max => 19, threads => '-T' },
  );
 
 my $compress_format_alt = join '|', map { $_->{format} } values %compression; # note: this contains duplicate alternations

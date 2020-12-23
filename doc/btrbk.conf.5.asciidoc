@@ -290,7 +290,7 @@ option in ssh_config(5).
     remote locations. Defaults to ``no''. If enabled, make sure that
     '<compress_command>' is available on the source and target
     hosts. Supported '<compress_command>': gzip, pigz, bzip2, pbzip2,
-    xz, lzo, lz4.
+    xz, lzo, lz4, zstd.
 
 *stream_compress_level* default|<number>::
     Compression level for the specified '<compress_command>'. Refer to
@@ -300,7 +300,7 @@ option in ssh_config(5).
 
 *stream_compress_threads* default|<number>::
     Number of threads to use for <compress_command>. Only supported
-    for "pigz", "pbzip2" and recent versions of "xz".
+    for "pigz", "pbzip2", "zstd" and recent versions of "xz".
 
 *stream_buffer* <size>|no::
     Add a buffer to the btrfs send stream (locally, on uncompressed
@@ -565,7 +565,8 @@ Additional options for raw targets:
 
 *raw_target_compress* <compress_command>|no::
     Compression algorithm to use for raw backup target. Supported
-    '<compress_command>': gzip, pigz, bzip2, pbzip2, xz, lzo, lz4.
+    '<compress_command>': gzip, pigz, bzip2, pbzip2, xz, lzo, lz4,
+    zstd.
 *raw_target_compress_level* default|<number>::
     Compression level for the specified <compress_command>.
 *raw_target_compress_threads* default|<number>::
