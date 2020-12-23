@@ -298,6 +298,11 @@ option in ssh_config(5).
     fastest compression). Defaults to ``default'' (the default
     compression level of '<compress_command>').
 
+*stream_compress_long* default|<number>::
+    Enable long distance matching for the specified
+    '<compress_command>'. Refer to the related man-page for details.
+    Only supported for "zstd".
+
 *stream_compress_threads* default|<number>::
     Number of threads to use for <compress_command>. Only supported
     for "pigz", "pbzip2", "zstd" and recent versions of "xz".
@@ -569,6 +574,9 @@ Additional options for raw targets:
     zstd.
 *raw_target_compress_level* default|<number>::
     Compression level for the specified <compress_command>.
+*raw_target_compress_long* default|<number>::
+    Enable long distance matching for the specified
+    '<compress_command>'.
 *raw_target_compress_threads* default|<number>::
     Number of threads to use for <compress_command>.
 *raw_target_split* <size>|no::
