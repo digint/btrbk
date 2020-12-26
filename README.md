@@ -24,7 +24,8 @@ Key Features:
   * Transaction log
   * Comprehensive list and statistics output
   * Resolve and trace btrfs parent-child and received-from relationships
-  * Display file changes between two backups
+  * List file changes between backups
+  * Calculate accurate disk space usage based on block regions
 
 Btrbk is designed to run as a cron job for triggering periodic
 snapshots and backups, as well as from the command line (e.g. for
