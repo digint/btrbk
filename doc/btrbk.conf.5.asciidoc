@@ -181,8 +181,8 @@ not be certain about this, such operations are disallowed in
 *group* <group-name> [<group-name>]...::
     Add the current section (volume, subvolume or target) to
     user-defined groups, which can be used as filter for most btrbk
-    commands. This option can be set multiple times within the same
-    context.
+    commands (see btrbk(1) FILTER STATEMENTS). This option can be set
+    multiple times within the same context.
 
 
 === Retention Policy Options
