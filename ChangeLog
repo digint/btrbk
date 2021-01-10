@@ -1,3 +1,18 @@
+btrbk-0.31.0
+
+  * Add action "extents [diff]": print accurate disk space usage based
+    on block regions (extent data, FIEMAP ioctl).
+  * Improve action "list" and "stats" table output (close #334).
+  * Add subcommand "list all", make default for "list" action.
+  * Change semantics on output of action "list": show only btrbk
+    snapshots/backups (close #333).
+  * Print human readable units in action "diff" (close #345).
+  * Allow custom table format definitions from command line.
+  * Add Bash completion (close #343).
+  * Add support for zstd compression (close #358).
+  * Bugfix: fs_path fallback for action "origin" and logging.
+  * Bugfix: makefile bin-links race (close #341).
+
 btrbk-0.30.0
 
   * MIGRATION
