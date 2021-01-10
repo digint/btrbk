@@ -382,30 +382,31 @@ FLAGS  "+"  file accessed at offset 0 (at least once)
    Print accurate disk space usage and diff based on extent data
    (FIEMAP ioctl, slow!).
 +
+--
 Subvolumes following the 'exclusive' keyword are added to a separate
 set, and additional set-exclusive data is printed at the end of the
 list. This gives a hint of how much data will be freed if deleting all
 subvolumes in the set. Example:
 
-    btrbk diff extents /backup/data.* exclusive /backup/data.2010*
+    btrbk extents diff /backup/data.* exclusive /backup/data.2010*
 
-+
 The EXCLUSIVE column shows the set-exclusive data of all other listed
 (!) subvolumes (relative complement of block regions). Provided that
 all related subvolumes (holding references to extents) are also
 listed, this amount of disk space would be freed when deleting the
 subvolume.
-+
+
 The DIFF column shows the data added to the previous subvolume
 (relative complement of block regions).
-+
+
 If called with the '--related' option, btrbk also lists all related
 subvolumes. This is not recommended for backups, as parent-uuid
 relations break for received subvolumes as soon as an intermediate
 subvolume is deleted.
-+
+
 Note that reading all extents is a disk-intensive task, expect long
 execution times and high ram usage. Consider setting 'cache_dir'.
+--
 
 *ls* <path>|<url>...::
     List all btrfs subvolumes below <path>. Use the '--format' command
