@@ -15,11 +15,12 @@ Key Features:
 
   * Atomic snapshots
   * Incremental backups
-  * Configurable retention policy
+  * Flexible retention policy
   * Backups to multiple destinations
   * Transfer via ssh
-  * Resume of backups (if backup target was not reachable for a while)
-  * Encrypted backups to non-btrfs destinations
+  * Resume backups (for removable and mobile devices)
+  * Archive to offline storage
+  * Encrypted backups to non-btrfs storage
   * Wildcard subvolumes (useful for docker and lxc containers)
   * Transaction log
   * Comprehensive list and statistics output
