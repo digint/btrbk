@@ -405,8 +405,6 @@ btrfs-progs-btrbk").
 If you want to set this option for regular (non-root) user only, set
 *backend_local_user*.
 --
-+
-
 
 *compat* busybox|no::
     If set to ``busybox'', use busybox compatible commands. Defaults
@@ -417,6 +415,7 @@ If you want to set this option for regular (non-root) user only, set
 
 *cache_dir* <directory>::
     If set, cache extent maps for the "btrbk extents" command.
+
 
 === Btrfs Specific Options
 
