@@ -6660,19 +6660,22 @@ MAIN:
   # check for duplicate snapshot locations
   foreach my $sroot (vinfo_subsection($config, 'volume')) {
     foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-      # check for duplicate snapshot locations
-      my $snaproot = vinfo_snapshot_root($svol);
       my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-      my $snaproot_subdir_path = (defined($snaproot->{NODE_SUBDIR}) ? $snaproot->{NODE_SUBDIR} . '/' : "") . $snapshot_basename;
-      if(my $prev = $snaproot->{node}->{_SNAPSHOT_CHECK}->{$snaproot_subdir_path}) {
-        ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snaproot->{PRINT}/${snapshot_basename}.*";
-        ERROR "Please fix \"snapshot_name\" configuration options!";
-        exit 1;
-      }
-      $snaproot->{node}->{_SNAPSHOT_CHECK}->{$snaproot_subdir_path} = $svol->{PRINT};
 
+      # check for duplicate snapshot locations
+      if(config_key($svol, "snapshot_create")) {
+        my $snaproot = vinfo_snapshot_root($svol);
+        my $snaproot_subdir_path = (defined($snaproot->{NODE_SUBDIR}) ? $snaproot->{NODE_SUBDIR} . '/' : "") . $snapshot_basename;
+        if(my $prev = $snaproot->{node}->{_SNAPSHOT_CHECK}->{$snaproot_subdir_path}) {
+          ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same snapshot: $snaproot->{PRINT}/${snapshot_basename}.*";
+          ERROR "Please fix \"snapshot_name\" configuration options!";
+          exit 1;
+        }
+        $snaproot->{node}->{_SNAPSHOT_CHECK}->{$snaproot_subdir_path} = $svol->{PRINT};
+      }
+
+      # check for duplicate target locations
       foreach my $droot (vinfo_subsection($svol, 'target')) {
-        # check for duplicate snapshot locations
         my $droot_subdir_path = (defined($droot->{NODE_SUBDIR}) ? $droot->{NODE_SUBDIR} . '/' : "") . $snapshot_basename;
         if(my $prev = $droot->{node}->{_BACKUP_CHECK}->{$droot_subdir_path}) {
           ERROR "Subvolume \"$prev\" and \"$svol->{PRINT}\" will create same backup target: $droot->{PRINT}/${snapshot_basename}.*";
