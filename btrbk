@@ -5059,6 +5059,7 @@ sub print_formatted(@)
   my $ralign = $table_format->{RALIGN} // {};
   my $fh = $args{outfile} // *STDOUT;
   my $table_spacing = 2;
+  my $empty_cell_char = $args{empty_cell_char} // "-";
 
   if($format =~ s/^col:\s*(h:)?\s*//) {
     $args{no_header} = 1 if($1);
@@ -5120,8 +5121,7 @@ sub print_formatted(@)
           $val = join(',', @{$val});
         }
         $print_row{$key} = 1 if(defined($val));
-        $val //= "-";
-        $val = "-" if($val eq "");
+        $val = $empty_cell_char if(!defined($val) || ($val eq ""));
         $row->{$key} = $val;  # write back the sanitized value
         $maxlen{$key} = length($val) if($maxlen{$key} < length($val));
       }
