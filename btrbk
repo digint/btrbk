@@ -6746,7 +6746,7 @@ MAIN:
 
         my (@bdata, @ldata, @stdata);
         foreach my $droot (vinfo_subsection($svol, 'target')) {
-          my %dstats = ( correlated => 0, orphaned => 0, incomplete => 0, uptodate => 0 );
+          my %dstats = ( backups => 0, correlated => 0, orphaned => 0, incomplete => 0, uptodate => 0 );
           my $latest_backup;
           foreach my $target_vol (@{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_name, sort => 'path')}) {
             my $target_data = {
