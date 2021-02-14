@@ -6820,14 +6820,14 @@ MAIN:
     if($action_resolve eq "stats") {
       my $filter = $config->{CMDLINE_FILTER_LIST} ? " (" . join(", ", @{$config->{CMDLINE_FILTER_LIST}}) . ")" : "";
       my @backup_total = map { $stats{$_} ? "$stats{$_} $_" : () } qw( correlated incomplete );
-      my $bflags = @backup_total ? "(" . join(', ', @backup_total) . ")" : "";
+      my $bflags = @backup_total ? "(" . join(', ', @backup_total) . ")" : undef;
 
       print_formatted("stats", \@data, paragraph => 1);
       print "Total${filter}:\n";
-      print_formatted({ table => [ qw( a b c ) ], RALIGN => { a=>1 } },
-                      [ { a => $stats{snapshots}, b => "snapshots", c => " " },
+      print_formatted({ table => [ qw( a b -c ) ], RALIGN => { a=>1 } },
+                      [ { a => $stats{snapshots}, b => "snapshots" },
                         { a => $stats{backups},   b => "backups", c => $bflags } ],
-                      output_format => "table", no_header => 1);
+                      output_format => "table", no_header => 1, empty_cell_char => "");
     }
     elsif($action_resolve eq "snapshots") {
       print_formatted("snapshots", \@data);
