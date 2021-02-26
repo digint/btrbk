@@ -57,6 +57,9 @@ minute of the creation time (local time of the host running btrbk). If
 multiple snapshots/backups are created on the same date/time, N will
 be incremented on each snapshot, starting at 1.
 
+If a snapshot or backup does not match the naming scheme above
+(i.e. if it has been renamed manually), btrbk will leave it untouched.
+
 Note that 'snapshot' is a btrfs terminology for a ``read-only
 subvolume'' (showing a parent-uuid, see btrfs-subvolume(8)); 'backup'
 is a btrbk terminology for a ``read-only subvolume created with
