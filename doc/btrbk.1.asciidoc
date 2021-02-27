@@ -340,8 +340,7 @@ ifndef::backend-docbook,backend-manpage[]
 endif::backend-docbook,backend-manpage[]
 
 *all*;;       List all snapshots and backups created by btrbk.
-*snapshots*;; List all snapshots (and correlated backups) created by
-              btrbk.
+*snapshots*;; List all snapshots created by btrbk.
 *backups*;;   List all backups (and correlated snapshots) created by
               btrbk.
 *latest*;;    List most recent common snapshot/backup pair, or most
