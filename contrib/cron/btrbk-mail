@@ -48,6 +48,14 @@ btrbk_command="run"
 btrbk_opts="-c /etc/btrbk/btrbk.conf"
 
 
+### Layout options:
+
+# Prefix command output: useful when using mail clients displaying
+# btrbk summary lines starting with ">>>" as quotations.
+#mail_cmd_block_prefix='\\u200B' # zero-width whitespace
+#mail_cmd_block_prefix=". "
+
+
 #####  end config section  #####
 
 
@@ -127,18 +135,32 @@ die()
     exit 1
 }
 
+run_cmd()
+{
+    cmd_out=$("$@" 2>&1)
+    local ret=$?
+    detail+="++ ${@@Q}\n"
+    if [[ -n "${mail_cmd_block_prefix:-}" ]] && [[ -n "$cmd_out" ]]; then
+        detail+=$(echo -n "$cmd_out" | sed "s/^/${mail_cmd_block_prefix}/")
+        detail+="\n"
+    else
+        detail+=$cmd_out
+    fi
+    return $ret
+}
+
 mount_all()
 {
     # mount all mountpoints listed in $mount_targets
     mounted=""
     for mountpoint in $mount_targets; do
         ebegin "Mounting $mountpoint"
-        detail+=`(set -x; findmnt -n $mountpoint) 2>&1`
+        run_cmd findmnt -n $mountpoint
         if [[ $? -eq 0 ]]; then
             eend -1 "already mounted"
         else
             detail+="\n"
-            detail+=`(set -x; mount --target $mountpoint) 2>&1`
+            run_cmd mount --target $mountpoint
             eend $? && mounted+=" $mountpoint"
         fi
     done
@@ -148,7 +170,7 @@ umount_mounted()
 {
     for mountpoint in $mounted; do
         ebegin "Unmounting $mountpoint"
-        detail+=`(set -x; umount $mountpoint) 2>&1`
+        run_cmd umount $mountpoint
         eend $?
     done
 }
@@ -170,22 +192,19 @@ for key in $rsync_enable; do
         # NOTE: This also appends the stats to the log file (rsync_log).
         # Another approach to count the files would be something like:
         # "rsync --out-format='' | wc -l"
-        ret=`(set -x; \
-              rsync ${rsync_opt[$key]} \
+        run_cmd rsync ${rsync_opt[$key]} \
                     --info=stats2 \
                     ${rsync_log[$key]:+--log-file="${rsync_log[$key]}"} \
                     ${rsync_rsh[$key]:+-e "${rsync_rsh[$key]}"} \
                     "${rsync_src[$key]}" \
                     "${rsync_dst[$key]}"
-             ) 2>&1`
         exitcode=$?
-        detail+=$ret
 
         # parse stats2 (count created/deleted/transferred files)
         REGEXP=$'\n''Number of created files: ([0-9]+)'
         REGEXP+='.*'$'\n''Number of deleted files: ([0-9]+)'
         REGEXP+='.*'$'\n''Number of regular files transferred: ([0-9]+)'
-        if [[ $ret =~ $REGEXP ]]; then
+        if [[ $cmd_out =~ $REGEXP ]]; then
             rsync_stats="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
             rsync_stats_long="${BASH_REMATCH[1]} created, ${BASH_REMATCH[2]} deleted, ${BASH_REMATCH[3]} transferred"
             nfiles=$(( ${BASH_REMATCH[1]} + ${BASH_REMATCH[2]} + ${BASH_REMATCH[3]} ))
@@ -225,7 +244,7 @@ fi
 #
 if [[ ${#sync_fs[@]} -gt 0 ]]; then
     ebegin "Syncing filesystems at ${sync_fs[@]}"
-    detail+=`(set -x; sync -f "${sync_fs[@]}") 2>&1`
+    run_cmd sync -f "${sync_fs[@]}"
     eend $?
 fi
 
@@ -234,7 +253,7 @@ fi
 # run btrbk
 #
 ebegin "Running btrbk"
-detail+=`(set -x; btrbk ${btrbk_opts:-} ${btrbk_command}) 2>&1`
+run_cmd btrbk ${btrbk_opts:-} ${btrbk_command}
 exitcode=$?
 case $exitcode in
     0)  status="All backups successful"
