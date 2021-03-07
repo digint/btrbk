@@ -1,7 +1,7 @@
 btrbk.conf(5)
 =============
-:date: 2021-01-10
-:release-version: 0.31.0
+:date: 2021-03-07
+:release-version: 0.31.1
 :man manual: Btrbk Manual
 :man source: Btrbk {release-version}
 

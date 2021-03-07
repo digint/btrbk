@@ -1,3 +1,9 @@
+btrbk-0.31.1
+
+  * Bugfix: duplicate snapshot location check (close #360).
+  * Bugfix: action "list all" (close #367).
+  * btrbk-mail: optionally prefix command output lines.
+
 btrbk-0.31.0
 
   * Add action "extents [diff]": print accurate disk space usage based
