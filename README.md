@@ -91,6 +91,58 @@ the disks).
 
   [btrbk.conf(5)]: https://digint.ch/btrbk/doc/btrbk.conf.5.html
 
+Example: local regular snapshots (time-machine)
+-----------------------------------------------
+
+The simpliest use case is to create snapshots in the same volume as
+the data. This will obviously not protect it against hardware issues
+(failure, theft...), but can be useful as a protection against
+inadvertent changes or deletions, or if the data is already a copy
+created with rsync or similar tools, and you just want to keep several
+past states.
+
+Let's assume you need regular snapshots of your home directory, which
+is located in the subvolume `home` of the volume `/mnt/btr_pool`. The
+snapshots are to be stored in `btrbk_snapshots` (on the same volume).
+
+/etc/btrbk/btrbk.conf:
+
+    snapshot_preserve_min   18h
+    snapshot_preserve       48h
+
+    volume /mnt/btr_pool
+      snapshot_dir btrbk_snapshots
+      subvolume home
+
+Notice that the `target` option is not provided, since the snapshots
+will be located on the same volume in `snapshot_dir`. The corresponding
+directory must be created manually before running btrbk:
+
+    sudo mkdir -p /mnt/btr_pool/btrbk_snapshots
+
+Start a dry run:
+
+    sudo btrbk -v dryrun
+
+Create the first snapshot:
+
+    sudo btrbk -v run
+
+If it works as expected, configure a cronjob to run btrbk hourly:
+
+/etc/cron.hourly/btrbk:
+
+    #!/bin/sh
+    exec /usr/bin/btrbk -q run
+
+With this setup, the snapshots will be kept at least for 18 hours
+(`snapshot_preserve_min`). This can be useful to create manual
+snapshots by calling `sudo btrbk run` on the command line and keep
+them around for a while, in addition to the regular snapshots.
+
+The snapshots will be removed automatically after 48h
+(`snapshot_preserve`).
+
 
 Example: laptop with usb-disk for backups
 -----------------------------------------
@@ -201,32 +253,6 @@ create:
   * `/mnt/btr_backup/alpha/home.YYYYMMDD`
   * `/mnt/btr_backup/beta/rootfs.YYYYMMDD`
   * `/mnt/btr_backup/beta/dbdata.YYYYMMDD`
-
-
-Example: local time-machine (hourly snapshots)
-----------------------------------------------
-
-If all you want is to create snapshots of your home directory on a
-regular basis:
-
-/etc/btrbk/btrbk.conf:
-
-    timestamp_format        long
-    snapshot_preserve_min   18h
-    snapshot_preserve       48h 20d 6m
-
-    volume /mnt/btr_pool
-      snapshot_dir btrbk_snapshots
-      subvolume home
-
-/etc/cron.hourly/btrbk:
-
-    #!/bin/sh
-    exec /usr/bin/btrbk -q run
-
-Note that you can run btrbk more than once an hour, e.g. by calling
-`sudo btrbk run` from the command line. With this setup, all those
-extra snapshots will be kept for 18 hours.
 
 
 Example: multiple btrbk instances
