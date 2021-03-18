@@ -80,11 +80,10 @@ file. You might want to take a look at `btrbk.conf.example` provided
 with this package. For a detailed description, please consult the
 [btrbk.conf(5)] man-page.
 
-When playing around with config-files, it is highly recommended to
-check the output using the `dryrun` command before executing the
-backups:
+After a configuration change, it is highly recommended to check it by
+running btrbk with the `-n,--dryrun` option:
 
-    btrbk -c /path/to/myconfig -v dryrun
+    btrbk -c /path/to/myconfig -v -n run
 
 This will read all btrfs information on the source/target filesystems
 and show what actions would be performed (without writing anything to
