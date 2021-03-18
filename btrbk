@@ -6573,6 +6573,9 @@ MAIN:
       WARN "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot), @stderr;
       next;
     }
+    unless(scalar(vinfo_subsection($sroot, 'subvolume'))) {
+      WARN "No subvolume configured for \"volume $sroot->{URL}\"";
+    }
     foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
       DEBUG "Initializing subvolume section: $svol->{PRINT}";
       unless(vinfo_init_root($svol)) {
