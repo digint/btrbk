@@ -91,7 +91,8 @@ the disks).
 
   [btrbk.conf(5)]: https://digint.ch/btrbk/doc/btrbk.conf.5.html
 
-Example: local regular snapshots (time-machine)
+
+Example: Local Regular Snapshots (time-machine)
 -----------------------------------------------
 
 The simpliest use case is to only create snapshots of your data. This
@@ -146,8 +147,8 @@ snapshots by calling `sudo btrbk run` on the command line and keep
 them around for a while, in addition to the regular snapshots.
 
 
-Example: laptop with usb-disk for backups
------------------------------------------
+Example: Backups to USB Disk
+----------------------------
 
 In this example, we assume you have a laptop with:
 
@@ -211,7 +212,7 @@ For a quick additional snapshot of your home, run:
     # btrbk snapshot home
 
 
-Example: host-initiated backup on fileserver
+Example: Host-initiated Backup on Fileserver
 --------------------------------------------
 
 Let's say you have a fileserver at "myserver.mydomain.com" where you
@@ -230,7 +231,7 @@ In addition to the backups on your local usb-disk mounted at
 to `myserver.mydomain.com`.
 
 
-Example: fileserver-initiated backups from several hosts
+Example: Fileserver-initiated Backups from Several Hosts
 --------------------------------------------------------
 
 If you're a sysadmin and want to trigger backups directly from your
@@ -257,7 +258,7 @@ create:
   * `/mnt/btr_backup/beta/dbdata.YYYYMMDD`
 
 
-Example: multiple btrbk instances
+Example: Multiple Btrbk Instances
 ---------------------------------
 
 Let's say we have a host (at 192.168.0.42) running btrbk with the
@@ -281,7 +282,7 @@ monthlies are received from 192.168.0.42. The source filesystem is
 never altered because of `snapshot_preserve_min all`.
 
 
-Example: virtual machine setup
+Example: Virtual Machine Setup
 ------------------------------
 
 Common virtual machine setups have multiple volume sections with same
@@ -319,7 +320,7 @@ Assuming same filesystem: "ssh://localhost:2201/dev/sda1", "ssh://localhost:2202
 ```
 
 
-Example: backup from non-btrfs source
+Example: Backup from non-btrfs Source
 -------------------------------------
 
 If you want to make backups from a filesystem other than btrfs
@@ -358,7 +359,7 @@ This will produce snapshots `/mnt/btr_backup/myhost.20150101`, with
 retention as defined with the snapshot_preserve option.
 
 
-Example: encrypted backup to non-btrfs target
+Example: Encrypted Backup to non-btrfs Target
 ---------------------------------------------
 
 If your backup server does not support btrfs, you can send your
@@ -420,7 +421,7 @@ authentication in "authorized_keys" on the server side (see [sshd(8)]
 for details).
 
 
-### Allow root login
+### Allow Root Login
 
 The most straight forward setup is to allow root login on the remote
 host. If this is not an option for you, refer to the more complex
@@ -434,7 +435,7 @@ Add your btrbk public key to "/root/.ssh/authorized_keys" on the
 server, and you are good to go.
 
 
-### Restrict commands with "ssh_filter_btrbk.sh" (optional)
+### Restrict Commands with "ssh_filter_btrbk.sh" (optional)
 
 Btrbk comes with a shell script "ssh_filter_btrbk.sh", which restricts
 ssh access to sane calls to the "btrfs" command needed for snapshot
@@ -455,7 +456,7 @@ to run it whenever the key is used for authentication. Example
     command="/backup/scripts/ssh_filter_btrbk.sh -l --send -p /home -p /data" <pubkey>...
 
 
-Dedicated btrbk user login
+Dedicated Btrbk User Login
 --------------------------
 
 On the remote host, create a user / group dedicated to btrbk and add
@@ -509,7 +510,8 @@ source", allow only the following binaries for the "btrbk" group:
     -rwx--x--- 1 root btrbk  /usr/bin/btrfs-subvolume-snapshot
 
 
-### Further considerations
+Further Considerations
+----------------------
 
 You might also want to restrict ssh access to a static IP address
 within your network:
@@ -596,7 +598,8 @@ until you created a new backup using btrbk, in order to keep the
 incremental chain alive.
 
 
-### Btrfs Relationship (technical note)
+Btrfs Relationship (technical note)
+-----------------------------------
 
     btrbk origin -t /mnt/btr_backup/data.20150101
     btrbk ls -L /mnt/btr_pool /mnt/btr_backup
