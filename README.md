@@ -404,23 +404,37 @@ security precautions you can. In most cases backups are generated
 periodically without user interaction, so it is not possible to
 protect your ssh key with a password. The steps below will give you
 hints on how to secure your ssh server for a backup scenario. Note
-that the `btrbk` executable is not needed on the remote side, but you
+that the btrbk package is not required on the remote side, but you
 will need the `btrfs` executable from the [btrfs-progs] package.
 
 
-### Step 1: Create SSH keypair
+### Create SSH Key Pair
 
 On the client side, create a ssh key dedicated to btrbk, without
 password protection:
 
-    ssh-keygen -t rsa -b 2048 -f /etc/btrbk/ssh/id_rsa -C btrbk@mydomain.com -N ""
+    ssh-keygen -t rsa -b 4096 -f /etc/btrbk/ssh/id_rsa -C btrbk@mydomain.com -N ""
 
 The content of the public key (/etc/btrbk/ssh/id_rsa.pub) is used for
 authentication in "authorized_keys" on the server side (see [sshd(8)]
 for details).
 
 
-### Step 2 (option): root login restricted by "ssh_filter_btrbk.sh"
+### Allow root login
+
+The most straight forward setup is to allow root login on the remote
+host. If this is not an option for you, refer to the more complex
+"Dedicated Btrbk User Login" section below.
+
+/etc/ssh/sshd_config:
+
+    PermitRootLogin prohibit-password
+
+Add your btrbk public key to "/root/.ssh/authorized_keys" on the
+server, and you are good to go.
+
+
+### Restrict commands with "ssh_filter_btrbk.sh" (optional)
 
 Btrbk comes with a shell script "ssh_filter_btrbk.sh", which restricts
 ssh access to sane calls to the "btrfs" command needed for snapshot
@@ -441,17 +455,58 @@ to run it whenever the key is used for authentication. Example
     command="/backup/scripts/ssh_filter_btrbk.sh -l --send -p /home -p /data" <pubkey>...
 
 
-### Step 2 (option): dedicated user login, using different backend
+Dedicated btrbk user login
+--------------------------
 
-Create a user dedicated to btrbk and add the public key to
-"/home/btrbk/.ssh/authorized_keys". In "btrbk.conf", choose either:
+On the remote host, create a user / group dedicated to btrbk and add
+the public key to "/home/btrbk/.ssh/authorized_keys".
 
- * `backend btrfs-progs-btrbk` to use separated binaries with elevated
-   privileges (suid or fscaps) instead of the "btrfs" command (see
-   [btrfs-progs-btrbk]).
 
- * `backend btrfs-progs-sudo`, configure "/etc/sudoers" and add the
-   `ssh_filter_btrbk.sh --sudo` option.
+### Option 1: Use sudo
+
+On the client side, configure btrbk to call `btrfs` commands via sudo
+on remote hosts.
+
+/etc/btrbk/btrbk.conf:
+
+    backend_remote btrfs-progs-sudo
+
+On the remote host, grant root permissions for the "btrfs" command
+groups in "/etc/sudoers". Also add the `ssh_filter_btrbk.sh --sudo`
+option if you chose to restrict ssh commands above.
+
+
+### Option 2: Use btrfs-progs-btrbk
+
+Instead of using the all-inclusive `btrfs` command,
+"btrfs-progs-btrbk" allows you to restrict privileges to its
+subcommands using linux capabilities(7) or setuid.
+
+Note that the "btrfs-progs-btrbk" package is not available on all
+linux distributions, you might need to build and install it on your
+own (refer to [btrfs-progs-btrbk] on GitHub for more details).
+
+/etc/btrbk/btrbk.conf:
+
+    backend_remote btrfs-progs-btrbk
+
+Make sure that only the required binaries with elevated privileges can
+be called by the btrbk user. For example, on a server acting as "btrbk
+source", allow only the following binaries for the "btrbk" group:
+
+    # getcap /usr/bin/btrfs-*
+    /usr/bin/btrfs-send cap_dac_read_search,cap_fowner,cap_sys_admin=ep
+    /usr/bin/btrfs-subvolume-delete cap_dac_override,cap_sys_admin=ep
+    /usr/bin/btrfs-subvolume-list cap_dac_read_search,cap_fowner,cap_sys_admin=ep
+    /usr/bin/btrfs-subvolume-show cap_dac_read_search,cap_fowner,cap_sys_admin=ep
+    /usr/bin/btrfs-subvolume-snapshot cap_dac_override,cap_dac_read_search,cap_fowner,cap_sys_admin=ep
+    
+    # ls -l /usr/bin/btrfs-*
+    -rwx--x--- 1 root btrbk  /usr/bin/btrfs-send
+    -rwx--x--- 1 root btrbk  /usr/bin/btrfs-subvolume-delete
+    -rwx--x--- 1 root btrbk  /usr/bin/btrfs-subvolume-list
+    -rwx--x--- 1 root btrbk  /usr/bin/btrfs-subvolume-show
+    -rwx--x--- 1 root btrbk  /usr/bin/btrfs-subvolume-snapshot
 
 
 ### Further considerations
