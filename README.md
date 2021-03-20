@@ -94,12 +94,12 @@ the disks).
 Example: local regular snapshots (time-machine)
 -----------------------------------------------
 
-The simpliest use case is to create snapshots in the same volume as
-the data. This will obviously not protect it against hardware issues
-(failure, theft...), but can be useful as a protection against
-inadvertent changes or deletions, or if the data is already a copy
-created with rsync or similar tools, and you just want to keep several
-past states.
+The simpliest use case is to only create snapshots of your data. This
+will obviously not protect it against hardware failure, but can be
+useful for:
+
+  * protection against inadvertent changes or deletions
+  * keeping past states of copies from rsync or similar tools
 
 Let's assume you need regular snapshots of your home directory, which
 is located in the subvolume `home` of the volume `/mnt/btr_pool`. The
@@ -107,6 +107,7 @@ snapshots are to be stored in `btrbk_snapshots` (on the same volume).
 
 /etc/btrbk/btrbk.conf:
 
+    timestamp_format        long
     snapshot_preserve_min   18h
     snapshot_preserve       48h
 
@@ -114,34 +115,35 @@ snapshots are to be stored in `btrbk_snapshots` (on the same volume).
       snapshot_dir btrbk_snapshots
       subvolume home
 
-Notice that the `target` option is not provided, since the snapshots
-will be located on the same volume in `snapshot_dir`. The corresponding
-directory must be created manually before running btrbk:
+Notice that the `target` option is not provided, and btrbk will only
+manage snapshots located on the same volume in `snapshot_dir`. Btrbk
+does not create subdirs by default, the snapshot directory must first
+be created manually:
 
-    sudo mkdir -p /mnt/btr_pool/btrbk_snapshots
+    sudo mkdir /mnt/btr_pool/btrbk_snapshots
 
 Start a dry run:
 
-    sudo btrbk -v dryrun
+    sudo btrbk run -n
 
 Create the first snapshot:
 
-    sudo btrbk -v run
+    sudo btrbk run
 
-If it works as expected, configure a cronjob to run btrbk hourly:
+If it works as expected, configure a cron job to run btrbk hourly:
 
 /etc/cron.hourly/btrbk:
 
     #!/bin/sh
     exec /usr/bin/btrbk -q run
 
+Snapshots will now be created every hour, kept for 48h
+(`snapshot_preserve`), then automatically removed.
+
 With this setup, the snapshots will be kept at least for 18 hours
 (`snapshot_preserve_min`). This can be useful to create manual
 snapshots by calling `sudo btrbk run` on the command line and keep
 them around for a while, in addition to the regular snapshots.
-
-The snapshots will be removed automatically after 48h
-(`snapshot_preserve`).
 
 
 Example: laptop with usb-disk for backups
@@ -162,7 +164,7 @@ In this example, we assume you have a laptop with:
 Retention policy:
 
   * keep all snapshots for 2 days, no matter how frequently you (or
-    your cron-job) run btrbk
+    your cron job) run btrbk
   * keep daily snapshots for 14 days (very handy if you are on
     the road and the backup disk is not attached)
   * keep monthly backups forever
