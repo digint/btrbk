@@ -40,9 +40,8 @@ The following commands are always allowed:
  - "test -d" (only if "compat busybox" configuration option is set)
  - "cat /proc/self/mountinfo"
  - pipes through "gzip", "pigz", "bzip2", "pbzip2", "xz", "lzop",
-   "lz4" (stream_compress)
- - pipes through "mbuffer" (stream_buffer)
- - pipes through "pv -L" (rate_limit)
+   "lz4", "zstd" (stream_compress)
+ - pipes through "mbuffer" (stream_buffer, rate_limit)
 
 Example line in /root/.ssh/authorized_keys on a backup target host:
 
