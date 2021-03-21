@@ -1,3 +1,13 @@
+btrbk-0.31.2
+
+  * MIGRATION
+    - Update ssh_filter_btrbk.sh on remote hosts.
+  * ssh_filter_btrbk.sh: Fix security vulnerability.
+    Specialy crafted commands may be executed without being propely
+    checked. Applies to remote hosts filtering ssh commands using
+    ssh_filter_btrbk.sh in authorized_keys.
+  * Warn if no subvolume defined in config (close #378).
+
 btrbk-0.31.1
 
   * Bugfix: duplicate snapshot location check (close #360).
