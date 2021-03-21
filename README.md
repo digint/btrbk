@@ -435,46 +435,44 @@ Add your btrbk public key to "/root/.ssh/authorized_keys" on the
 server, and you are good to go.
 
 
-### Restrict Commands with "ssh_filter_btrbk.sh" (optional)
+### Restrict Access
 
-Btrbk comes with a shell script "ssh_filter_btrbk.sh", which restricts
-ssh access to sane calls to the "btrfs" command needed for snapshot
-creation and send/receive operations (see [ssh_filter_btrbk(1)]).
+Restrict ssh access to a static IP address within your network. On the
+remote host, either add a "Match" block in:
 
-Copy "ssh_filter_btrbk.sh" to "/backup/scripts/", and configure sshd
-to run it whenever the key is used for authentication. Example
-"/root/.ssh/authorized_keys":
+/etc/ssh/sshd_config:
 
-    # example backup source (also allowing deletion of old snapshots)
-    command="/backup/scripts/ssh_filter_btrbk.sh -l --source --delete" <pubkey>...
+    Match Address 192.168.0.42
 
-    # example backup target (also allowing deletion of old snapshots)
-    command="/backup/scripts/ssh_filter_btrbk.sh -l --target --delete" <pubkey>...
+Or restrict in authorized_keys:
 
-    # example fetch-only backup source (snapshot_preserve_min=all, snapshot_create=no),
-    # restricted to subvolumes within /home or /data
-    command="/backup/scripts/ssh_filter_btrbk.sh -l --send -p /home -p /data" <pubkey>...
+    from="192.168.0.42" <pubkey>...
+
+Consult the [sshd_config(5)] man-page for a detailed explanation and
+more options.
 
 
-Dedicated Btrbk User Login
---------------------------
+Dedicated Btrbk User Login (optional)
+-------------------------------------
 
-On the remote host, create a user / group dedicated to btrbk and add
-the public key to "/home/btrbk/.ssh/authorized_keys".
+If allowing root login is not an option for you, there are several
+ways to restrict SSH access to a regular user.
 
 
 ### Option 1: Use sudo
 
-On the client side, configure btrbk to call `btrfs` commands via sudo
-on remote hosts.
+On the client side, configure btrbk use the sudo backend. This changes
+the ssh calls to btrfs commands to `sudo btrfs <subcommand>
+<options>`.
 
 /etc/btrbk/btrbk.conf:
 
     backend_remote btrfs-progs-sudo
 
 On the remote host, grant root permissions for the "btrfs" command
-groups in "/etc/sudoers". Also add the `ssh_filter_btrbk.sh --sudo`
-option if you chose to restrict ssh commands above.
+groups (subcommands) in "/etc/sudoers". If you are using
+[ssh_filter_btrbk(1)], also add the `ssh_filter_btrbk.sh --sudo`
+option in "authorized_keys" (see below).
 
 
 ### Option 2: Use btrfs-progs-btrbk
@@ -510,16 +508,26 @@ source", allow only the following binaries for the "btrbk" group:
     -rwx--x--- 1 root btrbk  /usr/bin/btrfs-subvolume-snapshot
 
 
-Further Considerations
-----------------------
+Restrict Commands with "ssh_filter_btrbk.sh" (optional)
+-------------------------------------------------------
 
-You might also want to restrict ssh access to a static IP address
-within your network:
+Btrbk comes with a shell script "ssh_filter_btrbk.sh", which restricts
+ssh access to sane calls to the "btrfs" command needed for snapshot
+creation and send/receive operations (see [ssh_filter_btrbk(1)]).
 
-    from="192.168.0.42",command=... <pubkey>...
+Copy "ssh_filter_btrbk.sh" to "/backup/scripts/", and configure sshd
+to run it whenever the key is used for authentication. Example
+"/root/.ssh/authorized_keys":
 
-For even more security, set up a chroot environment in
-"/etc/ssh/sshd_config" (see [sshd_config(5)]).
+    # example backup source (also allowing deletion of old snapshots)
+    command="/backup/scripts/ssh_filter_btrbk.sh -l --source --delete" <pubkey>...
+
+    # example backup target (also allowing deletion of old snapshots)
+    command="/backup/scripts/ssh_filter_btrbk.sh -l --target --delete" <pubkey>...
+
+    # example fetch-only backup source (snapshot_preserve_min=all, snapshot_create=no),
+    # restricted to subvolumes within /home or /data
+    command="/backup/scripts/ssh_filter_btrbk.sh -l --send -p /home -p /data" <pubkey>...
 
 
   [ssh_filter_btrbk(1)]: https://digint.ch/btrbk/doc/ssh_filter_btrbk.1.html
