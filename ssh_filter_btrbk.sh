@@ -86,7 +86,7 @@ reject_filtered_cmd()
         return 0
     fi
 
-    exact_cmd_match="^${allow_exact_list}$";
+    exact_cmd_match="^(${allow_exact_list})$";
     if [[ $SSH_ORIGINAL_COMMAND =~ $exact_cmd_match ]] ; then
         return 0
     fi
