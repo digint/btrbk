@@ -5055,32 +5055,31 @@ sub print_formatted(@)
   my $table_format = ref($format_key) ? $format_key : $table_formats{$format_key};
   my $format = $args{output_format} || $output_format || $default_format;
   my $pretty = $args{pretty} // $output_pretty;
-  my $key_defs = $table_format->{$format};
-  my $ralign = $table_format->{RALIGN} // {};
+  my $no_header = $args{no_header};
   my $fh = $args{outfile} // *STDOUT;
   my $table_spacing = 2;
   my $empty_cell_char = $args{empty_cell_char} // "-";
 
+  my @keys;
+  my %ralign;
+  my %hide_column;
   if($format =~ s/^col:\s*(h:)?\s*//) {
-    $args{no_header} = 1 if($1);
-    $key_defs = []; $ralign = {};
+    $no_header = 1 if($1);
     foreach (split(/\s*,\s*/, $format)) {
-      $ralign->{$_} = 1 if s/:R(ALIGN)?$//i;
-      push @$key_defs, lc($_);
+      $ralign{$_} = 1 if s/:R(ALIGN)?$//i;
+      push @keys, lc($_);
     }
   }
-  unless($key_defs) {
-    WARN "Unsupported output format \"$format\", defaulting to \"$default_format\" format.";
-    $key_defs = $table_format->{$default_format} || die;
-    $format = $default_format;
+  else {
+    unless(exists($table_format->{$format})) {
+      WARN "Unsupported output format \"$format\", defaulting to \"$default_format\" format.";
+      $format = $default_format;
+    }
+    @keys   = @{$table_format->{$format}};
+    %ralign = %{$table_format->{RALIGN} // {}};
   }
-  my @keys;
-  my %print_row;
-  foreach (@$key_defs) {
-    my $kd = $_;
-    $print_row{$kd} = 1 unless($kd =~ s/^-//);  # strip leading "-"
-    push @keys, $kd;
-  }
+  # strips leading "-" from @keys
+  %hide_column = map { $_ => 1 } grep { s/^-// } @keys;
 
   if($format eq "raw")
   {
@@ -5093,7 +5092,7 @@ sub print_formatted(@)
   elsif(($format eq "tlog") || ($format eq "syslog"))
   {
     # output: value0 value1, ...
-    unless($args{no_header}) {
+    unless($no_header) {
       print $fh join(' ', map uc($_), @keys) . "\n"; # unaligned upper case headings
     }
     foreach my $row (@$data) {
@@ -5108,24 +5107,22 @@ sub print_formatted(@)
   else
   {
     # sanitize and calculate maxlen for each column
-    # NOTE: this is destructive on data!
-    my %maxlen;
-    my @sane_data;
-    foreach my $key (@keys) {
-      $maxlen{$key} = $args{no_header} ? 0 : length($key); # initialize with size of key
-    }
+    my %maxlen = map { $_ => $no_header ? 0 : length($_) } @keys;
+    my @formatted_data;
     foreach my $row (@$data) {
+      my %formatted_row;
       foreach my $key (@keys) {
         my $val = $row->{$key};
-        if(ref $val eq "ARRAY") {
-          $val = join(',', @{$val});
-        }
-        $print_row{$key} = 1 if(defined($val));
+        $val = join(',', @$val) if(ref $val eq "ARRAY");
+
+        $hide_column{$key} = 0 if(defined($val));
         $val = $empty_cell_char if(!defined($val) || ($val eq ""));
-        $row->{$key} = $val;  # write back the sanitized value
+        $formatted_row{$key} = $val;
         $maxlen{$key} = length($val) if($maxlen{$key} < length($val));
       }
+      push @formatted_data, \%formatted_row;
     }
+    my @visible_keys = grep !$hide_column{$_}, @keys;
 
     # print title
     if($title) {
@@ -5134,15 +5131,14 @@ sub print_formatted(@)
     }
 
     # print keys (headings)
-    unless($args{no_header}) {
+    unless($no_header) {
       my $fill = 0;
-      foreach (@keys) {
-        next unless($print_row{$_});
+      foreach (@visible_keys) {
         print $fh ' ' x $fill;
         $fill = $maxlen{$_} - length($_);
         if($pretty) {
            # use aligned lower case headings (with separator line below)
-          if($ralign->{$_}) {
+          if($ralign{$_}) {
             print $fh ' ' x $fill;
             $fill = 0;
           }
@@ -5156,8 +5152,7 @@ sub print_formatted(@)
 
       $fill = 0;
       if($pretty) { # separator line after header
-        foreach (@keys) {
-          next unless($print_row{$_});
+        foreach (@visible_keys) {
           print $fh ' ' x $fill;
           print $fh '-' x $maxlen{$_};
           $fill = $table_spacing;
@@ -5169,14 +5164,13 @@ sub print_formatted(@)
     }
 
     # print values
-    foreach my $row (@$data) {
+    foreach my $row (@formatted_data) {
       my $fill = 0;
-      foreach (@keys) {
-        next unless($print_row{$_});
+      foreach (@visible_keys) {
         my $val = $row->{$_};
         print $fh ' ' x $fill;
         $fill = $maxlen{$_} - length($val);
-        if($ralign->{$_}) {
+        if($ralign{$_}) {
           print $fh ' ' x $fill;
           $fill = 0;
         }
