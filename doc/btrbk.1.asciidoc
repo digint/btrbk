@@ -210,8 +210,9 @@ configuring the retention policy.
     snapshots that are not preserved by their configured retention
     policy will be deleted. Note that the latest snapshot (the one
     created in step 1) as well as the latest snapshot/backup pair are
-    always preserved, regardless of the retention policy.
-
+    always preserved, regardless of the retention policy. If any
+    target is unreachable or has errors, all snapshots are preserved
+    in order not to break the incremental chain.
 
 *dryrun* [filter...]::
     Don't run any btrfs commands that would alter the filesystem, just
