@@ -255,7 +255,7 @@ my %table_formats = (
   fs_list     => { table => [ qw( -host mount_source mount_subvol mount_point id flags subvolume_path path ) ],
                    short => [ qw( -host mount_source                          id flags                path ) ],
                    long  => [ qw( -host mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
-                   raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path ) ],
+                   raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path url ) ],
                  },
 
   extent_diff => { table => [ qw(             total exclusive -diff -set subvol ) ],
@@ -5928,6 +5928,7 @@ MAIN:
               mount_subvol => $mnt->{MNTOPS}{subvol},
               subvolume_path => $svol->{node}{path},
               subvolume_rel_path => $svol->{node}{REL_PATH},
+              url  => $svol->{URL},
               host => $svol->{HOST},
               path => $svol_path,
               flags => ($svol->{node}{readonly} ? "readonly" : undef),
