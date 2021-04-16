@@ -189,25 +189,25 @@ my %config_options = (
 my @config_target_types = qw(send-receive raw);
 
 my %table_formats = (
-  list_volume => {
+  config_volume => {
     table => [ qw( -volume_host -volume_port volume_path ) ],
     long  => [ qw(  volume_host -volume_port volume_path -volume_rsh ) ],
     raw   => [ qw( volume_url volume_host volume_port volume_path volume_rsh ) ],
   },
 
-  list_source => {
+  config_source => {
     table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name ) ],
     long  => [ qw(  source_host -source_port source_subvolume snapshot_path snapshot_name -source_rsh ) ],
     raw   => [ qw( source_url source_host source_port source_path snapshot_path snapshot_name source_rsh ) ],
   },
 
-  list_target => {
+  config_target => {
     table => [ qw( -target_host -target_port target_path ) ],
     long  => [ qw(  target_host -target_port target_path -target_rsh ) ],
     raw   => [ qw( target_url target_host target_port target_path target_rsh ) ],
   },
 
-  list => {
+  config => {
     table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name -target_host -target_port target_path ) ],
     long  => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name -target_host -target_port target_path target_type snapshot_preserve target_preserve ) ],
     raw   => [ qw( source_url source_host source_port source_subvolume snapshot_path snapshot_name target_url target_host target_port target_path target_type snapshot_preserve target_preserve source_rsh target_rsh ) ],
@@ -6557,17 +6557,19 @@ MAIN:
       }
     }
     if($action_list eq "volume") {
-      print_formatted("list_volume", \@vol_data);
+      print_formatted("config_volume", \@vol_data);
     }
     elsif($action_list eq "source") {
-      print_formatted("list_source", \@subvol_data);
+      print_formatted("config_source", \@subvol_data);
     }
     elsif($action_list eq "target") {
-      print_formatted("list_target", \@target_data);
+      print_formatted("config_target", \@target_data);
+    }
+    elsif($action_list eq "config") {
+      print_formatted("config", \@mixed_data);
     }
     else {
-      # default format
-      print_formatted("list", \@mixed_data);
+      die "unknown action_list=$action_list";
     }
     exit exit_status($config);
   }
