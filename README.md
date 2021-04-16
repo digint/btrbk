@@ -97,6 +97,11 @@ root subvolume, which always has `subvolid=5`.
 
     /dev/sda1  /mnt/btr_pool  btrfs  subvolid=5,noatime  0 0
 
+Note that many linux distributions use subvolume names `@` for rootfs
+(mounted at `/`) and `@home` for `/home`. If this is the case on your
+file system, replace the subvolume options in the examples
+accordingly.
+
   [btrbk.conf(5)]: https://digint.ch/btrbk/doc/btrbk.conf.5.html
 
 
