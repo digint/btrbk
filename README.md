@@ -89,6 +89,14 @@ This will read all btrfs information on the source/target filesystems
 and show what actions would be performed (without writing anything to
 the disks).
 
+The examples below assume that the btrfs subvolume containing `home`
+and `rootfs` is mounted at `/mnt/btr_pool`. This is usually the btrfs
+root subvolume, which always has `subvolid=5`.
+
+/etc/fstab:
+
+    /dev/sda1  /mnt/btr_pool  btrfs  subvolid=5,noatime  0 0
+
   [btrbk.conf(5)]: https://digint.ch/btrbk/doc/btrbk.conf.5.html
 
 
