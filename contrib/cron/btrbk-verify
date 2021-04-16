@@ -77,7 +77,7 @@ set -u
 set -e
 set -o pipefail
 
-btrbk_version_min='0.28.0'
+btrbk_version_min='0.32.0'
 
 # defaults: ignore subvol dirs and root folder timestamp change
 ignore_nested_subvolume_dir=1
@@ -371,20 +371,20 @@ while read -r btrbk_list_line; do
     log_debug "Evaluating [btrbk list] line: $btrbk_list_line"
     [[ -z "$btrbk_list_line" ]] && continue
     if ! eval_btrbk_resolved_line "$btrbk_list_line" \
-         "R_" "snapshot_path target_path source_host target_host target_type source_rsh target_rsh"
+         "R_" "snapshot_subvolume target_subvolume source_host target_host target_type source_rsh target_rsh"
     then
         log_line "btrbk-verify: WARNING: Skipping task (parse error). Make sure to have >=btrbk-${btrbk_version_min} installed!"
         continue
     fi
 
-    source="${R_snapshot_path}"
-    target="${R_target_path}"
+    source="${R_snapshot_subvolume}"
+    target="${R_target_subvolume}"
     [[ -n "$R_source_host" ]] && source="${R_source_host}:${source}"
     [[ -n "$R_target_host" ]] && target="${R_target_host}:${target}"
 
-    if [[ -z "$R_snapshot_path" ]]; then
+    if [[ -z "$R_snapshot_subvolume" ]]; then
         log_line "WARNING: Skipping task (missing snapshot): target=$target"
-    elif [[ -z "$R_target_path" ]]; then
+    elif [[ -z "$R_target_subvolume" ]]; then
         log_line "Skipping task (no target): source=$source"
     elif [[ "$R_target_type" != "send-receive" ]]; then
         log_line "Skipping task (target_type=$R_target_type): source=$source, target=$target"
