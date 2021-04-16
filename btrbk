@@ -5338,7 +5338,7 @@ MAIN:
   # while also changing the semantics of the command line options.
   $program_name = $0;
   $program_name =~ s/^.*\///; # remove path
-  my @cmdline_options = (
+  my @getopt_options = (
     # common options
     'help|h'             => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
     'version'            => sub { VERSION_MESSAGE(); exit 0; },
@@ -5351,7 +5351,7 @@ MAIN:
     'override=s'         => \@config_override_cmdline,  # e.g. --override=incremental=no
     'lockfile=s'         => \$lockfile_cmdline,
    );
-  push @cmdline_options, ($program_name eq "lsbtr") ? (
+  push @getopt_options, ($program_name eq "lsbtr") ? (
     # "lsbtr" options
     'long|l'             => sub { $output_format = "table" },
     'uuid|u'             => sub { $output_format = "long" },
@@ -5377,7 +5377,7 @@ MAIN:
     'gbytes'             => sub { @output_unit = ("GiB", 1024 * 1024 * 1024        ) },
     'tbytes'             => sub { @output_unit = ("TiB", 1024 * 1024 * 1024 * 1024 ) },
    );
-  unless(GetOptions(@cmdline_options)) {
+  unless(GetOptions(@getopt_options)) {
     VERSION_MESSAGE();
     HELP_MESSAGE(0);
     exit 2;
