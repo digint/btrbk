@@ -18,6 +18,7 @@ SYNOPSIS
 [verse]
 lsbtr [-h|--help] [--version]
       [-l|--long] [-u|--uuid] [--raw]
+      [--format <output-format>]
       [-v|--verbose]
       [-c|--config <file>]
       [--override <config_option>=<value>]
@@ -57,6 +58,15 @@ OPTIONS
 
 --raw::
     Print space-separated key="value" pairs (machine readable).
+
+--format table|long|raw|col:[h:]<columns>::
+    Print output in specified format. If set to "raw", prints
+    space-separated key="value" pairs (machine readable).
++
+If set to "col:", prints only the <columns> specified (comma-separated
+list). Header lines are ommitted if the "h:" modifier is present.
+Columns prefixed with "-" are collapsed if empty. Columns postfixed
+with ":RALIGN" are right-aligned.
 
 -v, --verbose::
     Increase the level of verbosity.
