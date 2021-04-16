@@ -5112,7 +5112,15 @@ sub print_formatted(@)
   # strips leading "-" from @keys
   %hide_column = map { $_ => 1 } grep { s/^-// } @keys;
 
-  if($format eq "raw")
+  if($format eq "single_column")
+  {
+    # single-column: newline separated values, no headers
+    my $key = $keys[0];
+    foreach (grep defined, map $_->{$key}, @$data) {
+      print $fh $_ . "\n" if($_ ne "");
+    }
+  }
+  elsif($format eq "raw")
   {
     # output: key0="value0" key1="value1" ...
     foreach my $row (@$data) {
