@@ -17,7 +17,7 @@ SYNOPSIS
 
 [verse]
 lsbtr [-h|--help] [--version]
-      [-l|--long] [-u|--uuid] [--raw]
+      [-l|--long] [-u|--uuid] [-1|--single-column] [--raw]
       [--format <output-format>]
       [-v|--verbose]
       [-c|--config <file>]
@@ -55,6 +55,9 @@ OPTIONS
 
 -u, --uuid::
     Print UUID table (parent/received relations).
+
+-1, --single-column::
+    Print path column only (delimited by newline).
 
 --raw::
     Print space-separated key="value" pairs (machine readable).

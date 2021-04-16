@@ -20,7 +20,8 @@ btrbk [-h|--help] [--version]
       [-c|--config <file>] [-n|--dry-run] [--exclude <filter>]
       [-p|--preserve] [--preserve-snapshots] [--preserve-backups]
       [-v|--verbose] [-q|--quiet] [-l|--loglevel <level>]
-      [-t|--table] [-L|--long] [--format <output-format>] [--pretty]
+      [-t|--table] [-L|--long] [-1|--single-column]
+      [--format <output-format>] [--pretty]
       [-S|--print-schedule] [--progress]
       [--lockfile <file>]
       [--override <config_option>=<value>]
@@ -125,6 +126,9 @@ OPTIONS
 
 -L, --long::
     Print output in long table format (shortcut for "--format=long").
+
+-1, --single-column::
+    Print output as single column (not available for all commands).
 
 --format table|long|raw|col:[h:]<columns>::
     Print output in specified format. If set to "raw", prints
