@@ -193,18 +193,21 @@ my %table_formats = (
     table => [ qw( -volume_host -volume_port volume_path ) ],
     long  => [ qw(  volume_host -volume_port volume_path -volume_rsh ) ],
     raw   => [ qw( volume_url volume_host volume_port volume_path volume_rsh ) ],
+    single_column => [ qw( volume_url ) ],
   },
 
   config_source => {
     table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name ) ],
     long  => [ qw(  source_host -source_port source_subvolume snapshot_path snapshot_name -source_rsh ) ],
     raw   => [ qw( source_url source_host source_port source_path snapshot_path snapshot_name source_rsh ) ],
+    single_column => [ qw( source_url ) ],
   },
 
   config_target => {
     table => [ qw( -target_host -target_port target_path ) ],
     long  => [ qw(  target_host -target_port target_path -target_rsh ) ],
     raw   => [ qw( target_url target_host target_port target_path target_rsh ) ],
+    single_column => [ qw( target_url ) ],
   },
 
   config => {
@@ -224,13 +227,15 @@ my %table_formats = (
     table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status ) ],
     long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status ) ],
     raw   => [ qw( source_url source_host source_port source_path snapshot_subvolume snapshot_name status source_rsh ) ],
+    single_column => [ qw( snapshot_url ) ],
   },
 
-  backups => { # same as resolved
+  backups => { # same as resolved, except for single_column
     # NOTE: snapshot_path is ambigous and does NOT print SUBVOL_PATH here (should be snapshot_subvolume, left as-is for compatibility)
     table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume             ) ],
     long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume target_type ) ],
     raw   => [ qw( type source_url source_host source_port source_path snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
+    single_column => [ qw( target_url ) ],
   },
 
   latest => { # same as resolved, except hiding target if not present
@@ -286,6 +291,7 @@ my %table_formats = (
     short => [ qw( -host mount_source                          id flags                path ) ],
     long  => [ qw( -host mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
     raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path url ) ],
+    single_column => [ qw( url ) ],
   },
 
   extent_diff => {
@@ -402,6 +408,7 @@ options:
        --version             display version information
    -l, --long                use long listing format
    -u, --uuid                print uuid table (parent/received relations)
+   -1, --single-column       Print path column only
        --raw                 print raw table format
    -v, --verbose             increase output verbosity
    -c, --config=FILE         specify btrbk configuration file
@@ -5379,6 +5386,7 @@ MAIN:
     'verbose|v'          => sub { $loglevel = ($loglevel =~ /^[0-9]+$/) ? $loglevel+1 : 2; },
     'loglevel|l=s'       => \$loglevel,
     'format=s'           => \$output_format,
+    'single-column|1'    => sub { $output_format = "single_column" },
     'pretty'             => \$output_pretty,
     'config|c=s'         => \$config_cmdline,
     'override=s'         => \@config_override_cmdline,  # e.g. --override=incremental=no
