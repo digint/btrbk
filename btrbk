@@ -189,80 +189,97 @@ my %config_options = (
 my @config_target_types = qw(send-receive raw);
 
 my %table_formats = (
-  list_volume => { table => [ qw( -volume_host -volume_port volume_path ) ],
-                   long  => [ qw(  volume_host -volume_port volume_path -volume_rsh ) ],
-                   raw   => [ qw( volume_url volume_host volume_port volume_path volume_rsh ) ],
-                 },
-  list_source => { table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name ) ],
-                   long  => [ qw(  source_host -source_port source_subvolume snapshot_path snapshot_name -source_rsh ) ],
-                   raw   => [ qw( source_url source_host source_port source_path snapshot_path snapshot_name source_rsh ) ],
-                 },
-  list_target => { table => [ qw( -target_host -target_port target_path ) ],
-                   long  => [ qw(  target_host -target_port target_path -target_rsh ) ],
-                   raw   => [ qw( target_url target_host target_port target_path target_rsh ) ],
-                 },
-  list        => { table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name -target_host -target_port target_path ) ],
-                   long  => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name -target_host -target_port target_path target_type snapshot_preserve target_preserve ) ],
-                   raw   => [ qw( source_url source_host source_port source_subvolume snapshot_path snapshot_name target_url target_host target_port target_path target_type snapshot_preserve target_preserve source_rsh target_rsh ) ],
-                 },
+  list_volume => {
+    table => [ qw( -volume_host -volume_port volume_path ) ],
+    long  => [ qw(  volume_host -volume_port volume_path -volume_rsh ) ],
+    raw   => [ qw( volume_url volume_host volume_port volume_path volume_rsh ) ],
+  },
 
-  resolved    => { table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume             ) ],
-                   long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume target_type ) ],
-                   raw   => [ qw( type source_url source_host source_port source_path snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
-                   # NOTE: snapshot_path is ambigous and does NOT print SUBVOL_PATH here (should be snapshot_subvolume, left as-is for compatibility)
-                 },
+  list_source => {
+    table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name ) ],
+    long  => [ qw(  source_host -source_port source_subvolume snapshot_path snapshot_name -source_rsh ) ],
+    raw   => [ qw( source_url source_host source_port source_path snapshot_path snapshot_name source_rsh ) ],
+  },
 
-  snapshots   => { table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status ) ],
-                   long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status ) ],
-                   raw   => [ qw( source_url source_host source_port source_path snapshot_subvolume snapshot_name status source_rsh ) ],
-                 },
+  list_target => {
+    table => [ qw( -target_host -target_port target_path ) ],
+    long  => [ qw(  target_host -target_port target_path -target_rsh ) ],
+    raw   => [ qw( target_url target_host target_port target_path target_rsh ) ],
+  },
 
-  stats       => { table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume  -target_host -target_port -target_subvolume snapshots  -backups ) ],
-                   long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume  -target_host -target_port -target_subvolume snapshot_status backup_status snapshots -backups -correlated -orphaned -incomplete ) ],
-                   raw   => [ qw( source_url source_host source_port source_subvolume snapshot_subvolume snapshot_name target_url target_host target_port target_subvolume snapshot_status backup_status snapshots backups correlated orphaned incomplete ) ],
-                   RALIGN => { snapshots=>1, backups=>1, correlated=>1, orphaned=>1, incomplete=>1 },
-                 },
+  list => {
+    table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name -target_host -target_port target_path ) ],
+    long  => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name -target_host -target_port target_path target_type snapshot_preserve target_preserve ) ],
+    raw   => [ qw( source_url source_host source_port source_subvolume snapshot_path snapshot_name target_url target_host target_port target_path target_type snapshot_preserve target_preserve source_rsh target_rsh ) ],
+  },
 
-  schedule    => { table => [ qw( action -host -port subvolume scheme reason ) ],
-                   long  => [ qw( action -host -port root_path subvolume_path scheme reason ) ],
-                   raw   => [ qw( topic action url host port path hod dow min h d w m y) ],
-                 },
+  resolved => {
+    # NOTE: snapshot_path is ambigous and does NOT print SUBVOL_PATH here (should be snapshot_subvolume, left as-is for compatibility)
+    table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume             ) ],
+    long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume target_type ) ],
+    raw   => [ qw( type source_url source_host source_port source_path snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
+  },
 
-  usage       => { table => [ qw(      -host -port path size used free ) ],
-                   long  => [ qw( type -host -port path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
-                   raw   => [ qw( type host  port path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
-                   RALIGN => { size=>1, used=>1, device_size=>1, device_allocated=>1, device_unallocated=>1, device_missing=>1, device_used=>1, free=>1, free_min=>1, data_ratio=>1, metadata_ratio=>1, global_reserve=>1, global_reserve_used=>1 },
-                 },
+  snapshots => {
+    table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status ) ],
+    long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status ) ],
+    raw   => [ qw( source_url source_host source_port source_path snapshot_subvolume snapshot_name status source_rsh ) ],
+  },
 
-  transaction => { table  => [ qw(                type status          -target_host -target_port target_subvolume -source_host -source_port source_subvolume parent_subvolume ) ],
-                   long   => [ qw(      localtime type status duration  target_host -target_port target_subvolume  source_host -source_port source_subvolume parent_subvolume message ) ],
-                   tlog   => [ qw(      localtime type status          target_url source_url parent_url message ) ],
-                   syslog => [ qw(                type status          target_url source_url parent_url message ) ],
-                   raw    => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
-                 },
+  stats => {
+    table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume  -target_host -target_port -target_subvolume snapshots  -backups ) ],
+    long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume  -target_host -target_port -target_subvolume snapshot_status backup_status snapshots -backups -correlated -orphaned -incomplete ) ],
+    raw   => [ qw( source_url source_host source_port source_subvolume snapshot_subvolume snapshot_name target_url target_host target_port target_subvolume snapshot_status backup_status snapshots backups correlated orphaned incomplete ) ],
+    RALIGN => { snapshots=>1, backups=>1, correlated=>1, orphaned=>1, incomplete=>1 },
+  },
 
-  origin_tree => { table => [ qw( tree uuid parent_uuid received_uuid ) ],
-                   long  => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
-                   raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
-                 },
+  schedule => {
+    table => [ qw( action -host -port subvolume scheme reason ) ],
+    long  => [ qw( action -host -port root_path subvolume_path scheme reason ) ],
+    raw   => [ qw( topic action url host port path hod dow min h d w m y) ],
+  },
 
-  diff        => { table => [ qw( flags count size file ) ],
-                   long  => [ qw( flags count size file ) ],
-                   raw   => [ qw( flags count size file ) ],
-                   RALIGN => { count=>1, size=>1 },
-                 },
+  usage => {
+    table => [ qw(      -host -port path size used free ) ],
+    long  => [ qw( type -host -port path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
+    raw   => [ qw( type host  port path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
+    RALIGN => { size=>1, used=>1, device_size=>1, device_allocated=>1, device_unallocated=>1, device_missing=>1, device_used=>1, free=>1, free_min=>1, data_ratio=>1, metadata_ratio=>1, global_reserve=>1, global_reserve_used=>1 },
+  },
 
-  fs_list     => { table => [ qw( -host mount_source mount_subvol mount_point id flags subvolume_path path ) ],
-                   short => [ qw( -host mount_source                          id flags                path ) ],
-                   long  => [ qw( -host mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
-                   raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path url ) ],
-                 },
+  transaction => {
+    table  => [ qw(                type status          -target_host -target_port target_subvolume -source_host -source_port source_subvolume parent_subvolume ) ],
+    long   => [ qw(      localtime type status duration  target_host -target_port target_subvolume  source_host -source_port source_subvolume parent_subvolume message ) ],
+    tlog   => [ qw(      localtime type status          target_url source_url parent_url message ) ],
+    syslog => [ qw(                type status          target_url source_url parent_url message ) ],
+    raw    => [ qw( time localtime type status duration target_url source_url parent_url message ) ],
+  },
 
-  extent_diff => { table => [ qw(             total exclusive -diff -set subvol ) ],
-                   long  => [ qw( id cgen gen total exclusive -diff -set subvol ) ],
-                   raw   => [ qw( id cgen gen total exclusive -diff -set subvol ) ],
-                   RALIGN => { total=>1, exclusive=>1, diff=>1, set=>1, cgen=>1, gen=>1 },
-                 },
+  origin_tree => {
+    table => [ qw( tree uuid parent_uuid received_uuid ) ],
+    long  => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
+    raw   => [ qw( tree uuid parent_uuid received_uuid recursion ) ],
+  },
+
+  diff => {
+    table => [ qw( flags count size file ) ],
+    long  => [ qw( flags count size file ) ],
+    raw   => [ qw( flags count size file ) ],
+    RALIGN => { count=>1, size=>1 },
+  },
+
+  fs_list => {
+    table => [ qw( -host mount_source mount_subvol mount_point id flags subvolume_path path ) ],
+    short => [ qw( -host mount_source                          id flags                path ) ],
+    long  => [ qw( -host mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
+    raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path url ) ],
+  },
+
+  extent_diff => {
+    table => [ qw(             total exclusive -diff -set subvol ) ],
+    long  => [ qw( id cgen gen total exclusive -diff -set subvol ) ],
+    raw   => [ qw( id cgen gen total exclusive -diff -set subvol ) ],
+    RALIGN => { total=>1, exclusive=>1, diff=>1, set=>1, cgen=>1, gen=>1 },
+  },
 );
 
 my %backend_cmd_map = (
