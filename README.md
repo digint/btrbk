@@ -690,7 +690,7 @@ If you would like to contribute or have found bugs:
 
   * Visit the [btrbk project page on GitHub] and use the
     [issues tracker] there.
-  * Talk to us on Freenode in `#btrbk`.
+  * Talk to us on [Libera.Chat] in `#btrbk`.
   * Contact the author via email (the email address can be found in
     the sources).
 
@@ -698,6 +698,7 @@ Any feedback is appreciated!
 
   [btrbk project page on GitHub]: https://github.com/digint/btrbk
   [issues tracker]: https://github.com/digint/btrbk/issues
+  [Libera.Chat]: https://libera.chat
 
 
 License
