@@ -307,6 +307,10 @@ option in ssh_config(5).
     Number of threads to use for <compress_command>. Only supported
     for "pigz", "pbzip2", "zstd" and recent versions of "xz".
 
+*stream_compress_adapt* default|<number>::
+    Enable adaptive compression for <compress_command>. Only supported
+    for "zstd" (version >= 1.3.6).
+
 *stream_buffer* <size>|no::
     Add a buffer to the btrfs send stream (locally, on uncompressed
     data), with a maximum size of '<size>'. This can give a speed
