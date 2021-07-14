@@ -16,7 +16,7 @@ compress_list="gzip|pigz|bzip2|pbzip2|xz|lzop|lz4|zstd"
 
 # note that the backslash is NOT a metacharacter in a POSIX bracket expression!
 option_match='-[a-zA-Z0-9=-]+'   # matches short as well as long options
-file_match='[0-9a-zA-Z_@+./-]*'  # matches file path (equal to $file_match in btrbk)
+file_match='/[0-9a-zA-Z_@+./-]*' # matches file path (equal to $file_match in btrbk)
 
 log_cmd()
 {
@@ -54,10 +54,10 @@ reject_filtered_cmd()
     if [[ -n "$restrict_path_list" ]]; then
 	# match any of restrict_path_list with or without trailing slash,
 	# or any file/directory (matching file_match) below restrict_path
-	path_match="(${restrict_path_list})(/${file_match})?"
+	path_match="(${restrict_path_list})(${file_match})?"
     else
 	# match any absolute file/directory (matching file_match)
-	path_match="/${file_match}"
+	path_match="${file_match}"
     fi
 
     if [[ -n "$allow_compress" ]]; then
