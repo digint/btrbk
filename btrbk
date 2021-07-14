@@ -1975,15 +1975,24 @@ sub system_list_mountinfo($)
       return undef;
     }
     my %line = %+;
+
     # merge super_options and mount_options to MNTOPS.
-    foreach (split(',', $line{super_options}), split(',', $line{mount_options})) {
+    my %mntops;
+    foreach (split(',', delete($line{super_options})),
+             split(',', delete($line{mount_options})))
+    {
       if(/^(.+?)=(.+)$/) {
-        $line{MNTOPS}->{$1} = $2;
+        $mntops{$1} = $2;
       } else {
-        $line{MNTOPS}->{$_} = 1;
+        $mntops{$_} = 1;
       }
     }
-    $line{MNTOPS}->{rw} = 0 if($line{MNTOPS}->{ro}); # e.g. mount_options="ro", super_options="rw"
+    $mntops{rw} = 0 if($mntops{ro}); # e.g. mount_options="ro", super_options="rw"
+
+    # decode values (octal, e.g. "\040" = whitespace)
+    s/\\([0-7]{3})/chr(oct($1))/eg foreach(values %line, values %mntops);
+
+    $line{MNTOPS} = \%mntops;
     push @mountinfo, \%line;
   }
   # TRACE(Data::Dumper->Dump([\@mountinfo], ["mountinfo"])) if($do_trace && $do_dumper);
