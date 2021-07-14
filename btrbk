@@ -5949,6 +5949,12 @@ MAIN:
         if(($mnt->{fs_type} eq "btrfs") &&
            (($root_path =~ /^\Q$mnt_path\E/) || ($mnt_path =~ /^\Q$root_path\E/)))
         {
+          unless(defined(check_file($mnt->{mount_point}, { absolute => 1}))) {
+            ERROR "Ignoring btrfs mount point (unsupported file name): $mnt->{mount_point}";
+            $exit_status = 1;
+            next;
+          }
+
           # we know those are real paths, prevents calling readlink in btrfs_mountpoint
           $realpath_cache{$root_vol->{URL_PREFIX} . $mnt->{mount_point}} = $mnt->{mount_point};
 
