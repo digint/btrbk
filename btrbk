@@ -5415,6 +5415,7 @@ MAIN:
     'config|c=s'         => \$config_cmdline,
     'override=s'         => \@config_override_cmdline,  # e.g. --override=incremental=no
     'lockfile=s'         => \$lockfile_cmdline,
+    'unsafe-filenames'   => sub { $file_match = $glob_match = qr/.+/ },
    );
   push @getopt_options, ($program_name eq "lsbtr") ? (
     # "lsbtr" options
