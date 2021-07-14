@@ -3861,9 +3861,7 @@ sub check_file($$;@)
   my %opts = @_;
   my $sanitize = $opts{sanitize};
   my $error_statement = $opts{error_statement};  # if not defined, no error messages are printed
-
-  my $match = $file_match;
-  $match = $glob_match if($accept->{wildcards});
+  my $match = $accept->{wildcards} ? $glob_match : $file_match;
 
   if($file =~ /^($match)$/) {
     $file = $1;
