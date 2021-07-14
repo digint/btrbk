@@ -4463,6 +4463,8 @@ sub parse_config($)
     {
       # NOTE: we do not perform checks on indentation!
       my ($indent, $key, $value) = (length($1), lc($2), $4 // "");
+      $value =~ s/^"(.*)"$/$1/;
+      $value =~ s/^'(.*)'$/$1/;
       $cur = parse_config_line($file, $root, $cur, $key, $value);
       unless(defined($cur)) {
         # error, bail out
