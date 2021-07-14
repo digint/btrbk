@@ -743,36 +743,23 @@ sub decompress_cmd_text($)
   return compress_cmd_text($_[0], 1);
 }
 
-sub _assemble_cmd($;$)
+sub _piped_cmd_txt($)
 {
   my $cmd_pipe = shift;
-  my $catch_stderr = shift;
   my $cmd = "";
-
-  # simple single-command
-  if(scalar(@$cmd_pipe) == 1) {
-    $cmd = $cmd_pipe->[0]->{cmd_text};
-    $cmd .= ' 2>&1' if($catch_stderr && $cmd_pipe->[0]->{catch_stderr});
-    return $cmd;
-  }
-
-  # cmd result is something like this:
-  #    { btrfs send <src> 2>&3 | mbuffer | btrfs receive <dst> 2>&3 ; } 3>&1
   my $pipe = "";
-  $cmd = "{ " if($catch_stderr);
-  foreach (@$cmd_pipe) {
-    if($_->{cmd_text} =~ /^>/) {
+  my $last;
+  foreach (map $_->{cmd_text}, @$cmd_pipe) {
+    die if($last);
+    if(/^>/) {
+      # can't be first, must be last
       die unless($pipe);
-      $cmd .= ' ' . $_->{cmd_text};
-      $pipe = undef; # this dies if it is not last command
-    } else {
-      $cmd .= $pipe . $_->{cmd_text};
-      $cmd .= ' 2>&3' if($catch_stderr && $_->{catch_stderr});
-      $pipe = ' | ';
+      $last = 1;
+      $pipe = ' ';
     }
+    $cmd .= $pipe . $_;
+    $pipe = ' | ';
   }
-  $cmd .= ' ; } 3>&1' if($catch_stderr);
-
   return $cmd;
 }
 
@@ -903,7 +890,7 @@ sub run_cmd(@)
 
       my $rsh_text = _safe_cmd($href->{rsh}, \@unsafe_cmd);
       return undef unless(defined($rsh_text));
-      $href->{cmd_text} = $rsh_text . " '" . _assemble_cmd(\@rsh_cmd_pipe) . "'";
+      $href->{cmd_text} = $rsh_text . " '" . _piped_cmd_txt(\@rsh_cmd_pipe) . "'";
     }
 
     # local stream_buffer, rate_limit and show_progress in front of stream sink
@@ -917,7 +904,7 @@ sub run_cmd(@)
      );
   }
 
-  my $cmd = _assemble_cmd(\@cmd_pipe);
+  my $cmd = _piped_cmd_txt(\@cmd_pipe);
 
   if(scalar(@unsafe_cmd)) {
     ERROR "Unsafe command `$cmd` (offending string: " . join(', ', @unsafe_cmd) . ')';
