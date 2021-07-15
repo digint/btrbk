@@ -128,23 +128,29 @@ archive_preserve_min    latest
 archive_preserve        12m 10y
 
 # Backup to external disk mounted on /mnt/btr_backup
+#
+# Note that you cannot backup the subvolume "/" (root) directly. In
+# oreder to backup "/" the top-level subvolume (subvolid=5) needs to
+# be mounted first:
+#  $ mount -o subvolid=5 /dev/sda1 /mnt/btr_pool
+#
 volume /mnt/btr_pool
-  # no action if external disk is not attached
+  # No action if external disk is not attached
   snapshot_create  ondemand
 
-  # propagates to all subvolume sections:
+  # Target for all subvolume sections:
   target /mnt/btr_backup/_btrbk
 
   subvolume  root_gentoo
   subvolume  kvm
-    # use different retention policy for kvm backups
+    # Use different retention policy for kvm backups:
     target_preserve     7d 4w
 
 
-# Backup to external disk as well as some remote host
+# Backup data to external disk as well as remote host
 volume /mnt/btr_data
   subvolume  home
-    # always create snapshot, even if targets are unreachable
+    # Always create snapshot, even if targets are unreachable
     snapshot_create  always
     target /mnt/btr_backup/_btrbk
     target ssh://backup.my-remote-host.com/mnt/btr_backup
