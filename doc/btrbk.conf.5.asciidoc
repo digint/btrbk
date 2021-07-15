@@ -451,6 +451,14 @@ If you want to set this option for regular (non-root) user only, set
     <https://bugzilla.kernel.org/show_bug.cgi?id=91751>
 
 
+=== Informative Options
+
+*warn_unknown_targets* yes|no::
+    If set, prints a warning if btrbk encounters a target subvolume at
+    a unknown location (i.e. not following btrbk naming scheme, or
+    outside the target directory). Defaults to ``no''.
+
+
 RETENTION POLICY
 ----------------
 

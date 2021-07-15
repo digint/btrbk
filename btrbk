@@ -150,6 +150,8 @@ my %config_options = (
   cache_dir                   => { default => undef,     accept_file => { absolute => 1 }, allow_multiple => 1, context => [ "global" ] },
   ignore_extent_data_inline   => { default => "yes",     accept => [ "yes", "no" ] },
 
+  warn_unknown_targets        => { default => undef,     accept => [ "yes", "no" ] },
+
   # deprecated options
   ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1,
                                    deprecated => { DEFAULT => { warn => 'Please use "ssh://hostname[:port]" notation in the "volume" and "target" configuration lines.' } } },
@@ -3552,8 +3554,8 @@ sub get_receive_targets($$;@)
     else {
       TRACE "get_receive_targets: skip unexpected match: " . _fs_path($_) if($do_trace);
       ${$opts{ret_unexpected}} = 1 if($opts{ret_unexpected});
-      if($opts{warn}) {
-        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unexpected location: " . ($vinfo ? $vinfo->{PRINT} : _fs_path($_));
+      if($opts{warn} && config_key($droot, "warn_unknown_targets")) {
+        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unknown location: " . ($vinfo ? $vinfo->{PRINT} : _fs_path($_));
       }
       next;
     }
