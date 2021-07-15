@@ -2117,7 +2117,7 @@ sub btrfs_mountpoint
         next;
       }
       unless($mnt->{mount_point} =~ /^$file_match$/) {
-        INFO "Ignoring non-parseable btrfs mountpoint on $vol->{MACHINE_ID}: \"$mnt->{mount_point}\"";
+        INFO_ONCE "Ignoring non-parseable btrfs mountpoint: $vol->{MACHINE_ID}$mnt->{mount_point}";
         next;
       }
       unless($mnt->{MNTOPS}->{subvolid}) {
