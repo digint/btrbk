@@ -72,8 +72,8 @@ a full description of the command line options.
   [btrbk(1)]: https://digint.ch/btrbk/doc/btrbk.1.html
 
 
-Configuration File
-==================
+Configuration
+=============
 
 Before running `btrbk`, you will need to create a configuration
 file. You might want to take a look at `btrbk.conf.example` provided
@@ -92,6 +92,9 @@ the disks).
 The examples below assume that the btrfs subvolume containing `home`
 and `rootfs` is mounted at `/mnt/btr_pool`. This is usually the btrfs
 root subvolume, which always has `subvolid=5`.
+
+Note that mounting subvolid=5 is *mandatory* if you want to backup
+your root filesystem `/`.
 
 /etc/fstab:
 
