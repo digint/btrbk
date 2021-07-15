@@ -1957,17 +1957,17 @@ sub system_list_mountinfo($)
   foreach(@$ret)
   {
     # https://www.kernel.org/doc/Documentation/filesystems/proc.txt
-    unless(/^(?<mount_id>[0-9]+)       # mount ID:  unique identifier of the mount (may be reused after umount)
-            \s(?<parent_id>[0-9]+)     # parent ID:  ID of parent (or of self for the top of the mount tree)
-            \s(?<st_dev>[0-9]+:[0-9]+) # major:minor:  value of st_dev for files on filesystem
-            \s(?<fs_root>\S+)          # root:  root of the mount within the filesystem
-            \s(?<mount_point>\S+)      # mount point:  mount point relative to the process's root
-            \s(?<mount_options>\S+)    # mount options:  per mount options
+    unless(/^(?<mount_id>[0-9]+)       # mount ID:         unique identifier of the mount (may be reused after umount)
+            \s(?<parent_id>[0-9]+)     # parent ID:        ID of parent (or of self for the top of the mount tree)
+            \s(?<st_dev>[0-9]+:[0-9]+) # major:minor:      value of st_dev for files on filesystem
+            \s(?<fs_root>\S+)          # root:             root of the mount within the filesystem
+            \s(?<mount_point>\S+)      # mount point:      mount point relative to the process's root
+            \s(?<mount_options>\S+)    # mount options:    per mount options
             (\s\S+)*                   # optional fields:  zero or more fields of the form "tag[:value]"
-            \s-                        # separator:  marks the end of the optional fields
+            \s-                        # separator:        marks the end of the optional fields
             \s(?<fs_type>\S+)          # filesystem type:  name of filesystem of the form "type[.subtype]"
-            \s(?<mount_source>\S+)     # mount source:  filesystem specific information or "none"
-            \s(?<super_options>\S+)$   # super options:  per super block options
+            \s(?<mount_source>\S+)     # mount source:     filesystem specific information or "none"
+            \s(?<super_options>\S+)$   # super options:    per super block options
            /x)
     {
       ERROR "Failed to parse \"$vol->{URL_PREFIX}$file\"";
