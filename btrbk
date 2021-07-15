@@ -742,10 +742,7 @@ VINFO $def;
   if(defined($def->{adapt})) {
     my $adapt_opt = $cc->{adapt};
     if($adapt_opt) {
-      if(($cc->{name} eq "zstd" ) && ( $def->{threads} ne 1 ) ) {
-        WARN_ONCE "Adaptive compression for '$cc->{name}' drifts to higher compression levels with multiple threads. Recommend setting threads to 1";
-      }
-        push @cmd, $adapt_opt;
+      push @cmd, $adapt_opt;
     }
     else {
       WARN_ONCE "Adaptive compression is not supported for '$cc->{name}', ignoring"; 
