@@ -110,7 +110,7 @@ my %config_options = (
   stream_compress_level       => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   stream_compress_long        => { default => "default", accept => [ "default" ], accept_numeric => 1 },
   stream_compress_threads     => { default => "default", accept => [ "default" ], accept_numeric => 1 },
-  stream_compress_adapt       => { default => undef,     accept => [ "no","default" ] },
+  stream_compress_adapt       => { default => undef,     accept => [ "yes", "no" ] },
 
   raw_target_compress         => { default => undef,     accept => [ "no", (keys %compression) ] },
   raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
@@ -738,7 +738,8 @@ sub compress_cmd_text($;$)
       WARN_ONCE "Long distance matching is not supported for '$cc->{name}', ignoring";
     }
   }
-  if(defined($def->{adapt}) && ($def->{adapt} eq "default")) {
+VINFO $def;
+  if(defined($def->{adapt})) {
     my $adapt_opt = $cc->{adapt};
     if($adapt_opt) {
       if(($cc->{name} eq "zstd" ) && ( $def->{threads} ne 1 ) ) {
