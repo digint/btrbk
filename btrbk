@@ -745,7 +745,7 @@ VINFO $def;
       push @cmd, $adapt_opt;
     }
     else {
-      WARN_ONCE "Adaptive compression is not supported for '$cc->{name}', ignoring"; 
+      WARN_ONCE "Adaptive compression is not supported for '$cc->{name}', ignoring";
     }
   }
   return { cmd_text => join(' ', @cmd) };
@@ -4007,7 +4007,6 @@ sub config_compress_hash($$)
     long    => config_key($config, $config_key . "_long"),
     threads => config_key($config, $config_key . "_threads"),
     adapt   => config_key($config, $config_key . "_adapt"),
-    
   };
 }
 
