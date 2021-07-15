@@ -479,10 +479,15 @@ sub INFO  { _log_cont("",          @_)         if($loglevel >= 2) }
 sub WARN  { _log_cont("WARNING: ", @_)         if($loglevel >= 1) }
 sub ERROR { _log_cont("ERROR: ",   @_) }
 
+sub INFO_ONCE {
+  my $t = shift;
+  if($warn_once{INFO}{$t}) { TRACE("WARNING(again): $t", @_) if($do_trace); return 0; }
+  else { $warn_once{INFO}{$t} = 1; INFO($t, @_); return 1; }
+}
 sub WARN_ONCE {
   my $t = shift;
-  if($warn_once{$t}) { TRACE("WARNING(again): $t", @_) if($do_trace); return 0; }
-  else { $warn_once{$t} = 1; WARN($t, @_); return 1; }
+  if($warn_once{WARN}{$t}) { TRACE("INFO(again): $t", @_) if($do_trace); return 0; }
+  else { $warn_once{WARN}{$t} = 1; WARN($t, @_); return 1; }
 }
 
 sub VINFO {
