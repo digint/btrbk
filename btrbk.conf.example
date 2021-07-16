@@ -144,19 +144,20 @@ volume /mnt/btr_pool
   # Target for all subvolume sections:
   target /mnt/btr_backup/_btrbk
 
-  # Many default btrfs installations (e.g. Fedora, Ubuntu) prefix the
-  # subvolumes names with "@". Note that this is only a naming
-  # convention.
-  subvolume  @
-  subvolume  @home
-  subvolume  @kvm
+  # Some default btrfs installations (e.g. Ubuntu) use "@" for rootfs
+  # (mounted at "/") and "@home" (mounted at "/home"). Note that this
+  # is only a naming convention.
+  #subvolume @
+  subvolume  root
+  subvolume  home
+  subvolume  kvm
     # Use different retention policy for kvm backups:
     target_preserve     7d 4w
 
 
 # Backup data to external disk as well as remote host
 volume /mnt/btr_data
-  subvolume  @data
+  subvolume  data
     # Always create snapshot, even if targets are unreachable
     snapshot_create  always
     target /mnt/btr_backup/_btrbk
@@ -172,10 +173,10 @@ volume ssh://my-remote-host.com/mnt/btr_pool
 
 
 # Resume backups from remote host which runs its own btrbk instance
-# creating snapshots for "@home" in "/mnt/btr_pool/btrbk_snapshots".
+# creating snapshots for "home" in "/mnt/btr_pool/btrbk_snapshots".
 volume ssh://my-remote-host.com/mnt/btr_pool
   snapshot_dir           btrbk_snapshots
   snapshot_create        no
   snapshot_preserve_min  all
-  subvolume @home
+  subvolume home
     target /mnt/btr_backup/_btrbk/my-remote-host.com
