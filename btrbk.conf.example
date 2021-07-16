@@ -139,7 +139,7 @@ archive_preserve        12m 10y
 #
 volume /mnt/btr_pool
   # No action if external disk is not attached
-  snapshot_create  ondemand
+  snapshot_create ondemand
 
   # Target for all subvolume sections:
   target /mnt/btr_backup/_btrbk
@@ -148,18 +148,18 @@ volume /mnt/btr_pool
   # (mounted at "/") and "@home" (mounted at "/home"). Note that this
   # is only a naming convention.
   #subvolume @
-  subvolume  root
-  subvolume  home
-  subvolume  kvm
+  subvolume root
+  subvolume home
+  subvolume kvm
     # Use different retention policy for kvm backups:
-    target_preserve     7d 4w
+    target_preserve 7d 4w
 
 
 # Backup data to external disk as well as remote host
 volume /mnt/btr_data
   subvolume  data
     # Always create snapshot, even if targets are unreachable
-    snapshot_create  always
+    snapshot_create always
     target /mnt/btr_backup/_btrbk
     target ssh://backup.my-remote-host.com/mnt/btr_backup
 
