@@ -4572,20 +4572,18 @@ sub macro_send_receive(@)
 
 # sets $result_vinfo->{CONFIG}->{ABORTED} on failure
 # sets $result_vinfo->{SUBVOL_DELETED}
-sub macro_delete($$$$$;@)
+sub macro_delete($$$$;@)
 {
   my $root_subvol = shift || die;
-  my $subvol_dir = shift // die;
   my $subvol_basename = shift // die;
   my $result_vinfo = shift || die;
   my $schedule_options = shift || die;
   my %delete_options = @_;
-  $subvol_dir =~ s/\/+$//;
 
   my @schedule;
   foreach my $vol (@{vinfo_subvol_list($root_subvol)}) {
     unless($vol->{node}{BTRBK_DATE} &&
-           ($vol->{SUBVOL_DIR} eq $subvol_dir) &&
+           ($vol->{SUBVOL_DIR} eq "") &&
            ($vol->{node}{BTRBK_BASENAME} eq $subvol_basename)) {
       TRACE "Target subvolume does not match btrbk filename scheme, skipping: $vol->{PRINT}" if($do_trace);
       next;
@@ -4608,8 +4606,7 @@ sub macro_delete($$$$$;@)
   }
 
   my @delete_success = btrfs_subvolume_delete($delete, %delete_options);
-  $subvol_dir .= '/' if($subvol_dir ne "");
-  INFO "Deleted " . scalar(@delete_success) . " subvolumes in: $root_subvol->{PRINT}/$subvol_dir$subvol_basename.*";
+  INFO "Deleted " . scalar(@delete_success) . " subvolumes in: $root_subvol->{PRINT}/$subvol_basename.*";
   $result_vinfo->{SUBVOL_DELETED} //= [];
   push @{$result_vinfo->{SUBVOL_DELETED}}, @delete_success;
 
@@ -6171,7 +6168,7 @@ MAIN:
         my $snapshot_name = config_key($sroot, "snapshot_name") // die;
         foreach my $droot (vinfo_subsection($sroot, 'archive_target')) {
           INFO "Cleaning archive: $droot->{PRINT}/${snapshot_name}.*";
-          macro_delete($droot, "", $snapshot_name, $droot,
+          macro_delete($droot, $snapshot_name, $droot,
                        { preserve     => config_preserve_hash($droot, "archive"),
                          results      => $del_schedule_results,
                          result_hints => { topic => "archive", root_path => $droot->{PATH} },
@@ -7240,7 +7237,7 @@ MAIN:
               # delete backups
               #
               INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
-              unless(macro_delete($droot, "", $snapshot_basename, $droot,
+              unless(macro_delete($droot, $snapshot_basename, $droot,
                                   { preserve     => config_preserve_hash($droot, "target"),
                                     results      => $schedule_results,
                                     result_hints => { topic => "backup", root_path => $droot->{PATH} },
@@ -7271,7 +7268,7 @@ MAIN:
           }
           else {
             INFO "Cleaning snapshots" . ($wipe_snapshots ? " (wipe)" : "") . ": $snaproot->{PRINT}/$snapshot_basename.*";
-            macro_delete($snaproot, "", $snapshot_basename, $svol,
+            macro_delete($snaproot, $snapshot_basename, $svol,
                          { preserve     => config_preserve_hash($svol, "snapshot", wipe => $wipe_snapshots),
                            results      => $schedule_results,
                            result_hints => { topic => "snapshot", root_path => $snaproot->{PATH} },
