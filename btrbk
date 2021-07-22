@@ -257,7 +257,7 @@ my %table_formats = (
 
   schedule => {
     table => [ qw( action -host -port subvolume scheme reason ) ],
-    long  => [ qw( action -host -port root_path subvolume_path scheme reason ) ],
+    long  => [ qw( action -host -port subvolume scheme reason ) ],
     raw   => [ qw( topic action url host port path hod dow min h d w m y) ],
   },
 
@@ -3339,7 +3339,6 @@ sub vinfo_prefixed_keys($$)
     $ret{$prefix . lc($_)} = $vinfo->{$_};
   }
   $ret{$prefix . "subvolume"} = $vinfo->{PATH};
-  $ret{$prefix . "subvolume_path"} = $vinfo->{SUBVOL_PATH};
   my $rsh = vinfo_rsh($vinfo);
   $ret{$prefix . "rsh"} = ($rsh ? join(" ", @$rsh) : undef),
   return %ret;
