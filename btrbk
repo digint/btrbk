@@ -3297,17 +3297,6 @@ sub vinfo_subvol($$)
 }
 
 
-sub vinfo_is_btrbk_snapshot($$;$)
-{
-  my $vol = shift || die;
-  my $btrbk_basename = shift || die;
-  my $subvol_dir = shift // "";
-  return ($vol->{node}{readonly} && defined($vol->{node}{BTRBK_BASENAME}) &&
-          ($vol->{SUBVOL_DIR} eq $subvol_dir) &&
-          ($vol->{node}{BTRBK_BASENAME} eq $btrbk_basename));
-}
-
-
 sub vinfo_inject_child($$$;$)
 {
   my $vinfo = shift;
