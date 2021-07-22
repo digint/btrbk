@@ -4581,13 +4581,7 @@ sub macro_delete($$$$;@)
   my %delete_options = @_;
 
   my @schedule;
-  foreach my $vol (@{vinfo_subvol_list($root_subvol)}) {
-    unless($vol->{node}{BTRBK_DATE} &&
-           ($vol->{SUBVOL_DIR} eq "") &&
-           ($vol->{node}{BTRBK_BASENAME} eq $subvol_basename)) {
-      TRACE "Target subvolume does not match btrbk filename scheme, skipping: $vol->{PRINT}" if($do_trace);
-      next;
-    }
+  foreach my $vol (@{vinfo_subvol_list($root_subvol, btrbk_direct_leaf => $subvol_basename)}) {
     push(@schedule, { value      => $vol,
                       # name       => $vol->{PRINT},  # only for logging
                       btrbk_date => $vol->{node}{BTRBK_DATE},
