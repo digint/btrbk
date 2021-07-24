@@ -3871,7 +3871,10 @@ sub check_file($$;@)
 
   if($file =~ /^($match)$/) {
     $file = $1;
-    if($accept->{absolute}) {
+    if($accept->{absolute} && $accept->{relative}) {
+      # accepted, matches either absolute or relative
+    }
+    elsif($accept->{absolute}) {
       unless($file =~ /^\//) {
         ERROR "Only absolute files allowed $error_statement" if(defined($error_statement));
         return undef;
