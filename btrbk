@@ -4268,20 +4268,28 @@ sub parse_config_line($$$$$)
   elsif($key eq "subvolume")
   {
     while($cur->{CONTEXT} ne "volume") {
-      if(($cur->{CONTEXT} eq "global") || (not $cur->{PARENT})) {
-        ERROR "Subvolume keyword outside volume context, in \"$file\" line $.";
-        return undef;
+      if($cur->{CONTEXT} eq "global") {
+        TRACE "config: adding dummy volume context" if($do_trace);
+        my $volume = { CONTEXT    => "volume",
+                       PARENT     => $cur,
+                       SUBSECTION => [],
+                       DUMMY      => 1,
+                       url        => "/dev/null",
+                     };
+        push(@{$cur->{SUBSECTION}}, $volume);
+        $cur = $volume;
+        last;
       }
       $cur = $cur->{PARENT} || die;
       TRACE "config: context changed to: $cur->{CONTEXT}" if($do_trace);
     }
     # be very strict about file options, for security sake
     my $url;
-    if(my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, sanitize => 1)) {
+    if(!$cur->{DUMMY} && (my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, sanitize => 1))) {
       $url = ($rel_path eq '.') ? $cur->{url} : $cur->{url} . '/' . $rel_path;
     }
     else {
-      my ($url_prefix, $path) = check_url($value, accept_wildcards => 1, error_statement => "for option \"$key\" in \"$file\" line $.");
+      my ($url_prefix, $path) = check_url($value, accept_wildcards => 1, error_statement => "for option \"$key\"" . ($cur->{DUMMY} ?  " (if no \"volume\" section is declared)" : "") . " in \"$file\" line $.");
       return undef unless(defined($path));
       $url = $url_prefix . $path;
     }
@@ -6332,19 +6340,30 @@ MAIN:
   # create vinfo nodes (no readin yet)
   #
   foreach my $config_vol (config_subsection($config, "volume")) {
-    my $sroot = vinfo($config_vol->{url}, $config_vol);
+    my $sroot = $config_vol->{DUMMY} ? { CONFIG => $config_vol, PRINT => "*default*" } : vinfo($config_vol->{url}, $config_vol);
     vinfo_assign_config($sroot);
     foreach my $config_subvol (config_subsection($config_vol, "subvolume")) {
       my $svol = vinfo($config_subvol->{url}, $config_subvol);
       my $snapshot_dir = config_key($svol, "snapshot_dir");
       my $url;
       if(!defined($snapshot_dir)) {
-        $url = $sroot->{URL};
+        if($config_vol->{DUMMY}) {
+          ABORTED($svol, "No snapshot_dir defined for subvolume");
+          WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
+        } else {
+          $url = $sroot->{URL};
+        }
       } elsif($snapshot_dir =~ /^\//) {
-        $url = $sroot->{URL_PREFIX} . $snapshot_dir;
+        $url = $svol->{URL_PREFIX} . $snapshot_dir;
       } else {
-        $url = $sroot->{URL} . '/' . $snapshot_dir;
+        if($config_vol->{DUMMY}) {
+          ABORTED($svol, "Relative snapshot_dir path defined, but no volume context present");
+          WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
+        } else {
+          $url = $sroot->{URL} . '/' . $snapshot_dir;
+        }
       }
+      $url //= "/dev/null"; # snaproot cannot be undef, even if ABORTED
       my $snaproot = vinfo($url, $config_subvol);
       vinfo_assign_config($svol, $snaproot);
       foreach my $config_target (@{$config_subvol->{SUBSECTION}}) {
