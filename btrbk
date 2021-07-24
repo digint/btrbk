@@ -3697,6 +3697,9 @@ sub get_best_parent($$$;@)
   # mountpoint as the source subvolume:
   #  - btrfs send -p: "ERROR: not on mount point: /path/to/mountpoint"
   #  - btrfs receive: "ERROR: parent subvol is not reachable from inside the root subvol"
+  #
+  # Note that specifying clones from outside the mount point would work for btrfs send,
+  # but btrfs receive fails with same error as above (tested with v5.13).
   my $source_fallback_all_mountpoints = ($source_incremental_resolve eq "_all_accessible");
   my $target_fallback_all_mountpoints = ($target_incremental_resolve eq "_all_accessible");
 
