@@ -93,8 +93,8 @@ The examples below assume that the btrfs subvolume containing `home`
 and `rootfs` is mounted at `/mnt/btr_pool`. This is usually the btrfs
 root subvolume, which always has `subvolid=5`.
 
-Note that mounting subvolid=5 is *mandatory* if you want to backup
-your root filesystem `/`.
+Mounting `subvolid=5` is *recommended* (mandatory for btrbk < v0.32.0)
+if you want to backup your root filesystem `/`.
 
 /etc/fstab:
 
@@ -138,6 +138,19 @@ does not create subdirs by default, the snapshot directory must first
 be created manually:
 
     sudo mkdir /mnt/btr_pool/btrbk_snapshots
+
+The "volume" section is merely used as a specifier for a base
+directory, and can be skipped if you prefer to configure everything
+using absolute paths. The above configuration can also be written as:
+
+    snapshot_dir /mnt/btr_pool/btrbk_snapshots
+    subvolume    /mnt/btr_pool/home
+
+If you don't want to mount the btrfs root filesystem to
+`/mnt/btr_pool`, you might as well configure it like this:
+
+    snapshot_dir /btrbk_snapshots
+    subvolume    /home
 
 Start a dry run:
 
