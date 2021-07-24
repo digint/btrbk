@@ -6644,12 +6644,7 @@ MAIN:
   # read volume btrfs tree, and make sure subvolume exist
   foreach my $sroot (vinfo_subsection($config, 'volume')) {
     DEBUG "Initializing volume section: $sroot->{PRINT}";
-    unless(vinfo_init_root($sroot)) {
-      ABORTED($sroot, "Failed to fetch subvolume detail");
-      WARN "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot), @stderr;
-      next;
-    }
-    unless(scalar(vinfo_subsection($sroot, 'subvolume'))) {
+    unless(scalar(vinfo_subsection($sroot, 'subvolume', 1))) {
       WARN "No subvolume configured for \"volume $sroot->{URL}\"";
     }
     foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
@@ -6671,15 +6666,6 @@ MAIN:
       }
       if($svol->{node}{received_uuid} ne '-') {
         ABORTED($svol, "\"Received UUID\" is set");
-        WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
-        next;
-      }
-      if(_is_child_of($sroot->{node}, $svol->{node}{uuid}) ||
-         ($svol->{node}{uuid} eq $sroot->{node}{uuid}))
-      {
-        DEBUG "Found \"$svol->{PRINT}\" (id=$svol->{node}{id}) in btrfs tree of: $sroot->{PRINT}";
-      } else {
-        ABORTED($svol, "Not a child subvolume of: $sroot->{PRINT}");
         WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
         next;
       }
