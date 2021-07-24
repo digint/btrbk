@@ -2862,6 +2862,10 @@ sub vinfo($$)
     URL_PREFIX => $url_prefix,             # ssh://hostname[:port]  (or "" if local)
     MACHINE_ID => $url_prefix || "LOCAL:", # unique: "LOCAL:" or hostname and port
     CONFIG     => $config,
+
+    # These are added in vinfo_init_root
+    #NODE_SUBDIR      => undef,
+    #VINFO_MOUNTPOINT => undef,
   }
 }
 
@@ -2885,10 +2889,13 @@ sub vinfo_child($$;$)
     URL          => "$parent->{URL}/$rel_path",
     URL_PREFIX   => $parent->{URL_PREFIX},
     MACHINE_ID   => $parent->{MACHINE_ID},
-    SUBVOL_PATH  => $rel_path,
-    SUBVOL_DIR   => $subvol_dir,  # SUBVOL_PATH=SUBVOL_DIR/NAME
     CONFIG       => $config // $parent->{CONFIG},
     VINFO_MOUNTPOINT => $parent->{VINFO_MOUNTPOINT},
+
+    # NOTE: these are NOT present in non-child vinfo, and should be used
+    # only for printing and comparing results of vinfo_subvol_list.
+    SUBVOL_PATH  => $rel_path,
+    SUBVOL_DIR   => $subvol_dir,  # SUBVOL_PATH=SUBVOL_DIR/NAME
    };
 
   # TRACE "vinfo_child: created from \"$parent->{PRINT}\": $info{PRINT}" if($do_trace);
