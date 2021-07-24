@@ -79,7 +79,7 @@ my %config_options = (
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   # NOTE: files "." and "no" map to <undef>
   timestamp_format            => { default => "short",   accept => [ "short", "long", "long-iso" ], context => [ "global", "volume", "subvolume" ] },
-  snapshot_dir                => { default => undef,     accept_file => { relative => 1 }, context => [ "global", "volume", "subvolume" ] },
+  snapshot_dir                => { default => undef,     accept_file => { relative => 1, absolute => 1 }, context => [ "global", "volume", "subvolume" ] },
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "global", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
@@ -6335,9 +6335,16 @@ MAIN:
     vinfo_assign_config($sroot);
     foreach my $config_subvol (config_subsection($config_vol, "subvolume")) {
       my $svol = vinfo_child($sroot, $config_subvol->{rel_path}, $config_subvol);
-      # TODO: add config option "snapshot_path", reuse snaproot with same URL
-      my $snapshot_dir = config_key($svol, "snapshot_dir", prefix => '/') // "";
-      my $snaproot = vinfo($config_vol->{url} . $snapshot_dir, $config_subvol);
+      my $snapshot_dir = config_key($svol, "snapshot_dir");
+      my $url;
+      if(!defined($snapshot_dir)) {
+        $url = $sroot->{URL};
+      } elsif($snapshot_dir =~ /^\//) {
+        $url = $sroot->{URL_PREFIX} . $snapshot_dir;
+      } else {
+        $url = $sroot->{URL} . '/' . $snapshot_dir;
+      }
+      my $snaproot = vinfo($url, $config_subvol);
       vinfo_assign_config($svol, $snaproot);
       foreach my $config_target (@{$config_subvol->{SUBSECTION}}) {
         die unless($config_target->{CONTEXT} eq "target");
