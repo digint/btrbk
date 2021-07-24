@@ -92,12 +92,12 @@ snapshot_dir               _btrbk_snap
 
 
 #
-# Volume section: "volume <volume-directory>"
+# Volume section (optional): "volume <volume-directory>"
 #
-#   <volume-directory>  Directory of a btrfs volume (or subvolume)
-#                       containing the subvolume to be backuped
+#   <volume-directory>  Base path within a btrfs filesystem
+#                       containing the subvolumes to be backuped
 #                       (usually the mount-point of a btrfs filesystem
-#                       mounted with subvolid=5 option)
+#                       mounted with subvolid=5 option).
 #
 # Subvolume section: "subvolume <subvolume-name>"
 #
@@ -107,19 +107,19 @@ snapshot_dir               _btrbk_snap
 # Target section: "target <type> <volume-directory>"
 #
 #   <type>              (optional) type, defaults to "send-receive".
-#   <volume-directory>  Directory of a btrfs volume (or subvolume)
+#   <volume-directory>  Directory within a btrfs filesystem
 #                       receiving the backups.
 #
 # NOTE: The parser does not care about indentation, this is only for
-# human readability. The options always apply to the last section
+# human readability. All options apply to the last section
 # encountered, overriding the corresponding option of the upper
-# section. This means that the global options must be set before any
-# "volume" section.
+# section. This means that the global options must be set on top,
+# before any "volume", "subvolume" or "target section.
 #
 
 
 #
-# Example configuration:
+# Example retention policy:
 #
 snapshot_preserve_min   2d
 snapshot_preserve       14d
@@ -127,22 +127,31 @@ snapshot_preserve       14d
 target_preserve_min     no
 target_preserve         20d 10w *m
 
-archive_preserve_min    latest
-archive_preserve        12m 10y
 
-# Backup to external disk mounted on /mnt/btr_backup
 #
-# Note that you cannot backup the subvolume "/" (root) directly. In
-# oreder to backup "/" the top-level subvolume (subvolid=5) needs to
-# be mounted first:
+# Simple setup: Backup root and home to external disk
+#
+snapshot_dir /btrbk_snapshots
+target       /mnt/btr_backup
+subvolume    /
+subvolume    /home
+
+
+#
+# Complex setup
+#
+# In order to keep things organized, it is recommended to use "volume"
+# sections and mount the top-level subvolume (subvolid=5):
+#
 #  $ mount -o subvolid=5 /dev/sda1 /mnt/btr_pool
 #
+# Backup to external disk mounted on /mnt/btr_backup
 volume /mnt/btr_pool
-  # No action if external disk is not attached
-  snapshot_create ondemand
+  # Create snapshots in /mnt/btr_pool/btrbk_snapshots
+  snapshot_dir btrbk_snapshots
 
   # Target for all subvolume sections:
-  target /mnt/btr_backup/_btrbk
+  target /mnt/btr_backup
 
   # Some default btrfs installations (e.g. Ubuntu) use "@" for rootfs
   # (mounted at "/") and "@home" (mounted at "/home"). Note that this
@@ -160,7 +169,7 @@ volume /mnt/btr_data
   subvolume  data
     # Always create snapshot, even if targets are unreachable
     snapshot_create always
-    target /mnt/btr_backup/_btrbk
+    target /mnt/btr_backup
     target ssh://backup.my-remote-host.com/mnt/btr_backup
 
 
@@ -169,7 +178,7 @@ volume ssh://my-remote-host.com/mnt/btr_pool
   subvolume data_0
     snapshot_dir   snapshots/btrbk
     snapshot_name  data_main
-    target /mnt/btr_backup/_btrbk/my-remote-host.com
+    target /mnt/btr_backup/my-remote-host.com
 
 
 # Resume backups from remote host which runs its own btrbk instance
@@ -179,4 +188,4 @@ volume ssh://my-remote-host.com/mnt/btr_pool
   snapshot_create        no
   snapshot_preserve_min  all
   subvolume home
-    target /mnt/btr_backup/_btrbk/my-remote-host.com
+    target /mnt/btr_backup/my-remote-host.com
