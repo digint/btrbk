@@ -4276,20 +4276,26 @@ sub parse_config_line($$$$$)
       TRACE "config: context changed to: $cur->{CONTEXT}" if($do_trace);
     }
     # be very strict about file options, for security sake
-    my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, sanitize => 1, error_statement => "for option \"$key\" in \"$file\" line $.");
-    return undef unless(defined($rel_path));
+    my $url;
+    if(my $rel_path = check_file($value, { relative => 1, wildcards => 1 }, sanitize => 1)) {
+      $url = ($rel_path eq '.') ? $cur->{url} : $cur->{url} . '/' . $rel_path;
+    }
+    else {
+      my ($url_prefix, $path) = check_url($value, accept_wildcards => 1, error_statement => "for option \"$key\" in \"$file\" line $.");
+      return undef unless(defined($path));
+      $url = $url_prefix . $path;
+    }
 
     # snapshot_name defaults to subvolume name (or volume name if subvolume=".")
-    my $default_snapshot_name = ($rel_path eq '.') ? $cur->{url} : $rel_path;
+    my $default_snapshot_name = $url;
     $default_snapshot_name =~ s/^.*\///;
     $default_snapshot_name = 'ROOT' if($default_snapshot_name eq ""); # if volume="/"
 
-    TRACE "config: adding subvolume \"$rel_path\" to volume context: $cur->{url}" if($do_trace);
+    TRACE "config: adding subvolume \"$url\" to volume context: $cur->{url}" if($do_trace);
     my $subvolume = { CONTEXT       => "subvolume",
                       PARENT        => $cur,
                       # SUBSECTION    => [],  # handled by target propagation
-                      rel_path      => $rel_path,
-                      url           => $cur->{url} . '/' . $rel_path,
+                      url           => $url,
                       snapshot_name => $default_snapshot_name,  # computed default (c_default)
                      };
     $subvolume->{GLOB_CONTEXT} = 1 if($value =~ /\*/);
@@ -6334,7 +6340,7 @@ MAIN:
     my $sroot = vinfo($config_vol->{url}, $config_vol);
     vinfo_assign_config($sroot);
     foreach my $config_subvol (config_subsection($config_vol, "subvolume")) {
-      my $svol = vinfo_child($sroot, $config_subvol->{rel_path}, $config_subvol);
+      my $svol = vinfo($config_subvol->{url}, $config_subvol);
       my $snapshot_dir = config_key($svol, "snapshot_dir");
       my $url;
       if(!defined($snapshot_dir)) {
@@ -6525,7 +6531,7 @@ MAIN:
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
         push @out, ""; # newline
         push @out, "\t# subvolume $svol->{CONFIG}->{rel_path_glob}" if(defined($svol->{CONFIG}->{rel_path_glob}));
-        push @out, "\tsubvolume $svol->{SUBVOL_PATH}";
+        push @out, "\tsubvolume $svol->{URL}";
         push @out, config_dump_keys($svol, prefix => "\t\t", resolve => $resolve);
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           push @out, "\n\t\ttarget $droot->{CONFIG}->{target_type} $droot->{URL}";
