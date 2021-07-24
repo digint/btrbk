@@ -3443,6 +3443,9 @@ sub vinfo_match($$;@)
   my %opts = @_;
   my $flag_matched = $opts{flag_matched};
 
+  # never match dummy volume section
+  return 0 if($vinfo->{CONFIG}{DUMMY});
+
   # match URL against sane path (can contain "//", see vinfo_child),
   # no wildcards
   my ($url_prefix, $path) = check_url($vinfo->{URL});
