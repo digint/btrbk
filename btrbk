@@ -5496,6 +5496,7 @@ MAIN:
     $action_archive = 1;
     $fallback_default_config = 1;
     $args_expected_min = $args_expected_max = 2;
+    $subvol_args_allow_relative = 1;
     @subvol_args = @ARGV;
   }
   elsif ($command eq "usage") {
@@ -5506,14 +5507,15 @@ MAIN:
     $action_ls = 1;
     $fallback_default_config = 1;
     $args_expected_min = 1;
-    @subvol_args = @ARGV;
     $subvol_args_allow_relative = 1;
+    @subvol_args = @ARGV;
   }
   elsif ($command eq "diff") {
     $action_diff = 1;
     $fallback_default_config = 1;
     $args_expected_min = $args_expected_max = 2;
     $subvol_args_init = "restrict_same_fs deny_root_subvol";
+    $subvol_args_allow_relative = 1;
     @subvol_args = @ARGV;
   }
   elsif ($command eq "extents") {
@@ -5529,6 +5531,7 @@ MAIN:
     $fallback_default_config = 1;
     $args_expected_min = 1;
     $subvol_args_init = "restrict_same_fs";
+    $subvol_args_allow_relative = 1;
     my $excl;
     foreach(@ARGV) {
       # subvol_arg... "exclusive" filter_arg...
@@ -5544,6 +5547,7 @@ MAIN:
     $action_origin = 1;
     $args_expected_min = $args_expected_max = 1;
     $subvol_args_init = "deny_root_subvol";
+    $subvol_args_allow_relative = 1;
     @subvol_args = @ARGV;
   }
   elsif($command eq "list") {
