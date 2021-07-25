@@ -5601,18 +5601,10 @@ MAIN:
   # input validation
   foreach (@subvol_args) {
     my ($url_prefix, $path) = check_url($_);
-    if(!defined($path) && $subvol_args_allow_relative) {
+    if(!defined($path) && $subvol_args_allow_relative && ($url_prefix eq "")) {
       # map relative path to absolute
-      $url_prefix = "";
-      if(-d $_) {
-        $path = $1 if($_ =~ /^(.*)$/); # untaint ANY argument, real check below
-        $path = `readlink -f -q '$path'` if(defined($path));
-        $path = check_file($path, { absolute => 1 });
-      }
-      unless(defined($path)) {
-        ERROR "Bad argument: not a valid path: $_";
-        HELP_MESSAGE(0);
-        exit 2;
+      if((-d $_) && ($_ =~ /^(.*)$/)) { # untaint ANY argument!
+        $path = check_file(`readlink -f -q '$1'`, { absolute => 1 })
       }
     }
     unless(defined($path)) {
