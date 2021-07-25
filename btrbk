@@ -262,9 +262,9 @@ my %table_formats = (
   },
 
   usage => {
-    table => [ qw(      -host -port path size used free ) ],
-    long  => [ qw( type -host -port path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
-    raw   => [ qw( type host  port path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
+    table => [ qw(      -host -port mount_source  path size used free ) ],
+    long  => [ qw( type -host -port mount_source path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
+    raw   => [ qw( type  host  port mount_source path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
     RALIGN => { size=>1, used=>1, device_size=>1, device_allocated=>1, device_unallocated=>1, device_missing=>1, device_used=>1, free=>1, free_min=>1, data_ratio=>1, metadata_ratio=>1, global_reserve=>1, global_reserve_used=>1 },
   },
 
@@ -6503,32 +6503,30 @@ MAIN:
     # print filesystem information
     #
     my @data;
+    my %usage_cache;
     my %processed;
-    foreach my $sroot (vinfo_subsection($config, 'volume')) {
-      unless($processed{$sroot->{URL}}) {
-        my $usage = btrfs_filesystem_usage($sroot) // {};
-        push @data, { %$usage,
-                      type => "source",
-                      vinfo_prefixed_keys("", $sroot),
-                    };
-        $processed{$sroot->{URL}} = 1;
-      }
-    }
-
+    my $push_data = sub {
+      my ($vol, $type) = @_;
+      return if $processed{$vol->{URL}};
+      my (undef, undef, undef, $mount_source, undef) = btrfs_mountpoint($vol);
+      my $mid = $vol->{MACHINE_ID} . $mount_source;
+      $usage_cache{$mid} //= btrfs_filesystem_usage($vol);
+      push @data, { %{$usage_cache{$mid}},
+                    type => $type,
+                    mount_source => $mount_source,
+                    vinfo_prefixed_keys("", $vol),
+                  };
+      $processed{$vol->{URL}} = 1;
+    };
     foreach my $sroot (vinfo_subsection($config, 'volume')) {
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
+        $push_data->(vinfo_snapshot_root($svol), "source");
         foreach my $droot (vinfo_subsection($svol, 'target')) {
-          unless($processed{$droot->{URL}}) {
-            my $usage = btrfs_filesystem_usage($droot) // {};
-            push @data, { %$usage,
-                          type => "target",
-                          vinfo_prefixed_keys("", $droot),
-                        };
-            $processed{$droot->{URL}} = 1;
-          }
+          $push_data->(vinfo_snapshot_root($droot), "target");
         }
       }
     }
+    @data = sort { $a->{type} cmp $b->{type} || $a->{url} cmp $b->{url} } @data;
     print_formatted("usage", \@data);
     exit exit_status($config);
   }
