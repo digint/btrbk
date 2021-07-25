@@ -6539,19 +6539,28 @@ MAIN:
     #
     my @out;
     push @out, config_dump_keys($config, resolve => $resolve);
-    foreach my $sroot (vinfo_subsection($config, 'volume')) {
-      push @out, "\nvolume $sroot->{URL}";
-      push @out, config_dump_keys($sroot, prefix => "\t", resolve => $resolve);
-      foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-        push @out, ""; # newline
-        push @out, "\t# subvolume $svol->{CONFIG}->{url_glob}" if(defined($svol->{CONFIG}->{url_glob}));
-        push @out, "\tsubvolume $svol->{URL}";
-        push @out, config_dump_keys($svol, prefix => "\t\t", resolve => $resolve);
-        foreach my $droot (vinfo_subsection($svol, 'target')) {
-          push @out, "\n\t\ttarget $droot->{CONFIG}->{target_type} $droot->{URL}";
-          push @out, config_dump_keys($droot, prefix => "\t\t\t", resolve => $resolve);
-        }
+    my $indent = "";
+    foreach my $sroot (vinfo_subsection($config, 'volume', 1)) {
+      unless($sroot->{CONFIG}{DUMMY}) {
+        push @out, "";
+        push @out, "volume $sroot->{URL}";
+        $indent .= "\t";
+        push @out, config_dump_keys($sroot, prefix => $indent, resolve => $resolve);
       }
+      foreach my $svol (vinfo_subsection($sroot, 'subvolume', 1)) {
+        push @out, "";
+        push @out, "${indent}# subvolume $svol->{CONFIG}->{url_glob}" if(defined($svol->{CONFIG}->{url_glob}));
+        push @out, "${indent}subvolume $svol->{URL}";
+        $indent .= "\t";
+        push @out, config_dump_keys($svol, prefix => $indent, resolve => $resolve);
+        foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
+          push @out, "";
+          push @out, "${indent}target $droot->{CONFIG}->{target_type} $droot->{URL}";
+          push @out, config_dump_keys($droot, prefix => "\t$indent", resolve => $resolve);
+        }
+        $indent =~ s/\t//;
+      }
+      $indent = "";
     }
 
     print_header(title => "Configuration Dump",
