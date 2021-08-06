@@ -17,7 +17,8 @@ SCRIPTS     = ssh_filter_btrbk.sh \
               contrib/cron/btrbk-mail \
               contrib/cron/btrbk-verify \
               contrib/migration/raw_suffix2sidecar \
-              contrib/crypt/kdf_pbkdf2.py
+              contrib/crypt/kdf_pbkdf2.py \
+              contrib/tools/btrbk_restore_raw.py
 
 PN          = btrbk
 PREFIX     ?= /usr
