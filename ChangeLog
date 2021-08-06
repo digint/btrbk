@@ -1,3 +1,12 @@
+btrbk-0.31.3
+
+  * Add "warn_duplicate_targets" configuration option (close 393).
+  * Add -1,--single-column command-line option for listing actions.
+  * Allow relative path command line argument for all actions.
+  * Add support for zstd adaptive compression (close #397).
+  * Add contrib/tools/btrbk_restore_raw.py (close #401).
+  * Minor bugfixes and framework improvements.
+
 btrbk-0.31.2
 
   * MIGRATION
