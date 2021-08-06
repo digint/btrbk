@@ -198,7 +198,7 @@ def main():
     parser.add_argument('--ignore-missing', action='store_true',
                         help="do not fail on missing parent snapshots")
     parser.add_argument('--dry-run', '-n', action='store_true',
-                        help="print commmands that would be exectuted")
+                        help="print commmands that would be executed")
 
     for transformer in TRANSFORMERS:
         transformer.add_parser_options(parser)
