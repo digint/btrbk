@@ -33,7 +33,7 @@ class TransformOpensslDecrypt(TransformProcess):
 class TransformDecompress(TransformProcess):
     def __init__(self, program):
         self.p = program
-    
+
     def run(self, bfile, options, **kw):
         return subprocess.Popen([self.p, '-d'], **kw)
 
@@ -56,7 +56,7 @@ class BtrfsPipeline:
 
     def append(self, transformer):
         self.processors.append(transformer)
-    
+
     def run(self, options):
         processes = []
         with open(self.bfile.data_file, 'rb') as next_input:
@@ -106,7 +106,7 @@ class BackupFile:
         self.data_file = os.path.join(os.path.dirname(path), self.info['FILE'])
         self.parent = self.info.get('RECEIVED_PARENT_UUID')
         self.is_restored = False
-    
+
     def _parse_info(self):
         config = {}
         with open(self.info_file, 'r') as fh:
@@ -117,7 +117,7 @@ class BackupFile:
                 key, val = line.strip().split('=', maxsplit=1)
                 config[key] = val
         return config
-    
+
     def get_transformers(self):
         if 'encrypt' in self.info:
             if self.info['encrypt'] == 'gpg':
@@ -177,10 +177,10 @@ def main():
                         "backups the parent files must be in the same directory")
     parser.add_argument('btrfs_subvol', help="btrfs subvolume to restore snapshots to using btrfs receive")
     parser.add_argument('--ignore-missing', action='store_true', help="do not fail on missing parent snapshots")
-    
+
     for transformer in TRANSFORMERS:
         transformer.add_parser_options(parser)
-        
+
     args = parser.parse_args()
     restore_from_path(args.backup, args)
 
