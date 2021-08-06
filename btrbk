@@ -34,7 +34,7 @@ use Time::Local qw( timelocal timegm timegm_nocheck );
 use IPC::Open3 qw(open3);
 use Symbol qw(gensym);
 
-our $VERSION         = '0.32.0-dev';
+our $VERSION         = '0.32.0';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<https://digint.ch/btrbk/>';
 

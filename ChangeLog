@@ -1,6 +1,29 @@
+btrbk-0.32.0
+
+  * MIGRATION
+    - If timestamp_format is not configured, explicitely set
+      "timestamp_format short" to revert old behavior.
+    - Update ssh_filter_btrbk.sh on remote hosts.
+  * Change default for timestamp_format to "long".
+  * Optional "volume" config section.
+  * Use "volume" section only for grouping and relative paths.
+  * Allow absolute path for "subvolume" and "snapshot_dir"
+    (close #407, #121).
+  * Support subvolume names with UTF-8 characters (close #392, #213,
+    #120). Add "safe_commands" option for paranoid people.
+  * Add "incremental_prefs" configuration option (close #387).
+  * Change incremental prefs policy, giving snapshots created by btrbk
+    higher preference than the global ones resolved by parent-uuid.
+  * Change "incremental_clones" option to boolean.
+  * Drop support of deprecated raw file format (btrbk < 0.26.0).
+  * Drop support of deprecated "-r, --resume-only" cmdline option.
+  * Fix ambiguous naming in --format=raw output of "list" actions.
+  * Accept quoted values in config.
+  * Use single quotes for raw table output.
+
 btrbk-0.31.3
 
-  * Add "warn_duplicate_targets" configuration option (close 393).
+  * Add "warn_duplicate_targets" configuration option (close #393).
   * Add -1,--single-column command-line option for listing actions.
   * Allow relative path command line argument for all actions.
   * Add support for zstd adaptive compression (close #397).
