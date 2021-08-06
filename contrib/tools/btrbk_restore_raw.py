@@ -41,7 +41,7 @@ class TransformDecompress(TransformProcess):
 class TransformBtrfsReceive(TransformProcess):
     @staticmethod
     def run(bfile, options, **kw):
-        return subprocess.Popen(['btrfs', 'receive', options.btrfs_subvol], **kw)
+        return subprocess.Popen(['btrfs', 'receive', options.restore_dir], **kw)
 
 
 TRANSFORMERS = (
@@ -175,7 +175,7 @@ def main():
     parser = argparse.ArgumentParser(description="restore btrbk raw backup")
     parser.add_argument('backup', help="backup file to restore; for incremental"
                         " backups the parent files must be in the same directory")
-    parser.add_argument('btrfs_subvol', help="btrfs subvolume to restore snapshots to using btrfs receive")
+    parser.add_argument('restore_dir', help="target directory for restored subvolumes (path argument for \"btrfs receive\")")
     parser.add_argument('--ignore-missing', action='store_true', help="do not fail on missing parent snapshots")
 
     for transformer in TRANSFORMERS:
