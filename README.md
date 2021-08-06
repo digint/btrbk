@@ -193,6 +193,9 @@ Retention policy:
     snapshot_preserve_min   2d
     snapshot_preserve      14d
 
+    # Create snapshots only if the backup disk is attached
+    #snapshot_create ondemand
+
     target_preserve_min    no
     target_preserve        20d 10w *m
 
@@ -218,10 +221,11 @@ Retention policy:
     * `/mnt/btr_backup/mylaptop/rootfs.YYYYMMDD`
     * `/mnt/btr_backup/mylaptop/home.YYYYMMDD`
 
-If you want the snapshots to be created only if the backup disk is
-attached, simply add the following line to the config:
+If you prefer triggering the backups manually, change the cron command
+to run the `snapshot` action instead of `run`. Start the backups
+manually by running:
 
-    snapshot_create ondemand
+    # btrbk resume
 
 For a quick additional snapshot of your home, run:
 
