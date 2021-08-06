@@ -174,7 +174,7 @@ def restore_backup(bfile, parents, options):
 def main():
     parser = argparse.ArgumentParser(description="restore btrbk raw backup")
     parser.add_argument('backup', help="backup file to restore; for incremental"
-                        "backups the parent files must be in the same directory")
+                        " backups the parent files must be in the same directory")
     parser.add_argument('btrfs_subvol', help="btrfs subvolume to restore snapshots to using btrfs receive")
     parser.add_argument('--ignore-missing', action='store_true', help="do not fail on missing parent snapshots")
 
