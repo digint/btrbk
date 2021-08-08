@@ -83,7 +83,7 @@ with this package. For a detailed description, please consult the
 After a configuration change, it is highly recommended to check it by
 running btrbk with the `-n,--dryrun` option:
 
-    btrbk -c /path/to/myconfig -v -n run
+    # btrbk -c /path/to/myconfig -v -n run
 
 This will read all btrfs information on the source/target filesystems
 and show what actions would be performed (without writing anything to
@@ -137,7 +137,7 @@ manage snapshots located on the same volume in `snapshot_dir`. Btrbk
 does not create subdirs by default, the snapshot directory must first
 be created manually:
 
-    sudo mkdir /mnt/btr_pool/btrbk_snapshots
+    # mkdir /mnt/btr_pool/btrbk_snapshots
 
 The "volume" section is merely used as a specifier for a base
 directory, and can be skipped if you prefer to configure everything
@@ -154,11 +154,11 @@ If you don't want to mount the btrfs root filesystem to
 
 Start a dry run:
 
-    sudo btrbk run -n
+    # btrbk run -n
 
 Create the first snapshot:
 
-    sudo btrbk run
+    # btrbk run
 
 If it works as expected, configure a cron job to run btrbk hourly:
 
@@ -447,7 +447,7 @@ will need the `btrfs` executable from the [btrfs-progs] package.
 On the client side, create a ssh key dedicated to btrbk, without
 password protection:
 
-    ssh-keygen -t rsa -b 4096 -f /etc/btrbk/ssh/id_rsa -C btrbk@mydomain.com -N ""
+    # ssh-keygen -t rsa -b 4096 -f /etc/btrbk/ssh/id_rsa -C btrbk@mydomain.com -N ""
 
 The content of the public key (/etc/btrbk/ssh/id_rsa.pub) is used for
 authentication in "authorized_keys" on the server side (see [sshd(8)]
