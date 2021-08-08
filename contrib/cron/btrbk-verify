@@ -311,25 +311,13 @@ eval_btrbk_resolved_line()
     done
     for vv in $required_keys; do
         # basic input validation, set prefixed variable (eval)
-        local var_assignment=$(echo "$line" | grep -Eo "${vv}"'="[^"]*"')
-        if [[ $? -ne 0 ]] || [[ -z "$var_assignment" ]]; then
-            if [[ $vv == "target_type" ]]; then
-                # hack for btrbk <= 0.27.2 bug: missing "target_type" in $table_formats{resolved}
-                # hardcode send-receive type, this results in rsync failing on raw targets with:
-                # rsync: ERROR: cannot stat destination "xxx.btrfs.xz.gpg/": Not a directory (20)
-                eval "${prefix}target_type=\"send-receive\"" || return 1
-                continue
-            fi
-            if [[ $vv == "target_rsh" ]] && [[ -z "$R_target_host" ]]; then
-                # hack for btrbk <= 0.27.2 bug: missing "target_rsh" in $table_formats{resolved}
-                # note that target_rsh is not needed if target_host is not set.
-                # variable has already been reset above, continue
-                continue
-            fi
-            log_line "btrbk-verify: missing required variable \"${vv}\" in btrbk --format=raw line"
+        local match="${vv}"'="([^"]*)"'
+        if [[ $line =~ $match ]] ; then
+            eval "${prefix}${vv}='${BASH_REMATCH[1]}'" || return 1
+        else
+            log_line "btrbk-verify: ERROR: Missing variable \"${vv}\""
             return 1
         fi
-        eval "${prefix}${var_assignment}" || return 1
     done
 }
 
@@ -373,8 +361,10 @@ while read -r btrbk_list_line; do
     if ! eval_btrbk_resolved_line "$btrbk_list_line" \
          "R_" "snapshot_subvolume target_subvolume source_host target_host target_type source_rsh target_rsh"
     then
-        log_line "btrbk-verify: WARNING: Skipping task (parse error). Make sure to have >=btrbk-${btrbk_version_min} installed!"
-        continue
+        log_line "btrbk-verify: ERROR: Parse error of command output: ${btrbk_cmd[@]}"
+        log_line "Make sure to have >=btrbk-${btrbk_version_min} installed!"
+        exitstatus=1
+        break
     fi
 
     source="${R_snapshot_subvolume}"
