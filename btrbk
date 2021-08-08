@@ -202,7 +202,7 @@ my %table_formats = (
   config_source => {
     table => [ qw( -source_host -source_port source_subvolume snapshot_path snapshot_name ) ],
     long  => [ qw(  source_host -source_port source_subvolume snapshot_path snapshot_name -source_rsh ) ],
-    raw   => [ qw( source_url source_host source_port source_path snapshot_path snapshot_name source_rsh ) ],
+    raw   => [ qw( source_url source_host source_port source_subvolume snapshot_path snapshot_name source_rsh ) ],
     single_column => [ qw( source_url ) ],
   },
 
@@ -223,13 +223,13 @@ my %table_formats = (
     # NOTE: snapshot_path is ambigous and does NOT print SUBVOL_PATH here (should be snapshot_subvolume, left as-is for compatibility)
     table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume             ) ],
     long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume target_type ) ],
-    raw   => [ qw( type source_url source_host source_port source_path snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
+    raw   => [ qw( type source_url source_host source_port source_subvolume snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
   },
 
   snapshots => {
     table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status ) ],
     long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status ) ],
-    raw   => [ qw( source_url source_host source_port source_path snapshot_subvolume snapshot_name status source_rsh ) ],
+    raw   => [ qw( source_url source_host source_port source_subvolume snapshot_subvolume snapshot_name status source_rsh ) ],
     single_column => [ qw( snapshot_url ) ],
   },
 
@@ -237,7 +237,7 @@ my %table_formats = (
     # NOTE: snapshot_path is ambigous and does NOT print SUBVOL_PATH here (should be snapshot_subvolume, left as-is for compatibility)
     table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume             ) ],
     long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port target_subvolume target_type ) ],
-    raw   => [ qw( type source_url source_host source_port source_path snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
+    raw   => [ qw( type source_url source_host source_port source_subvolume snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
     single_column => [ qw( target_url ) ],
   },
 
@@ -245,7 +245,7 @@ my %table_formats = (
     # NOTE: snapshot_path is ambigous and does NOT print SUBVOL_PATH here (should be snapshot_subvolume, left as-is for compatibility)
     table => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port -target_subvolume              ) ],
     long  => [ qw( -source_host -source_port source_subvolume snapshot_subvolume status -target_host -target_port -target_subvolume -target_type ) ],
-    raw   => [ qw( type source_url source_host source_port source_path snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
+    raw   => [ qw( type source_url source_host source_port source_subvolume snapshot_path snapshot_name status target_url target_host target_port target_path target_type source_rsh target_rsh ) ],
   },
 
   stats => {
