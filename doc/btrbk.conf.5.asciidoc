@@ -48,22 +48,17 @@ inconvenience.
 SECTIONS
 --------
 
-*volume* <volume-directory>|<url>::
-    Directory of a btrfs volume containing the source subvolume(s) to
-    be backed up. '<volume-directory>' must be an absolute path and
-    point to a btrfs volume (or subvolume). Usually the mount point of
-    a btrfs filesystem mounted with the 'subvolid=5' option.
+*volume* <volume-directory>|<url> (optional)::
+    Absolute path pointing to a btrfs file system containing the
+    source subvolume(s) to be backed up. Usually the mount point of a
+    btrfs filesystem mounted with the 'subvolid=5' option.
 
 *subvolume* <subvolume-name>::
-    Subvolume to be backed up, relative to the '<volume-directory>'
-    specified in the 'volume' section. Multiple 'subvolume' sections
-    are allowed within 'volume' sections. Accepts wildcard character
-    "*".
+    Subvolume to be backed up, relative to the '<volume-directory>' of
+    the 'volume' section, or absolute if the 'volume' section is
+    omitted. Accepts wildcard character "*".
 +
 --
-If set to ".", the subvolume at '<volume-directory>' is used as backup
-source, and the snapshots will be created within the source subvolume
-itself (see 'snapshot_dir' option below), which is not recommended.
 Note that if this subvolume is btrfs root (id=5), it needs to have a
 valid UUID, which is not the case for file systems created with
 btrfs-progs < 4.16.
@@ -133,8 +128,9 @@ Note that using ``long-iso'' has implications on the scheduling, see
 
 *snapshot_dir* <directory>::
     Directory in which the btrfs snapshots are created, relative to
-    '<volume-directory>' of the 'volume' section. Note that btrbk does
-    not automatically create this directory, and the snapshot creation
+    '<volume-directory>' of the 'volume' section, or absolute if the
+    'volume' section is omitted. Note that btrbk does not
+    automatically create this directory, and the snapshot creation
     will fail if it is not present.
 
 *snapshot_name* <basename>::
@@ -439,12 +435,11 @@ If you want to set this option for regular (non-root) user only, set
 *incremental_resolve* mountpoint|directory::
     Specifies where to search for the best common parent for
     incremental backups. If set to ``mountpoint'', use parents in the
-    filesystem tree below mount points of source
-    "<volume-directory>/<snapshot-dir>" and target
-    "<target-directory>". If set to ``directory'', use parents
-    strictly below source/target directories. Set this to
-    ``directory'' if you get access problems (when not running btrbk
-    as root). Defaults to ``mountpoint''.
+    filesystem tree below the mount point of the snapshot and target
+    directory. If set to ``directory'', use parents strictly below
+    snapshot/target directories. Set this to ``directory'' if you get
+    access problems (when not running btrbk as root). Defaults to
+    ``mountpoint''.
 
 *snapshot_qgroup_destroy* yes|no  _*experimental*_:: {blank}
 *target_qgroup_destroy* yes|no  _*experimental*_:: {blank}
@@ -544,9 +539,8 @@ TARGET TYPES
 *send-receive*::
     Backup to a btrfs filesystem, using "btrfs send/receive". This is
     the recommended (standard) target type. The '<target-directory>'
-    must be an absolute path and point to a btrfs volume (or
-    subvolume), or to a directory within a subvolume. See
-    btrfs-send(8), btrfs-receive(8).
+    must be an absolute path and point to a subvolume or directory
+    within a btrfs file system. See btrfs-send(8), btrfs-receive(8).
 
 *raw*  _*experimental*_::
     Backup to a raw (filesystem independent) file from the output of
