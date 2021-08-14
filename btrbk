@@ -5635,11 +5635,12 @@ MAIN:
   # input validation
   foreach (@subvol_args) {
     my ($url_prefix, $path) = check_url($_);
-    if(!defined($path) && $subvol_args_allow_relative && ($url_prefix eq "")) {
-      # map relative path to absolute
-      if((-d $_) && ($_ =~ /^(.*)$/)) { # untaint ANY argument!
-        $path = check_file(`readlink -f -q '$1'`, { absolute => 1 })
+    if(!defined($path) && $subvol_args_allow_relative && ($url_prefix eq "") && (-d $_)) {
+      unless(eval_quiet { require File::Spec; }) {
+        ERROR "Cannot handle relative paths (perl version too old; missing File::Spec module): $_";
+        exit 2;
       }
+      $path = check_file(File::Spec->rel2abs($_), { absolute => 1 });
     }
     unless(defined($path)) {
       ERROR "Bad argument: not a subvolume declaration: $_";
