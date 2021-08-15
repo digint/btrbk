@@ -773,18 +773,24 @@ sub _piped_cmd_txt($)
   return $cmd;
 }
 
+sub quoteshell(@) {
+  # replace ' -> '\''
+  join ' ', map { "'" . s/'/'\\''/gr . "'" } @_
+}
+
 sub _safe_cmd($$)
 {
-  # NOTE: this function alters $aref: hashes of form: "{ unsafe => 'string' }" get translated to "string"
+  # NOTE: this function alters $aref: hashes of form: "{ unsafe => 'string' }" get translated to "'string'"
   my $aref = shift;
   my $offending = shift;
   foreach(@$aref) {
     if(ref($_) eq 'HASH') {
       $_ = $_->{unsafe};  # replace in-place
-      # NOTE: all files must be absolute
+      # NOTE: all files must be absolute (if not, check for leading dash '-' here!)
       unless(defined(check_file($_, { absolute => 1 }))) {
         push @$offending, "\"$_\"";
       }
+      $_ = quoteshell($_);
     }
   }
   return join(' ', @$aref);
@@ -900,7 +906,8 @@ sub run_cmd(@)
 
       my $rsh_text = _safe_cmd($href->{rsh}, \@unsafe_cmd);
       return undef unless(defined($rsh_text));
-      $href->{cmd_text} = $rsh_text . " '" . _piped_cmd_txt(\@rsh_cmd_pipe) . "'";
+
+      $href->{cmd_text} = $rsh_text . ' ' . quoteshell(_piped_cmd_txt(\@rsh_cmd_pipe));
     }
 
     # local stream_buffer, rate_limit and show_progress in front of stream sink
