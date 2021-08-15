@@ -785,12 +785,13 @@ sub _safe_cmd($$)
   my $offending = shift;
   foreach(@$aref) {
     if(ref($_) eq 'HASH') {
+      my $prefix = $_->{prefix} // "";
       $_ = $_->{unsafe};  # replace in-place
       # NOTE: all files must be absolute (if not, check for leading dash '-' here!)
       unless(defined(check_file($_, { absolute => 1 }))) {
         push @$offending, "\"$_\"";
       }
-      $_ = quoteshell($_);
+      $_ = $prefix . quoteshell($_);
     }
   }
   return join(' ', @$aref);
@@ -827,10 +828,6 @@ sub run_cmd(@)
     $destructive = 1 unless($href->{non_destructive});
     $has_rsh = 1 if($href->{rsh});
     $large_output = 1 if($href->{large_output});
-
-    if($href->{check_unsafe}) {
-      _safe_cmd($href->{check_unsafe}, \@unsafe_cmd);
-    }
 
     if($href->{redirect_to_file}) {
       die unless($href->{stream_sink});
@@ -1862,8 +1859,7 @@ sub btrfs_send_to_file($$$;$$)
     # NOTE: we do not append a ".split" suffix on $target_filename here, as this propagates to ".info" file
     $raw_info{split} = $split;
     push @cmd_pipe, {
-      cmd => [ 'split', '-b', uc($split), '-', "${target_path}/${target_filename}.split_" ],
-      check_unsafe => [ { unsafe => "${target_path}/${target_filename}.split_" } ],
+      cmd => [ 'split', '-b', uc($split), '-', { unsafe => "${target_path}/${target_filename}.split_" } ],
       rsh => vinfo_rsh($target, disable_compression => $stream_options->{stream_compress}),
       compressed_ok => ($compress ? 1 : 0),
     }
@@ -1879,8 +1875,7 @@ sub btrfs_send_to_file($$$;$$)
       # Another approach would be to always pipe through "cat", which
       # uses st_blksize from fstat(2) (with a minimum of 128K) to
       # determine the block size.
-      cmd => [ 'dd', 'status=none', 'bs=' . config_key($target, "raw_target_block_size"), "of=${target_path}/${target_filename}" ],
-      check_unsafe => [ { unsafe => "${target_path}/${target_filename}" } ],
+      cmd => [ 'dd', 'status=none', 'bs=' . config_key($target, "raw_target_block_size"), { prefix => "of=", unsafe => "${target_path}/${target_filename}" } ],
       #redirect_to_file => { unsafe => "${target_path}/${target_filename}" },  # alternative (use shell redirection), less overhead on local filesystems (barely measurable):
       rsh => vinfo_rsh($target, disable_compression => $stream_options->{stream_compress}),
       compressed_ok => ($compress ? 1 : 0),
