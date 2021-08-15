@@ -1452,7 +1452,7 @@ sub btrfs_subvolume_delete($@)
         push @cmd_target_paths, { unsafe => "$_->{PATH}.info" };
       }
     }
-    $ret = run_cmd(cmd  => ['rm', '-f',  @cmd_target_paths ],
+    $ret = run_cmd(cmd  => [ 'rm', '-f',  @cmd_target_paths ],
                    rsh  => vinfo_rsh($targets->[0]),
                   );
     unless(defined($ret)) {
@@ -1577,7 +1577,6 @@ sub btrfs_send_receive($$;$$$)
   push @cmd_pipe, {
     cmd => vinfo_cmd($snapshot, "btrfs send", @send_options, { unsafe => $snapshot_path } ),
     rsh => vinfo_rsh($snapshot, disable_compression => $stream_options->{stream_compress}),
-    name => "btrfs send",
     stream_options => $stream_options,
     filter_stderr => [ \&_btrfs_filter_stderr, sub { $_ = undef if(/^At subvol/) } ],
   };
@@ -1585,7 +1584,6 @@ sub btrfs_send_receive($$;$$$)
   push @cmd_pipe, {
     cmd => vinfo_cmd($target, "btrfs receive", @receive_options, { unsafe => $target_path . '/' } ),
     rsh => vinfo_rsh($target, disable_compression => $stream_options->{stream_compress}),
-    name => "btrfs receive",
     fatal_stderr  => sub { m/^ERROR: /; }, # NOTE: btrfs-progs < 4.11: if "btrfs send" fails, "btrfs receive" returns 0!
   };
 
@@ -1718,7 +1716,6 @@ sub btrfs_send_to_file($$$;$$)
   push @cmd_pipe, {
     cmd => vinfo_cmd($source, "btrfs send", @send_options, { unsafe => $source_path } ),
     rsh => vinfo_rsh($source, disable_compression => $stream_options->{stream_compress}),
-    name => "btrfs send",
     stream_options => $stream_options,
     filter_stderr => [ \&_btrfs_filter_stderr, sub { $_ = undef if(/^At subvol/) } ],
     fatal_stderr  => sub { m/^ERROR: /; },
@@ -1757,7 +1754,6 @@ sub btrfs_send_to_file($$$;$$)
       push(@gpg_options, ( '--default-recipient', $encrypt->{recipient} )) if($encrypt->{recipient});
       push @cmd_pipe, {
         cmd => [ 'gpg', @gpg_options, '--encrypt' ],
-        name => 'gpg',
         compressed_ok => ($compress ? 1 : 0),
       };
     }
@@ -1796,14 +1792,11 @@ sub btrfs_send_to_file($$$;$$)
         else {
           # run kdf backend, set session key and vars
           DEBUG "Generating session key for: $vol_received->{PRINT}";
-          my $kdf_backend_name = $encrypt->{kdf_backend};
-          $kdf_backend_name =~ s/^.*\///;
           my $key_target_text = $encrypt->{kdf_keygen_each} ? "\"$vol_received->{PRINT}\"" : "all raw backups";
 
           print STDOUT "\nGenerate session key for $key_target_text:\n";
           my $kdf_values = run_cmd(cmd => [ { unsafe => $encrypt->{kdf_backend} }, $encrypt->{kdf_keysize} ],
                                    non_destructive => 1,
-                                   name => $kdf_backend_name
                                   );
           unless(defined($kdf_values)) {
             ERROR "Failed to generate session key for $key_target_text", @stderr;
@@ -1846,7 +1839,6 @@ sub btrfs_send_to_file($$$;$$)
 
       push @cmd_pipe, {
         cmd => [ 'openssl', 'enc', '-e', @openssl_options ],
-        name => 'openssl_enc',
         compressed_ok => ($compress ? 1 : 0),
       };
     }
@@ -1920,11 +1912,9 @@ sub btrfs_send_to_file($$$;$$)
     my $test_postfix = ($split ? ".split_aa" : "");
     my $check_file = "${target_path}/${target_filename}${test_postfix}";
     DEBUG "Testing target data file (non-zero size): $check_file";
-    $ret = run_cmd({
-      cmd  => ['test', '-s', { unsafe => $check_file } ],
-      rsh  => vinfo_rsh($target),
-      name => "test",
-    });
+    $ret = run_cmd(cmd  => [ 'test', '-s', { unsafe => $check_file } ],
+                   rsh  => vinfo_rsh($target),
+                  );
     if(defined($ret)) {
       # Write raw info file again, this time wihtout incomplete flag
       delete $raw_info{INCOMPLETE};
@@ -1947,7 +1937,7 @@ sub system_list_mountinfo($)
 {
   my $vol = shift // die;
   my $file = '/proc/self/mountinfo'; # NOTE: /proc/self/mounts is deprecated
-  my $ret = run_cmd(cmd => [ qw(cat), $file ],
+  my $ret = run_cmd(cmd => [ 'cat', $file ],
                     rsh => vinfo_rsh($vol),
                     non_destructive => 1,
                    );
@@ -2047,7 +2037,7 @@ sub system_mkdir($)
   my $path = $vol->{PATH} // die;;
   INFO "Creating directory: $vol->{PRINT}/";
   start_transaction("mkdir", vinfo_prefixed_keys("target", $vol));
-  my $ret = run_cmd(cmd => [ qw(mkdir), '-p', { unsafe => $path } ],
+  my $ret = run_cmd(cmd => [ 'mkdir', '-p', { unsafe => $path } ],
                     rsh => vinfo_rsh($vol),
                    );
   end_transaction("mkdir", defined($ret));
@@ -2400,9 +2390,9 @@ sub filefrag_extentmap($)
   INFO("Fetching extent map (filefrag): $vol->{PRINT}");
 
   # NOTE: this returns exitstatus=0 if file is not found, or no files found
-  my $ret = run_cmd({ cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f',
-                               '-exec', 'filefrag -b1 -v \{\} +' ],
-                      large_output => 1});
+  my $ret = run_cmd(cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f',
+                             '-exec', 'filefrag -b1 -v \{\} +' ],
+                    large_output => 1);
   unless(defined($ret)) {
     ERROR "Failed to fetch extent map: $vol->{PRINT}", @stderr;
     return undef;
@@ -2447,8 +2437,8 @@ sub aio_extentmap($)
   INFO("Fetching extent map: $vol->{PRINT}");
 
   # NOTE: this returns exitstatus=0 if file is not found, or no files found
-  my $ret = run_cmd( cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f' ],
-                     large_output => 1 );
+  my $ret = run_cmd(cmd => [ 'find', { unsafe => $vol->{PATH} }, '-xdev', '-type', 'f' ],
+                    large_output => 1 );
   unless(defined($ret)) {
     ERROR "Failed to find files in: $vol->{PRINT}", @stderr;
     return undef;
