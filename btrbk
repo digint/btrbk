@@ -3915,10 +3915,17 @@ sub check_file($$;@)
     return undef;
   }
   if($sanitize) {
+    $file =~ s/^\s+//;
+    $file =~ s/\s+$//;
     $file =~ s/\/(\.?\/)+/\//g;  # sanitize "//", "/./" -> "/"
     $file =~ s/\/\.$/\//;        # sanitize trailing "/." -> "/"
     $file =~ s/\/$// unless($file eq '/');   # remove trailing slash
   }
+  elsif(($file =~ /^\s/) || ($file =~ /\s$/)) {
+    ERROR "Illegal leading/trailing whitespace ${error_statement}: \"$file\"" if(defined($error_statement));
+    return undef;
+  }
+
   return $file;
 }
 
