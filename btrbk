@@ -5183,6 +5183,11 @@ sub print_formatted(@)
   }
   else
   {
+    # Text::CharWidth does it correctly with wide chars (e.g. asian) taking up two columns
+    my $termwidth = eval_quiet { require Text::CharWidth; } ? \&Text::CharWidth::mbswidth :
+    eval_quiet { require Encode; } ? sub { length(Encode::decode_utf8(shift)) } :
+    sub { length(shift) };
+
     # sanitize and calculate maxlen for each column
     my %maxlen = map { $_ => $no_header ? 0 : length($_) } @keys;
     my @formatted_data;
@@ -5195,7 +5200,8 @@ sub print_formatted(@)
         $hide_column{$key} = 0 if(defined($val));
         $val = $empty_cell_char if(!defined($val) || ($val eq ""));
         $formatted_row{$key} = $val;
-        $maxlen{$key} = length($val) if($maxlen{$key} < length($val));
+        my $vl = $termwidth->($val);
+        $maxlen{$key} = $vl if($maxlen{$key} < $vl);
       }
       push @formatted_data, \%formatted_row;
     }
@@ -5246,7 +5252,7 @@ sub print_formatted(@)
       foreach (@visible_keys) {
         my $val = $row->{$_};
         print $fh ' ' x $fill;
-        $fill = $maxlen{$_} - length($val);
+        $fill = $maxlen{$_} - $termwidth->($val);
         if($ralign{$_}) {
           print $fh ' ' x $fill;
           $fill = 0;
