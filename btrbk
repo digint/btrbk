@@ -5163,7 +5163,7 @@ sub print_formatted(@)
     # output: key0="value0" key1="value1" ...
     foreach my $row (@$data) {
       print $fh "format=\"$format_key\" ";
-      print $fh join(' ', map { "$_=\"" . ($row->{$_} // "") . "\""; } @keys) . "\n";
+      print $fh join(' ', map { "$_=" . quoteshell(($row->{$_} // "")) } @keys) . "\n";
     }
   }
   elsif(($format eq "tlog") || ($format eq "syslog"))
