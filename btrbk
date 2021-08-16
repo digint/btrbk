@@ -1243,6 +1243,7 @@ sub btrfs_subvolume_list($;@)
   my $path = $vol->{PATH} // die;
   my @filter_options = ('-a');
   push(@filter_options, '-o') if($opts{subvol_only});
+  push(@filter_options, '-d') if($opts{deleted_only});
 
   # NOTE: btrfs-progs <= 3.17 do NOT support the '-R' flag.
   # NOTE: Support for btrfs-progs <= 3.17 has been dropped in
@@ -2614,7 +2615,22 @@ sub btr_tree($$$$)
       # at least one uuid of $node_list is already known
       TRACE "uuid_cache HIT: $node_uuid" if($do_trace);
       $vol_root = $uuid_cache{$node_uuid}->{TREE_ROOT}->{ID_HASH}->{$vol_root_id};
-      die "Duplicate UUID on different file systems"  unless($vol_root);
+      unless($vol_root) {
+        # check for deleted subvolumes: e.g. still mounted, but deleted elsewhere
+        my $deleted_nodes = btrfs_subvolume_list($vol, deleted_only => 1);
+        return undef unless(ref($deleted_nodes) eq "ARRAY");
+        if(grep ($_->{id} eq $vol_root_id), @$deleted_nodes) {
+          ERROR "Subvolume is deleted: id=$vol_root_id mounted on: $vol->{PRINT}";
+          return undef;
+        }
+        ERROR "Subvolume id=$vol_root_id is not present on known btrfs tree: $vol->{PRINT}",
+        "Possible causes:",
+        " - Mismatch in mountinfo",
+        " - Subvolume was deleted while btrbk is running",
+        " - Duplicate UUID present on multiple filesystems: $node_uuid";
+        ERROR "Refusing to run on unstable environment; exiting";
+        exit 1;
+      }
       INFO "Assuming same filesystem: \"$vol_root->{TREE_ROOT}->{host_mount_source}\", \"$host_mount_source\"";
       TRACE "btr_tree: returning already parsed tree at id=$vol_root->{id}" if($do_trace);
       $mount_source_cache{$host_mount_source} = $vol_root->{TREE_ROOT};
