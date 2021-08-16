@@ -302,7 +302,7 @@ start_ssh_agent()
 
 eval_btrbk_resolved_line()
 {
-    local line=$1
+    local line=" $1"
     local prefix=$2
     local required_keys=$3
     # reset all variables first
@@ -311,7 +311,7 @@ eval_btrbk_resolved_line()
     done
     for vv in $required_keys; do
         # basic input validation, set prefixed variable (eval)
-        local match="${vv}"'="([^"]*)"'
+        local match=" ${vv}='([^']*('\\\\''[^']*)*)'"
         if [[ $line =~ $match ]] ; then
             eval "${prefix}${vv}='${BASH_REMATCH[1]}'" || return 1
         else
