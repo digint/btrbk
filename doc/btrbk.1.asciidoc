@@ -132,7 +132,7 @@ OPTIONS
 
 --format table|long|raw|col:[h:]<columns>::
     Print output in specified format. If set to "raw", prints
-    space-separated key="value" pairs (machine readable).
+    space-separated, quoted key=value pairs (machine readable).
 +
 If set to "col:", prints only the <columns> specified (comma-separated
 list). Header lines are ommitted if the "h:" modifier is present.
