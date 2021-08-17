@@ -2053,92 +2053,6 @@ sub system_mkdir($)
 }
 
 
-sub btrfs_mountpoint
-{
-  my $vol = shift // die;
-  my $autofs_retry = shift;
-
-  DEBUG "Resolving btrfs mount point for: $vol->{PRINT}";
-
-  # get real path
-  my $realpath = $realpath_cache{$vol->{URL}};
-  unless(defined($realpath)) {
-    $realpath = system_realpath($vol);
-    # set to empty string on errors (try only once)
-    $realpath_cache{$vol->{URL}} = $realpath // "";
-  }
-  return undef unless($realpath);
-
-  # get all mountpoints
-  my $mountinfo = $mountinfo_cache{$vol->{MACHINE_ID}};
-  TRACE "mountinfo_cache " . ($mountinfo ? "HIT" : "MISS") . ": $vol->{MACHINE_ID}" if($do_trace);
-  unless($mountinfo) {
-    $mountinfo = system_list_mountinfo($vol);
-    return undef unless($mountinfo);
-    $mountinfo_cache{$vol->{MACHINE_ID}} = $mountinfo;
-  }
-
-  # find mount point (last mountinfo entry matching realpath)
-  $realpath .= '/' unless($realpath =~ /\/$/);  # correctly handle root path="/"
-  my $mountpoint;
-  foreach(reverse @$mountinfo) {
-    my $mnt_path = $_->{mount_point};
-    $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # correctly handle root path="/"
-    if($realpath =~ /^\Q$mnt_path\E/) {
-      $mountpoint = $_;
-      last;
-    }
-  }
-  unless($mountpoint) {
-    # should never happen, as "/" should always be present in mounts
-    ERROR "No mount point found for: $vol->{PRINT} (realpath=\"$realpath\")";
-    return undef;
-  }
-  TRACE "resolved mount point (mount_source=$mountpoint->{mount_source}, subvolid=" . ($mountpoint->{MNTOPS}->{subvolid} // '<undef>') . "): $mountpoint->{mount_point}" if($do_trace);
-
-  # handle autofs
-  if($mountpoint->{fs_type} eq 'autofs') {
-    if($autofs_retry) {
-      DEBUG "Non-btrfs autofs mount point for: $vol->{PRINT}";
-      return undef;
-    }
-    DEBUG "Found autofs mount point, triggering automount on $mountpoint->{mount_point} for: $vol->{PRINT}";
-    btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mountpoint->{mount_point}, $vol->{CONFIG}));
-    $mountinfo_cache{$vol->{MACHINE_ID}} = undef;
-    return btrfs_mountpoint($vol, 1);
-  }
-  elsif($mountpoint->{fs_type} ne 'btrfs') {
-    DEBUG "No btrfs mount point found for: $vol->{PRINT}";
-    return undef;
-  }
-
-  # list all mountpoints of same device
-  my @same_source_mounts;
-  my $mount_source_match = $mountpoint->{mount_source};
-  foreach my $mnt (@$mountinfo) {
-    if($mnt->{mount_source} eq $mount_source_match) {
-      unless($mnt->{fs_type} eq 'btrfs') {
-        # should never happen, same device should always have fs_type=btrfs
-        DEBUG "Ignoring non-btrfs mount point: $mnt->{mount_source} $mnt->{mount_point} $mnt->{fs_type}";
-        next;
-      }
-      unless($mnt->{MNTOPS}->{subvolid}) {
-        # kernel <= 4.2 does not have subvolid=NN in /proc/self/mounts, read it with btrfs-progs
-        DEBUG "No subvolid provided in mounts for: $mnt->{mount_point}";
-        my $detail = btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mnt->{mount_point}, $vol->{CONFIG}));
-        return undef unless($detail);
-        $mnt->{MNTOPS}->{subvolid} = $detail->{id} || die;  # also affects %mountinfo_cache
-      }
-      TRACE "using btrfs mount point (mount_source=$mnt->{mount_source}, subvolid=$mnt->{MNTOPS}->{subvolid}): $mnt->{mount_point}" if($do_trace);
-      push(@same_source_mounts, $mnt);
-    }
-  }
-
-  DEBUG "Btrfs mount point for \"$vol->{PRINT}\": $mountpoint->{mount_point} (mount_source=$mountpoint->{mount_source}, subvolid=$mountpoint->{MNTOPS}->{subvolid})";
-  return ($mountpoint->{mount_point}, $realpath, $mountpoint->{MNTOPS}->{subvolid}, $mountpoint->{mount_source}, \@same_source_mounts);
-}
-
-
 sub system_read_raw_info_dir($)
 {
   my $droot = shift // die;
@@ -3044,22 +2958,122 @@ sub add_btrbk_filename_info($;$)
 }
 
 
+sub _find_mountpoint($$)
+{
+  my $root = shift;
+  my $path = shift;
+  $path .= '/' unless($path =~ /\/$/);  # append trailing slash
+  while (my $tree = $root->{SUBTREE}) {
+    my $m = undef;
+    foreach (@$tree) {
+      $m = $_, last if($path =~ /^\Q$_->{mount_point}\E\//);
+    }
+    last unless defined $m;
+    $root = $m;
+  }
+  TRACE "resolved mount point for \"$path\": $root->{mount_point} (mount_source=$root->{mount_source}, subvolid=" . ($root->{MNTOPS}->{subvolid} // '<undef>') . ")" if($do_trace);
+  return $root;
+}
+
+sub mountinfo_tree($)
+{
+  my $vol = shift;
+  my $mountinfo = $mountinfo_cache{$vol->{MACHINE_ID}};
+  TRACE "mountinfo_cache " . ($mountinfo ? "HIT" : "MISS") . ": $vol->{MACHINE_ID}" if($do_trace);
+  unless($mountinfo) {
+    $mountinfo = system_list_mountinfo($vol);
+    return undef unless($mountinfo);
+    $mountinfo_cache{$vol->{MACHINE_ID}} = $mountinfo;
+  }
+  return $mountinfo->[0]->{TREE_ROOT} if($mountinfo->[0]->{TREE_ROOT});
+
+  my %id = map +( $_->{mount_id} => $_ ), @$mountinfo;
+  my $tree_root;
+  foreach my $node (@$mountinfo) {
+    if(my $parent = $id{$node->{parent_id}}) {
+      $node->{PARENT} = $parent;
+      push @{$parent->{SUBTREE}}, $node;
+    } else {
+      die "multiple root mount points" if($tree_root);
+      $tree_root = $node;
+    }
+    # populate cache (mount points are always real paths)
+    $realpath_cache{$vol->{URL_PREFIX} . $node->{mount_point}} = $node->{mount_point};
+  }
+  die "no root mount point" unless($tree_root);
+  $_->{TREE_ROOT} = $tree_root foreach (@$mountinfo);
+  $tree_root->{MOUNTINFO_LIST} = $mountinfo;
+
+  return $tree_root;
+}
+
+
+sub vinfo_mountpoint
+{
+  my $vol = shift // die;
+  my %args = @_;
+
+  DEBUG "Resolving mount point for: $vol->{PRINT}";
+  my $mountinfo_root = mountinfo_tree($vol);
+  return undef unless($mountinfo_root);
+
+  my $realpath = $realpath_cache{$vol->{URL}};
+  unless(defined($realpath)) {
+    $realpath = system_realpath($vol);
+    # set to empty string on errors (try only once)
+    $realpath_cache{$vol->{URL}} = $realpath // "";
+  }
+  return undef unless($realpath);
+
+  my $mountpoint = _find_mountpoint($mountinfo_root, $realpath);
+
+  # handle autofs
+  if($mountpoint->{fs_type} eq 'autofs') {
+    if($args{autofs_retry}) {
+      DEBUG "Non-btrfs autofs mount point for: $vol->{PRINT}";
+      return undef;
+    }
+    DEBUG "Found autofs mount point, triggering automount on $mountpoint->{mount_point} for: $vol->{PRINT}";
+    btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mountpoint->{mount_point}, $vol->{CONFIG}));
+    $mountinfo_cache{$vol->{MACHINE_ID}} = undef;
+    return vinfo_mountpoint($vol, %args, autofs_retry => 1);
+  }
+
+  if($args{fs_type} && ($mountpoint->{fs_type} ne $args{fs_type})) {
+    ERROR "Not a btrfs filesystem (mountpoint=\"$mountpoint->{mount_point}\", fs_type=\"$mountpoint->{fs_type}\"): $vol->{PRINT}";
+    return undef;
+  }
+  DEBUG "Mount point for \"$vol->{PRINT}\": $mountpoint->{mount_point} (mount_source=$mountpoint->{mount_source}, fs_type=$mountpoint->{fs_type})";
+  return ($realpath, $mountpoint);
+}
+
+
 sub vinfo_init_root($)
 {
   my $vol = shift || die;
 
-  # resolve btrfs tree from mount point
   @stderr = (); # clear @stderr (propagated for logging)
-  my ($mnt_path, $real_path, $subvolid, $mount_source, $mountpoints) = btrfs_mountpoint($vol);
-  return undef unless($mnt_path && $real_path && $subvolid);
+  my ($real_path, $mountpoint) = vinfo_mountpoint($vol, fs_type => 'btrfs');
+  return undef unless($mountpoint);
+
+  my @same_source_mounts = grep { $_->{mount_source} eq $mountpoint->{mount_source} } @{$mountpoint->{TREE_ROOT}{MOUNTINFO_LIST}};
+  foreach my $mnt (grep { !defined($_->{MNTOPS}{subvolid}) } @same_source_mounts) {
+    # kernel <= 4.2 does not have subvolid=NN in /proc/self/mounts, read it with btrfs-progs
+    DEBUG "No subvolid provided in mounts for: $mnt->{mount_point}";
+    my $detail = btrfs_subvolume_show(vinfo($vol->{URL_PREFIX} . $mnt->{mount_point}, $vol->{CONFIG}));
+    return undef unless($detail);
+    $mnt->{MNTOPS}{subvolid} = $detail->{id} || die;  # also affects %mountinfo_cache
+  }
 
   # read btrfs tree for the mount point
   @stderr = (); # clear @stderr (propagated for logging)
+  my $mnt_path = $mountpoint->{mount_point};
   my $mnt_vol = vinfo($vol->{URL_PREFIX} . $mnt_path, $vol->{CONFIG});
-  my $mnt_tree_root = btr_tree($mnt_vol, $subvolid, $mount_source, $mountpoints);
+  my $mnt_tree_root = btr_tree($mnt_vol, $mountpoint->{MNTOPS}{subvolid}, $mountpoint->{mount_source}, \@same_source_mounts);
   return undef unless($mnt_tree_root);
 
   # find longest match in btrfs tree
+  $real_path .= '/' unless($real_path =~ /\/$/);  # correctly handle root path="/"
   my $ret = _get_longest_match($mnt_tree_root, $mnt_path, $real_path) // die;
   my $tree_root = $ret->{node};
   return undef unless($tree_root);
@@ -5928,90 +5942,54 @@ MAIN:
     my $exit_status = 0;
     my %data_uniq;
     foreach my $root_vol (@subvol_args) {
-      # map url to real path (we need to match against mount points below)
-      my $root_path = system_realpath($root_vol);
-      unless($root_path) {
-        ERROR "Cannot find real path for: $root_vol->{PATH}", @stderr;
+      my ($root_path, $mountpoint) = vinfo_mountpoint($root_vol);
+      unless($mountpoint) {
         $exit_status = 1;
         next;
       }
       $root_vol = vinfo($root_vol->{URL_PREFIX} . $root_path, $config);
-      $root_path .= '/' unless($root_path =~ /\/$/);  # append trailing slash
       INFO "Listing subvolumes for directory: $root_vol->{PRINT}";
 
-      my $mountinfo = $mountinfo_cache{$root_vol->{MACHINE_ID}};
-      unless($mountinfo) {
-        $mountinfo = system_list_mountinfo($root_vol);
-        unless($mountinfo) {
+      my @search = ( $mountpoint );
+      while(my $mnt = shift @search) {
+        unshift @search, @{$mnt->{SUBTREE}} if($mnt->{SUBTREE});
+        next if($mnt->{fs_type} ne "btrfs");
+
+        my $vol = vinfo($root_vol->{URL_PREFIX} . $mnt->{mount_point}, $config);
+        unless(vinfo_init_root($vol)) {
+          ERROR "Failed to fetch subvolume detail for: $vol->{PRINT}", @stderr;
           $exit_status = 1;
           next;
         }
-        $mountinfo_cache{$root_vol->{MACHINE_ID}} = $mountinfo;
-      }
 
-      my @mnt_path_hidden;
-      foreach my $mnt (reverse @$mountinfo) {
-        my $mnt_path = $mnt->{mount_point};
-        $mnt_path .= '/' unless($mnt_path =~ /\/$/);  # append trailing slash
+        my $subvol_list = vinfo_subvol_list($vol);
+        my $count_added = 0;
+        foreach my $svol ($vol, @$subvol_list) {
+          my $svol_path = $svol->{PATH};
+          $svol_path =~ s/^\/\//\//;  # sanitize "//" (see vinfo_child)
 
-        if(($mnt->{fs_type} eq "btrfs") &&
-           (($root_path =~ /^\Q$mnt_path\E/) || ($mnt_path =~ /^\Q$root_path\E/)))
-        {
-          unless(defined(check_file($mnt->{mount_point}, { absolute => 1}))) {
-            ERROR "Ignoring btrfs mount point (unsupported file name): $mnt->{mount_point}";
-            $exit_status = 1;
+          if(_find_mountpoint($mnt, $svol_path) ne $mnt) {
+            DEBUG "Subvolume is hidden by another mount point: $svol->{PRINT}";
             next;
           }
 
-          # we know those are real paths, prevents calling readlink in btrfs_mountpoint
-          $realpath_cache{$root_vol->{URL_PREFIX} . $mnt->{mount_point}} = $mnt->{mount_point};
-
-          my $vol = vinfo($root_vol->{URL_PREFIX} . $mnt->{mount_point}, $config);
-          DEBUG "Processing btrfs mount point: $mnt_path";
-
-          unless(vinfo_init_root($vol)) {
-            ERROR "Failed to fetch subvolume detail for: $vol->{PRINT}", @stderr;
-            $exit_status = 1;
-            next;
-          }
-
-          my $subvol_list = vinfo_subvol_list($vol);
-          my $count_added = 0;
-          foreach my $svol ($vol, @$subvol_list) {
-            my $svol_path = $svol->{PATH};
-            $svol_path =~ s/^\/\//\//;  # sanitize "//" (see vinfo_child)
-
-            my $svol_path_ts = $svol_path . ($svol_path =~ /\/$/ ? "" : "/"); # append trailing slash
-            next unless($svol_path_ts =~ /^\Q$root_path\E/);
-            if(grep { $svol_path_ts =~ /^\Q$_\E/ } @mnt_path_hidden) {
-              DEBUG "subvolume is hidden by another mount point: $svol->{PRINT}";
-              next;
-            }
-
-            $data_uniq{$svol->{PRINT}} = {
-              %{$svol->{node}}, # copy node
-              top => $svol->{node}{top_level}, # alias (narrow column)
-              mount_point => $svol->{VINFO_MOUNTPOINT}{PATH},
-              mount_source => $svol->{node}{TREE_ROOT}{mount_source},
-              mount_subvolid => $mnt->{MNTOPS}{subvolid},
-              mount_subvol => $mnt->{MNTOPS}{subvol},
-              subvolume_path => $svol->{node}{path},
-              subvolume_rel_path => $svol->{node}{REL_PATH},
-              url  => $svol->{URL},
-              host => $svol->{HOST},
-              path => $svol_path,
-              flags => ($svol->{node}{readonly} ? "readonly" : undef),
-            };
-            $count_added++;
-          }
-          DEBUG "Listing $count_added/" . (scalar(@$subvol_list) + 1) . " subvolumes for btrfs mount: $vol->{PRINT}";
+          $data_uniq{$svol->{PRINT}} = {
+            %{$svol->{node}}, # copy node
+            top => $svol->{node}{top_level}, # alias (narrow column)
+            mount_point => $svol->{VINFO_MOUNTPOINT}{PATH},
+            mount_source => $svol->{node}{TREE_ROOT}{mount_source},
+            mount_subvolid => $mnt->{MNTOPS}{subvolid},
+            mount_subvol => $mnt->{MNTOPS}{subvol},
+            subvolume_path => $svol->{node}{path},
+            subvolume_rel_path => $svol->{node}{REL_PATH},
+            url  => $svol->{URL},
+            host => $svol->{HOST},
+            path => $svol_path,
+            flags => ($svol->{node}{readonly} ? "readonly" : undef),
+          };
+          $count_added++;
         }
-        else {
-          TRACE "Skipping mount point: $mnt_path (fs_type=$mnt->{fs_type})" if($do_trace);
-        }
-
-        last if($root_path =~ /^\Q$mnt_path\E/);
-        push @mnt_path_hidden, $mnt_path;
+        DEBUG "Listing $count_added/" . (scalar(@$subvol_list) + 1) . " subvolumes for btrfs mount: $vol->{PRINT}";
       }
     }
 
@@ -6518,7 +6496,9 @@ MAIN:
     my $push_data = sub {
       my ($vol, $type) = @_;
       return if $processed{$vol->{URL}};
-      my (undef, undef, undef, $mount_source, undef) = btrfs_mountpoint($vol);
+      my $mountpoint = vinfo_mountpoint($vol, fs_type => 'btrfs');
+      return unless($mountpoint);
+      my $mount_source = $mountpoint->{mount_source};
       my $mid = $vol->{MACHINE_ID} . $mount_source;
       $usage_cache{$mid} //= btrfs_filesystem_usage($vol);
       push @data, { %{$usage_cache{$mid}},
