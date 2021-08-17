@@ -36,14 +36,6 @@ global options must be set before any sections are defined.
 Blank lines are ignored. A hash character (#) starts a comment
 extending until end of line.
 
-Whitespace or unicode characters are not allowed for file
-names. Allowed characters are:
-
-    [0-9] [a-z] [A-Z] and "._+-@"
-
-This is for sanity/safety/security reasons, we apologize for the
-inconvenience.
-
 
 SECTIONS
 --------
