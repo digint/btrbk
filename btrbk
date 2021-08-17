@@ -1940,6 +1940,10 @@ sub system_list_mountinfo($)
                     non_destructive => 1,
                    );
   return undef unless(defined($ret));
+  unless(@$ret) {
+    ERROR "Failed to parse \"$vol->{URL_PREFIX}$file\": no output";
+    return undef;
+  }
 
   my @mountinfo;
   foreach(@$ret)
@@ -1963,6 +1967,11 @@ sub system_list_mountinfo($)
       return undef;
     }
     my %line = %+;
+
+    unless(defined(check_file($line{mount_point}, { absolute => 1 }))) {
+      ERROR "Ambiguous mount point in \"$vol->{URL_PREFIX}$file\": $line{mount_point}";
+      return undef;
+    }
 
     # merge super_options and mount_options to MNTOPS.
     my %mntops;
