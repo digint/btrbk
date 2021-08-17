@@ -292,13 +292,14 @@ my %table_formats = (
     long  => [ qw( -host mount_source id top cgen gen uuid parent_uuid received_uuid flags path ) ],
     raw   => [ qw(  host mount_source mount_subvol mount_point mount_subvolid id top_level cgen gen uuid parent_uuid received_uuid readonly path subvolume_path subvolume_rel_path url ) ],
     single_column => [ qw( url ) ],
+    RALIGN => { id=>1, top=>1, cgen=>1, gen=>1 },
   },
 
   extent_diff => {
     table => [ qw(             total exclusive -diff -set subvol ) ],
     long  => [ qw( id cgen gen total exclusive -diff -set subvol ) ],
     raw   => [ qw( id cgen gen total exclusive -diff -set subvol ) ],
-    RALIGN => { total=>1, exclusive=>1, diff=>1, set=>1, cgen=>1, gen=>1 },
+    RALIGN => { id=>1, cgen=>1, gen=>1, total=>1, exclusive=>1, diff=>1, set=>1 },
   },
 );
 
