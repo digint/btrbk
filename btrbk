@@ -61,8 +61,6 @@ my $compress_format_alt = join '|', map { $_->{format} } values %compression; # 
 my $ipv4_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
 my $ipv6_addr_match = qr/[a-fA-F0-9]*:[a-fA-F0-9]*:[a-fA-F0-9:]+/; # simplified (contains at least two colons), matches "::1", "2001:db8::7"
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
-my $file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
-my $glob_match = qr/[0-9a-zA-Z_@\+\-\.\/\*]+/;  # file_match plus '*'
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 my $btrbk_timestamp_match = qr/(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
 my $raw_postfix_match_DEPRECATED = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uuid_match))?\.btrfs?(\.(?<compress>($compress_format_alt)))?(\.(?<encrypt>gpg))?(\.(?<split>split))?(\.(?<incomplete>part))?/;  # matches ".btrfs_<received_uuid>[@<parent_uuid>][.gz|bz2|xz][.gpg][.split][.part]"
@@ -1457,7 +1455,7 @@ sub btrfs_subvolume_delete($@)
                   );
     unless(defined($ret)) {
       foreach(@stderr) {
-        next unless(/^rm: cannot remove '($file_match)':/);
+        next unless(/^rm: cannot remove '(.*?)':/);
         my $catch = $1; # make sure $catch matches $vol->{PATH}
         $catch =~ s/\.info$//;
         $catch =~ s/\.split_[a-z][a-z]$//;
@@ -1477,7 +1475,7 @@ sub btrfs_subvolume_delete($@)
                   );
     unless(defined($ret)) {
       foreach(@stderr) {
-        next unless(/'($file_match)'/ || /: ($file_match)$/ || /($file_match):/);
+        next unless(/'(\/.*?)'/ || /: (\/.*)$/ || /(\/.*?):/);
         # NOTE: as of btrfs-progs-4.16, this does not catch anything
         $err_catch{$1} //= [];
         push(@{$err_catch{$1}}, $_);
@@ -2115,10 +2113,6 @@ sub btrfs_mountpoint
         DEBUG "Ignoring non-btrfs mount point: $mnt->{mount_source} $mnt->{mount_point} $mnt->{fs_type}";
         next;
       }
-      unless($mnt->{mount_point} =~ /^$file_match$/) {
-        INFO_ONCE "Ignoring non-parseable btrfs mountpoint: $vol->{MACHINE_ID}$mnt->{mount_point}";
-        next;
-      }
       unless($mnt->{MNTOPS}->{subvolid}) {
         # kernel <= 4.2 does not have subvolid=NN in /proc/self/mounts, read it with btrfs-progs
         DEBUG "No subvolid provided in mounts for: $mnt->{mount_point}";
@@ -2224,18 +2218,13 @@ sub system_read_raw_info_dir($)
     return undef;
   }
   my $deprecated_found = 0;
-  foreach(@$ret)
+  foreach my $file (@$ret)
   {
-    unless(/^($file_match)$/) {
-      DEBUG "Skipping non-parseable file: \"$_\"";
-      next;
-    }
-    my $file = $1; # untaint argument
     unless($file =~ s/^\Q$droot->{PATH}\E\///) {
       ERROR("Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
       return undef;
     }
-    if($file =~ /^(?<name>$file_match)\.$btrbk_timestamp_match$raw_postfix_match_DEPRECATED$/) {
+    if($file =~ /\.$btrbk_timestamp_match$raw_postfix_match_DEPRECATED$/) {
       push @raw_targets, {
         # NOTE: if INFO_FILE is not present, this raw target is treated as deprecated format
         TYPE                 => 'raw',
@@ -3026,9 +3015,9 @@ sub add_btrbk_filename_info($;$)
   # NOTE: unless long-iso file format is encountered, the timestamp is interpreted in local timezone.
 
   $name =~ s/^(.*)\///;
-  if($raw_info && ($name =~ /^(?<name>$file_match)\.$btrbk_timestamp_match$raw_postfix_match$/)) { ; }
-  elsif($raw_info && $name =~ /^(?<name>$file_match)\.$btrbk_timestamp_match$raw_postfix_match_DEPRECATED$/) { ; } # DEPRECATED raw format
-  elsif((not $raw_info) && ($name =~ /^(?<name>$file_match)\.$btrbk_timestamp_match$/)) { ; }
+  if($raw_info && ($name =~ /^(?<name>.+)\.$btrbk_timestamp_match$raw_postfix_match$/)) { ; }
+  elsif($raw_info && $name =~ /^(?<name>.+)\.$btrbk_timestamp_match$raw_postfix_match_DEPRECATED$/) { ; } # DEPRECATED raw format
+  elsif((not $raw_info) && ($name =~ /^(?<name>.+)\.$btrbk_timestamp_match$/)) { ; }
   else {
     return undef;
   }
@@ -3876,39 +3865,32 @@ sub check_file($$;@)
   my %opts = @_;
   my $sanitize = $opts{sanitize};
   my $error_statement = $opts{error_statement};  # if not defined, no error messages are printed
-  my $match = $accept->{wildcards} ? $glob_match : $file_match;
 
-  if($file =~ /^($match)$/) {
-    $file = $1;
-    if($accept->{absolute} && $accept->{relative}) {
-      # accepted, matches either absolute or relative
-    }
-    elsif($accept->{absolute}) {
-      unless($file =~ /^\//) {
-        ERROR "Only absolute files allowed $error_statement" if(defined($error_statement));
-        return undef;
-      }
-    }
-    elsif($accept->{relative}) {
-      if($file =~ /^\//) {
-        ERROR "Only relative files allowed $error_statement" if(defined($error_statement));
-        return undef;
-      }
-    }
-    elsif($accept->{name_only}) {
-      if($file =~ /\//) {
-        ERROR "Invalid file name ${error_statement}: $file" if(defined($error_statement));
-        return undef;
-      }
-    }
-    elsif(not $accept->{wildcards}) {
-      die("accept_type must contain either 'relative' or 'absolute'");
+  if($accept->{absolute} && $accept->{relative}) {
+    # accepted, matches either absolute or relative
+  }
+  elsif($accept->{absolute}) {
+    unless($file =~ /^\//) {
+      ERROR "Only absolute files allowed $error_statement" if(defined($error_statement));
+      return undef;
     }
   }
-  else {
-    ERROR "Ambiguous file ${error_statement}: $file" if(defined($error_statement));
-    return undef;
+  elsif($accept->{relative}) {
+    if($file =~ /^\//) {
+      ERROR "Only relative files allowed $error_statement" if(defined($error_statement));
+      return undef;
+    }
   }
+  elsif($accept->{name_only}) {
+    if($file =~ /\//) {
+      ERROR "Invalid file name ${error_statement}: $file" if(defined($error_statement));
+      return undef;
+    }
+  }
+  elsif(not $accept->{wildcards}) {
+    die("accept_type must contain either 'relative' or 'absolute'");
+  }
+
   # check directory traversal
   if(($file =~ /^\.\.$/) || ($file =~ /^\.\.\//) || ($file =~ /\/\.\.\//) || ($file =~ /\/\.\.$/)) {
     ERROR "Illegal directory traversal ${error_statement}: $file" if(defined($error_statement));
@@ -5428,7 +5410,6 @@ MAIN:
     'config|c=s'         => \$config_cmdline,
     'override=s'         => \@config_override_cmdline,  # e.g. --override=incremental=no
     'lockfile=s'         => \$lockfile_cmdline,
-    'unsafe-filenames'   => sub { $file_match = $glob_match = qr/.+/ },
    );
   push @getopt_options, ($program_name eq "lsbtr") ? (
     # "lsbtr" options
@@ -5692,11 +5673,8 @@ MAIN:
     }
   }
   if(defined($lockfile_cmdline)) {
-    if($lockfile_cmdline =~ /^($file_match)$/) {
-      $lockfile = $1; # untaint argument
-    } else {
-      ERROR "Option \"--lockfile\" is not a valid file name: \"$lockfile_cmdline\"";
-      HELP_MESSAGE(0);
+    unless($lockfile = check_file($lockfile_cmdline, { absolute => 1, relative => 1 },
+                                  error_statement => 'for option --lockfile')) {
       exit 2;
     }
   }
