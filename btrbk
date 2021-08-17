@@ -6536,7 +6536,7 @@ MAIN:
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
         $push_data->(vinfo_snapshot_root($svol), "source");
         foreach my $droot (vinfo_subsection($svol, 'target')) {
-          $push_data->(vinfo_snapshot_root($droot), "target");
+          $push_data->($droot, "target");
         }
       }
     }
