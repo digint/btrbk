@@ -3793,40 +3793,25 @@ sub get_best_parent($$$;@)
     WARN "Best common parent for \"$svol->{PRINT}\" is not accessible within target $target_incremental_resolve \"$resolve_droot->{PRINT}\", ignoring: " . join(", ", map('"' . _fs_path($_) . '"',@inaccessible_nodes));
   }
 
-  # preferences for parent (and required clone sources):
-  #  1. closest older in snapdir (by btrbk timestamp), related
-  #  2. closest older related (by cgen)
-  #  3. closest newer related (by cgen)
-  #  4. closest older in snapdir (by btrbk timestamp)
-  #  5. closest newer in snapdir (by btrbk timestamp)
-  #
+  # resolve parent (and _required_ clone sources)
   my @parent;
-  if(my $cc = shift @c_related_older) {
-    push @parent, $cc;         #  2. closest older related (by cgen)
-    DEBUG "Resolved best common parent (closest older parent_uuid relationship): $cc->[0]{PRINT}";
-  }
-  if(my $cc = shift @c_related_newer) {
-    DEBUG ((scalar @parent ? "Adding clone source" : "Resolved best common parent") . " (closest newer parent_uuid relationship): $cc->[0]{PRINT}");
-    push @parent, $cc;         #  3. closest newer related (by cgen)
-  }
-  if(my $cc = shift @c_snapdir_older) {
-    unless(grep { $_->[0]{node}{id} == $cc->[0]{node}{id} } @parent) {
-      if($c_rel_id{$cc->[0]{node}{id}}) {
-        DEBUG "Resolved best common parent (closest older btrbk timestamp, with parent_uuid relationship): $cc->[0]{PRINT}";
-        unshift @parent, $cc;  #  1. closest older in snapdir (by btrbk timestamp), related
-      }
-      else {
-        DEBUG ((scalar @parent ? "Adding clone source" : "Resolved best common parent") . " (closest older btrbk timestamp): $cc->[0]{PRINT}");
-        push @parent, $cc;     #  4. closest older in snapdir (by btrbk timestamp)
-      }
-    }
-  }
-  if(my $cc = shift @c_snapdir_newer) {
-    unless(grep { $_->[0]{node}{id} == $cc->[0]{node}{id} } @parent) {
-      DEBUG ((scalar @parent ? "Adding clone source" : "Resolved best common parent") . " (closest newer btrbk timestamp): $cc->[0]{PRINT}");
-      push @parent, $cc;       #  5. closest newer in snapdir (by btrbk timestamp)
-    }
-  }
+  my $push_parent = sub {
+    my ($cc, $txt) = @_;
+    return unless(defined($cc));
+    return if(grep { $_->[0]{node}{id} == $cc->[0]{node}{id} } @parent);
+    DEBUG "Resolved " . (@parent ? "clone source" : "parent") . " ($txt): $cc->[0]{PRINT}";
+    push @parent, $cc;
+  };
+
+  my @c_snapdir_related_older = grep(exists($c_rel_id{$_->[0]{node}{id}}), @c_snapdir_older);
+  my @c_snapdir_related_newer = grep(exists($c_rel_id{$_->[0]{node}{id}}), @c_snapdir_newer);
+
+  $push_parent->($c_snapdir_related_older[0], "closest older by btrbk timestamp in snapdir, with parent_uuid relationship");
+  #$push_parent->($c_snapdir_related_newer[0], "closest newer by btrbk timestamp in snapdir, with parent_uuid relationship");
+  $push_parent->($c_related_older[0],         "closest older by cgen, with parent_uuid relationship");
+  $push_parent->($c_related_newer[0],         "closest newer by cgen, with parent_uuid relationship");
+  $push_parent->($c_snapdir_older[0],         "closest older by btrbk timestamp in snapdir, regardless of parent_uuid relationship");
+  $push_parent->($c_snapdir_newer[0],         "closest newer by btrbk timestamp in snapdir, regardless of parent_uuid relationship");
 
   # assemble results
   unless(scalar @parent) {
