@@ -402,7 +402,7 @@ sub HELP_MESSAGE
 #80-----------------------------------------------------------------------------
   if($program_name eq "lsbtr") {
     print STDERR <<"END_HELP_LSBTR";
-usage: lsbtr [options] [path]...
+usage: lsbtr [<options>] [[--] <path>...]
 
 options:
    -h, --help                display this help message
@@ -420,7 +420,7 @@ END_HELP_LSBTR
   }
   else {
     print STDERR <<"END_HELP_BTRBK";
-usage: btrbk [options] <command> [filter...]
+usage: btrbk [<options>] <command> [[--] <filter>...]
 
 options:
    -h, --help                display this help message

@@ -22,7 +22,7 @@ lsbtr [-h|--help] [--version]
       [-v|--verbose]
       [-c|--config <file>]
       [--override <config_option>=<value>]
-      [<path>|<url>...]
+      [[--] <path>|<url>...]
 
 
 DESCRIPTION

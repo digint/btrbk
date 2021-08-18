@@ -25,7 +25,7 @@ btrbk [-h|--help] [--version]
       [-S|--print-schedule] [--progress]
       [--lockfile <file>]
       [--override <config_option>=<value>]
-      <command> [<args>]
+      <command> [[--] <filter>...]
 
 
 DESCRIPTION
