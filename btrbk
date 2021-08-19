@@ -82,7 +82,7 @@ my %config_options = (
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "global", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
-  incremental_clones          => { default => 0,         accept_numeric => 1 },
+  incremental_clones          => { default => "yes",     accept => [ "yes", "no" ], deprecated => { MATCH => { regex => qr/^[0-9]+$/, replace_value => "yes", warn => 'Please use "incremental_search"' } }, accept_numeric => 1 },
   incremental_resolve         => { default => "mountpoint", accept => [ "mountpoint", "directory", "_all_accessible" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   preserve_hour_of_day        => { default => 0,         accept => [ (0..23) ]  },
@@ -3703,7 +3703,6 @@ sub get_best_parent($$$;@)
   my $droot = shift || die;
   my %opts = @_;
   my $ret_clone_src          = $opts{clone_src};
-  my $ret_clone_src_extra    = $opts{clone_src_extra};
   my $ret_target_parent_node = $opts{target_parent_node};
   my $strict_related         = $opts{strict_related};
 
@@ -3841,20 +3840,8 @@ sub get_best_parent($$$;@)
     return undef;
   }
 
-  my @extra_clones;
-  foreach my $cc (@c_related_older, @c_related_newer, grep { not exists($c_rel_id{$_->[0]{node}{id}}) } (@c_snapdir_older, @c_snapdir_newer)) {
-    push @extra_clones, $cc->[0] unless(grep { $_->[0]{node}{id} == $cc->[0]{node}{id} } @parent);
-  }
-  DEBUG "Resolved " . (scalar @extra_clones) . " extra clone sources";
-  if($do_trace) {
-    TRACE "get_best_parent: parent,clones: $_->[0]{PRINT}" foreach(@parent);
-    TRACE "get_best_parent: extra clone  : $_->{PRINT}" foreach(@extra_clones);
-  }
-
   my $ret_parent = shift @parent;
-  my @clone_src = map { $_->[0] } @parent;
-  $$ret_clone_src = \@clone_src if($ret_clone_src);
-  $$ret_clone_src_extra = \@extra_clones if($ret_clone_src_extra);
+  $$ret_clone_src = [ map $_->[0], @parent ] if($ret_clone_src);
   $$ret_target_parent_node = $ret_parent->[1]{node} if($ret_target_parent_node);
   return $ret_parent->[0];
 }
@@ -4502,7 +4489,6 @@ sub macro_send_receive(@)
   my $target = $info{target} || die;
   my $parent = $info{parent};
   my @clone_src = @{ $info{clone_src} // [] }; # copy array
-  my $clone_src_extra = $info{clone_src_extra} // [];
   my $config_target = $target->{CONFIG};
   my $target_type = $config_target->{target_type} || die;
   my $incremental = config_key($config_target, "incremental");
@@ -4531,15 +4517,18 @@ sub macro_send_receive(@)
       ABORTED($config_target, "No common parent subvolume found, and option \"incremental\" is set to \"strict\"");
       return undef;
     }
-    # add extra clone_src if "incremental_clones" is set
-    my $ic = config_key($target, "incremental_clones");
-    push @clone_src, map { --$ic < 0 ? () : $_ } @$clone_src_extra if($ic);
+    unless(config_key($target, "incremental_clones")) {
+      INFO "Ignoring " . scalar(@clone_src) . " clone sources (incremental_clones=no)" if(@clone_src);
+      @clone_src = ();
+      delete $info{clone_src};
+    }
   }
   else {
     INFO "Creating non-incremental backup...";
     $parent = undef;
     @clone_src = ();
     delete $info{parent};
+    delete $info{clone_src};
   }
 
   my $ret;
@@ -4707,17 +4696,15 @@ sub macro_archive_target($$$;$)
   my $archive_success = 0;
   foreach my $svol (@archive)
   {
-    my ($clone_src, $clone_src_extra, $target_parent_node);
+    my ($clone_src, $target_parent_node);
     my $parent = get_best_parent($svol, $sroot, $droot,
                                  strict_related     => 0,
                                  clone_src          => \$clone_src,
-                                 clone_src_extra    => \$clone_src_extra,
                                  target_parent_node => \$target_parent_node);
-    if(macro_send_receive(source => $svol,
-                          target => $droot,
-                          parent => $parent,  # this is <undef> if no suitable parent found
-                          clone_src          => $clone_src,
-                          clone_src_extra    => $clone_src_extra,
+    if(macro_send_receive(source    => $svol,
+                          target    => $droot,
+                          parent    => $parent,  # this is <undef> if no suitable parent found
+                          clone_src => $clone_src,
                           target_parent_node => $target_parent_node,
                          ))
     {
@@ -7150,17 +7137,15 @@ MAIN:
                   next;
                 }
 
-                my ($clone_src, $clone_src_extra, $target_parent_node);
+                my ($clone_src, $target_parent_node);
                 my $parent = get_best_parent($snapshot, $snaproot, $droot,
                                              strict_related     => ((config_key($droot, "incremental") // "") eq "strict"),
                                              clone_src          => \$clone_src,
-                                             clone_src_extra    => \$clone_src_extra,
                                              target_parent_node => \$target_parent_node);
-                if(macro_send_receive(source => $snapshot,
-                                      target => $droot,
-                                      parent => $parent,  # this is <undef> if no suitable parent found
-                                      clone_src          => $clone_src,
-                                      clone_src_extra    => $clone_src_extra,
+                if(macro_send_receive(source    => $snapshot,
+                                      target    => $droot,
+                                      parent    => $parent,  # this is <undef> if no suitable parent found
+                                      clone_src => $clone_src,
                                       target_parent_node => $target_parent_node,
                                      ))
                 {
