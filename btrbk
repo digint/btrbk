@@ -73,6 +73,10 @@ my $split_match = qr/\s*[,\s]\s*/;
 my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
 my @syslog_facilities = qw( user mail daemon auth lpr news cron authpriv local0 local1 local2 local3 local4 local5 local6 local7 );
 
+my @incremental_prefs_avail   = qw(sro srn sao san aro arn);
+my @incremental_prefs_default = qw(sro:1 aro:1 arn:1 sao:1 san:1);
+my $incremental_prefs_match = "(defaults|(" . join("|", @incremental_prefs_avail) . ")(:[0-9]+)?)";
+
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
@@ -82,6 +86,7 @@ my %config_options = (
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "global", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
+  incremental_prefs           => { default => \@incremental_prefs_default, accept_regexp => qr/^$incremental_prefs_match($split_match$incremental_prefs_match)*$/, split => $split_match },
   incremental_clones          => { default => "yes",     accept => [ "yes", "no" ] },
   incremental_resolve         => { default => "mountpoint", accept => [ "mountpoint", "directory", "_all_accessible" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
@@ -3732,9 +3737,7 @@ sub get_best_parent($$$;@)
                  );
 
   # resolve correlated subvolumes by parent_uuid relationship.
-  # no warnings on aborted search (due to deep relations), note that
-  # we could limit the search depth here for some performance
-  # improvements, as this only affects extra clones.
+  # no warnings on aborted search (due to deep relations).
   my %c_rel_id;   # map id to c_related
   my @c_related;  # candidates for parent (correlated + related), unsorted
   foreach (_related_nodes($svol->{node}, readonly => 1, omit_self => 1, nowarn => 1)) {
@@ -3752,10 +3755,14 @@ sub get_best_parent($$$;@)
   }
   # sort by cgen
   my $cgen_ref = $svol->{node}{readonly} ? $svol->{node}{cgen} : $svol->{node}{gen};
-  my @c_related_older = sort { ($cgen_ref - $a->[0]{node}{cgen}) <=> ($cgen_ref - $b->[0]{node}{cgen}) }
-                        grep { $_->[0]{node}{cgen} <= $cgen_ref } @c_related;
-  my @c_related_newer = sort { ($a->[0]{node}{cgen} - $cgen_ref) <=> ($b->[0]{node}{cgen} - $cgen_ref) }
-                        grep { $_->[0]{node}{cgen} >  $cgen_ref } @c_related;
+
+  my %c_map; # map correlated candidates to incremental_prefs strategy
+
+  # all_related: by parent_uuid relationship, ordered by cgen
+  $c_map{aro} = [ sort { ($cgen_ref - $a->[0]{node}{cgen}) <=> ($cgen_ref - $b->[0]{node}{cgen}) }
+                  grep { $_->[0]{node}{cgen} <= $cgen_ref } @c_related ];
+  $c_map{arn} = [ sort { ($a->[0]{node}{cgen} - $cgen_ref) <=> ($b->[0]{node}{cgen} - $cgen_ref) }
+                  grep { $_->[0]{node}{cgen} >  $cgen_ref } @c_related ];
 
   # NOTE: While _related_nodes() returns deep parent_uuid
   # relations, there is always a chance that these relations get
@@ -3769,7 +3776,6 @@ sub get_best_parent($$$;@)
   # A->S, B->S, C->S, delete B: A still has a relation to C.
   #
   # resolve correlated subvolumes in same directory matching btrbk file name scheme
-  my (@c_snapdir_older, @c_snapdir_newer);
   if(exists($svol->{node}{BTRBK_BASENAME})) {
     my $snaproot_btrbk_direct_leaf = vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $svol->{node}{BTRBK_BASENAME});
     my @sbdl_older = sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }
@@ -3777,49 +3783,54 @@ sub get_best_parent($$$;@)
     my @sbdl_newer = sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
                      grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snaproot_btrbk_direct_leaf;
 
-    @c_snapdir_older = map { $c_rel_id{$_->{node}{id}} // get_best_correlated($resolve_droot, $_, %gbc_opts) // () } @sbdl_older;
-    @c_snapdir_newer = map { $c_rel_id{$_->{node}{id}} // get_best_correlated($resolve_droot, $_, %gbc_opts) // () } @sbdl_newer;
-  }
+    # snapdir_all: btrbk_direct_leaf, ordered by btrbk timestamp
+    $c_map{sao} = [ map { $c_rel_id{$_->{node}{id}} // get_best_correlated($resolve_droot, $_, %gbc_opts) // () } @sbdl_older ];
+    $c_map{san} = [ map { $c_rel_id{$_->{node}{id}} // get_best_correlated($resolve_droot, $_, %gbc_opts) // () } @sbdl_newer ];
 
-  if($do_trace) {
-    TRACE "get_best_parent: related reference cgen=$svol->{node}{cgen}" if($do_trace);
-    TRACE map("get_best_parent: related older: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_related_older);
-    TRACE map("get_best_parent: related newer: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_related_newer);
-    TRACE map("get_best_parent: snapdir older: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_snapdir_older);
-    TRACE map("get_best_parent: snapdir newer: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @c_snapdir_newer);
+    # snapdir_related: btrbk_direct_leaf with parent_uuid relationship, ordered by btrbk timestamp
+    $c_map{sro} = [ map { $c_rel_id{$_->{node}{id}} // () } @sbdl_older ];
+    $c_map{srn} = [ map { $c_rel_id{$_->{node}{id}} // () } @sbdl_newer ];
   }
 
   if(scalar @inaccessible_nodes) { # populated by get_best_correlated()
     WARN "Best common parent for \"$svol->{PRINT}\" is not accessible within target $target_incremental_resolve \"$resolve_droot->{PRINT}\", ignoring: " . join(", ", map('"' . _fs_path($_) . '"',@inaccessible_nodes));
   }
 
-  # resolve parent (and _required_ clone sources)
+  # resolve parent (and required clone sources) according to incremental_prefs
+
+  if($do_trace) {
+    TRACE "get_best_parent: related reference cgen=$svol->{node}{cgen}";
+    foreach my $search (@incremental_prefs_avail) {
+      TRACE map("get_best_parent: ${search}: $_->[0]{PRINT} (cgen=$_->[0]{node}{cgen})  $_->[1]{PRINT}", @{$c_map{$search}});
+    }
+  }
+
   my @parent;
-  my $push_parent = sub {
-    my ($cc, $txt) = @_;
-    return unless(defined($cc));
-    return if(grep { $_->[0]{node}{id} == $cc->[0]{node}{id} } @parent);
-    DEBUG "Resolved " . (@parent ? "clone source" : "parent") . " ($txt): $cc->[0]{PRINT}";
-    push @parent, $cc;
-  };
-
-  my @c_snapdir_related_older = grep(exists($c_rel_id{$_->[0]{node}{id}}), @c_snapdir_older);
-  my @c_snapdir_related_newer = grep(exists($c_rel_id{$_->[0]{node}{id}}), @c_snapdir_newer);
-
-  $push_parent->($c_snapdir_related_older[0], "closest older by btrbk timestamp in snapdir, with parent_uuid relationship");
-  #$push_parent->($c_snapdir_related_newer[0], "closest newer by btrbk timestamp in snapdir, with parent_uuid relationship");
-  $push_parent->($c_related_older[0],         "closest older by cgen, with parent_uuid relationship");
-  $push_parent->($c_related_newer[0],         "closest newer by cgen, with parent_uuid relationship");
-  $push_parent->($c_snapdir_older[0],         "closest older by btrbk timestamp in snapdir, regardless of parent_uuid relationship");
-  $push_parent->($c_snapdir_newer[0],         "closest newer by btrbk timestamp in snapdir, regardless of parent_uuid relationship");
+  my @isk = map { $_ eq "defaults" ? @incremental_prefs_default : $_ } @{config_key($svol, "incremental_prefs")};
+  foreach(@isk) {
+    DEBUG "processing incremental_prefs: $_";
+    my ($k, $n) = split /:/;
+    my $c_list = $c_map{$k} // next;
+    for(1 .. ($n // @$c_list)) {
+      my $cc = shift @$c_list // last;
+      next if(grep { $_->[0]{node}{id} == $cc->[0]{node}{id} } @parent);
+      DEBUG "Resolved " . (@parent ? "clone source" : "parent") . " (" .
+            "next closest " . ($k =~ /n/ ? " newer" : "older") .
+            " by " . ($k =~ /s/ ? "btrbk timestamp in snapdir" : "cgen") .
+            ", " . ($k =~ /r/ ? "with" : "regardless of") . " parent_uuid relationship" .
+            "): $cc->[0]{PRINT}" if($loglevel >= 3);
+      push @parent, $cc;
+    }
+  }
 
   # assemble results
   unless(scalar @parent) {
-    DEBUG("No common parents of \"$svol->{PRINT}\" found in src=\"$resolve_sroot->{PRINT}/\", target=\"$resolve_droot->{PRINT}/\"");
+    DEBUG("No suitable common parents of \"$svol->{PRINT}\" found in src=\"$resolve_sroot->{PRINT}/\", target=\"$resolve_droot->{PRINT}/\"");
     return undef;
   }
-  if($strict_related && (not scalar(@c_related))) {
-    # all parents come from c_snapdir (btrbk_direct_leaf), no relations by parent_uuid found
+
+  if($strict_related && (!grep(exists($c_rel_id{$_->[0]{node}{id}}), @parent))) {
+    # no relations by parent_uuid found
     WARN "No related common parent found (by parent_uuid relationship) for: $svol->{PRINT}";
     WARN "Hint: setting option \"incremental\" to \"yes\" (instead of \"strict\") will use parent: " . join(", ", map { $_->[0]{PRINT} } @parent);
     return undef;
@@ -4223,6 +4234,9 @@ sub append_config_option($$$$;@)
     }
     TRACE "pushing option \"$key=$value\" to $aref=[" . join(',', @$aref) . "]" if($do_trace);
     $value = $aref;
+  }
+  elsif($opt->{split}) { # note: allow_multiple split has different semantics
+    $value = [ split($opt->{split}, $value) ];
   }
   elsif(exists($config->{$key})) {
     unless($opt->{c_default}) { # note: computed defaults are already present
