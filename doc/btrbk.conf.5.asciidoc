@@ -415,14 +415,48 @@ If you want to set this option for regular (non-root) user only, set
     If set, make sure the deletion of snapshot and backup subvolumes
     are committed to disk when btrbk terminates. Defaults to ``no''.
 
-*incremental_clones* <number>::
-    Maximum number of clone sources allowed for incremental send. If
-    set, btrbk adds "-c <clone-src>" to the btrfs-send(8) command for
-    all present snapshot/backup pairs (correlated subvolumes matching
-    matching 'received_uuid', printed by "btrbk stats"). Set this to a
-    high number if you want to make sure that no common data is missed
-    on incremental backups, in expense of btrfs-send
-    performance. Defaults to 0.
+*incremental_prefs* <list-spec>[:<amount>]...::
+    Specify the preferences to determine the best common (correlated)
+    parent and clone sources for incremental backups, by choosing from
+    predefined candidate lists.
++
+--
+The 'list-spec' defines from what candidate list the next
+parent/clone-src should be appended to a result list; 'amount' defines
+how many (e.g. "sro:1 sro:1" is identical to "sro:2"), or all if
+omitted. Any candidate which is already in the results is dropped.
+
+The resulting list of subvolumes is then used as parameters for the
+btrfs-send(8) command: the first for "-p <parent>", all others for
+"-c <clone-src>".
+
+Available 'list-spec' (candidate lists = filtered subsets of
+correlated subvolumes):
+
+*sro*,*srn*:: All from 'snapshot_dir' matching 'snapshot_name', with
+ parent_uuid relationship, sorted by btrbk timestamp (o=older
+ n=newer).
+
+*sao*,*san*:: All from 'snapshot_dir' matching 'snapshot_name', sorted
+ by btrbk timestamp (o=older n=newer).
+
+*aro*,*arn*:: All from 'incremental_resolve', with parent_uuid
+ relationship, sorted by cgen (o=older n=newer).
+
+Defaults to "sro:1 srn:1 sao:1 san:1 aro:1 arn:1". Note that for
+most operations the default resolves a single parent, as there usually
+are no newer snapshots, and all "sro:1 sao:1 aro:1" resolve to the
+same snapshot.
+
+Example: "defaults,sao,san,aro,arn" takes the defaults, and adds clone
+sources for all (!) known candidates on the filesystem.
+--
+
+*incremental_clones* yes|no::
+    If enabled, btrbk adds "-c <clone-src>" to the btrfs-send(8)
+    command for all correlated subvolumes resolved by
+    'incremental_prefs'. If disabled, only "-p <parent>" is
+    used. Defaults to ``yes''.
 
 *incremental_resolve* mountpoint|directory::
     Specifies where to search for the best common parent for
