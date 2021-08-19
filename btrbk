@@ -4214,14 +4214,16 @@ sub append_config_option($$$$;@)
   }
 
   if($opt->{deprecated}) {
-    if(my $warn_msg = ($opt->{deprecated}->{$value}->{warn} || $opt->{deprecated}->{DEFAULT}->{warn})) {
+    my $dh = $opt->{deprecated}{$value} // $opt->{deprecated}{DEFAULT} // {};
+    $dh = $opt->{deprecated}{MATCH} if($opt->{deprecated}{MATCH} && ($value =~ $opt->{deprecated}{MATCH}{regex}));
+    if(my $warn_msg = $dh->{warn}) {
       WARN "Found deprecated option \"$key $value\" $error_statement: $warn_msg";
     }
-    if($opt->{deprecated}->{$value}->{ABORT} || $opt->{deprecated}->{DEFAULT}->{ABORT}) {
+    if($dh->{ABORT}) {
       ERROR "Deprecated (incompatible) option \"$key\" found $error_statement, refusing to continue";
       return undef;
     }
-    if($opt->{deprecated}->{$value}->{FAILSAFE_PRESERVE} || $opt->{deprecated}->{DEFAULT}->{FAILSAFE_PRESERVE}) {
+    if($dh->{FAILSAFE_PRESERVE}) {
       unless($config_override{FAILSAFE_PRESERVE}) { # warn only once
         WARN "Entering failsafe mode:";
         WARN "  - preserving ALL snapshots for ALL subvolumes";
@@ -4232,11 +4234,9 @@ sub append_config_option($$$$;@)
       $config_override{snapshot_preserve_min} = 'all';
       return $config;
     }
-    my $replace_key   = $opt->{deprecated}->{$value}->{replace_key};
-    my $replace_value = $opt->{deprecated}->{$value}->{replace_value};
-    if(defined($replace_key)) {
-      $key = $replace_key;
-      $value = $replace_value;
+    if(defined($dh->{replace_key})) {
+      $key   = $dh->{replace_key};
+      $value = $dh->{replace_value};
       WARN "Using \"$key $value\"";
     }
   }
