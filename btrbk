@@ -68,6 +68,7 @@ my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))
 
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
+my $split_match = qr/\s*[,\s]\s*/;
 
 my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
 my @syslog_facilities = qw( user mail daemon auth lpr news cron authpriv local0 local1 local2 local3 local4 local5 local6 local7 );
@@ -127,7 +128,7 @@ my %config_options = (
   kdf_keysize                 => { default => "32",      accept_numeric => 1 },
   kdf_keygen                  => { default => "once",    accept => [ "once", "each" ] },
 
-  group                       => { default => undef,     accept_regexp => qr/^$group_match(\s*[,\s]\s*$group_match)*$/, allow_multiple => 1, split => qr/\s*[,\s]\s*/ },
+  group                       => { default => undef,     accept_regexp => qr/^$group_match($split_match$group_match)*$/, allow_multiple => 1, split => $split_match },
   noauto                      => { default => undef,     accept => [ "yes", "no" ] },
 
   backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
