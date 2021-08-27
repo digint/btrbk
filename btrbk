@@ -82,7 +82,7 @@ my %config_options = (
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "global", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
-  incremental_clones          => { default => "yes",     accept => [ "yes", "no" ], deprecated => { MATCH => { regex => qr/^[0-9]+$/, replace_value => "yes", warn => 'Please use "incremental_search"' } }, accept_numeric => 1 },
+  incremental_clones          => { default => "yes",     accept => [ "yes", "no" ] },
   incremental_resolve         => { default => "mountpoint", accept => [ "mountpoint", "directory", "_all_accessible" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   preserve_hour_of_day        => { default => 0,         accept => [ (0..23) ]  },
