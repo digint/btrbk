@@ -74,7 +74,7 @@ my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, 
 my @syslog_facilities = qw( user mail daemon auth lpr news cron authpriv local0 local1 local2 local3 local4 local5 local6 local7 );
 
 my @incremental_prefs_avail   = qw(sro srn sao san aro arn);
-my @incremental_prefs_default = qw(sro:1 aro:1 arn:1 sao:1 san:1);
+my @incremental_prefs_default = qw(sro:1 srn:1 sao:1 san:1 aro:1 arn:1);
 my $incremental_prefs_match = "(defaults|(" . join("|", @incremental_prefs_avail) . ")(:[0-9]+)?)";
 
 my %config_options = (
