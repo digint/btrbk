@@ -63,7 +63,6 @@ my $ipv6_addr_match = qr/[a-fA-F0-9]*:[a-fA-F0-9]*:[a-fA-F0-9:]+/; # simplified 
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 my $btrbk_timestamp_match = qr/(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
-my $raw_postfix_match_DEPRECATED = qr/--(?<received_uuid>$uuid_match)(\@(?<parent_uuid>$uuid_match))?\.btrfs?(\.(?<compress>($compress_format_alt)))?(\.(?<encrypt>gpg))?(\.(?<split>split))?(\.(?<incomplete>part))?/;  # matches ".btrfs_<received_uuid>[@<parent_uuid>][.gz|bz2|xz][.gpg][.split][.part]"
 my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))?/;  # matches ".btrfs[.gz|bz2|xz][.gpg|encrypted]"
 
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
@@ -1451,10 +1450,7 @@ sub btrfs_subvolume_delete($@)
       } else {
         push @cmd_target_paths, { unsafe => $_->{PATH} };
       }
-      if($_->{node}{BTRBK_RAW}{INFO_FILE}) {
-        # DEPRECATED raw format: no info file in deprecated format
-        push @cmd_target_paths, { unsafe => "$_->{PATH}.info" };
-      }
+      push @cmd_target_paths, { unsafe => "$_->{PATH}.info" };
     }
     $ret = run_cmd(cmd  => [ 'rm', '-f',  @cmd_target_paths ],
                    rsh  => vinfo_rsh($targets->[0]),
@@ -2133,45 +2129,6 @@ sub system_read_raw_info_dir($)
 
   DEBUG("Parsed " . @raw_targets . " raw info files in path: $droot->{PATH}");
   TRACE(Data::Dumper->Dump([\@raw_targets], ["system_read_raw_info_dir($droot->{URL})"])) if($do_trace && $do_dumper);
-
-  #
-  # read DEPRECATED raw format (btrbk < v0.26.0)
-  #
-  $ret = run_cmd(
-    cmd => [ 'find', { unsafe => $droot->{PATH} . '/' }, '-maxdepth', '1', '-type', 'f' ],
-    rsh => vinfo_rsh($droot),
-    non_destructive => 1,
-   );
-  unless(defined($ret)) {
-    ERROR("Failed to list files from: $droot->{PATH}");
-    return undef;
-  }
-  my $deprecated_found = 0;
-  foreach my $file (@$ret)
-  {
-    unless($file =~ s/^\Q$droot->{PATH}\E\///) {
-      ERROR("Unexpected result from 'find': file \"$file\" is not under \"$droot->{PATH}\"");
-      return undef;
-    }
-    if($file =~ /\.$btrbk_timestamp_match$raw_postfix_match_DEPRECATED$/) {
-      push @raw_targets, {
-        # NOTE: if INFO_FILE is not present, this raw target is treated as deprecated format
-        TYPE                 => 'raw',
-        FILE                 => $file,
-        RECEIVED_UUID        => $+{received_uuid} // die,
-        RECEIVED_PARENT_UUID => $+{parent_uuid} // '-',
-        INCOMPLETE           => $+{incomplete} ? 1 : 0,
-        encrypt              => $+{encrypt} // "",
-        compress             => $+{compress} // "",
-      };
-      $deprecated_found++;
-    }
-  }
-  DEBUG("Parsed $deprecated_found deprecated raw backup files in path: $droot->{PATH}");
-  if($deprecated_found) {
-    WARN("Found $deprecated_found raw backup files with deprecated file format in: $droot->{PRINT}");
-    WARN("Please convert the raw backup files using the `raw_suffix2sidecar` utility.");
-  }
 
   return \@raw_targets;
 }
@@ -2945,7 +2902,6 @@ sub add_btrbk_filename_info($;$)
 
   $name =~ s/^(.*)\///;
   if($raw_info && ($name =~ /^(?<name>.+)\.$btrbk_timestamp_match$raw_postfix_match$/)) { ; }
-  elsif($raw_info && $name =~ /^(?<name>.+)\.$btrbk_timestamp_match$raw_postfix_match_DEPRECATED$/) { ; } # DEPRECATED raw format
   elsif((not $raw_info) && ($name =~ /^(?<name>.+)\.$btrbk_timestamp_match$/)) { ; }
   else {
     return undef;
@@ -3151,12 +3107,7 @@ sub vinfo_init_raw_root($;@)
         readonly      => ($raw_info->{INCOMPLETE} ? 0 : 1),
       }, $raw_info))
       {
-        if($raw_info->{INFO_FILE}) {
-          ERROR("Ambiguous \"FILE=\" in raw info file: \"$raw_info->{INFO_FILE}\"");
-        } else {
-          # DEPRECATED raw format
-          ERROR("Ambiguous file: \"$raw_info->{FILE}\"");
-        }
+        ERROR("Ambiguous \"FILE=\" in raw info file: \"$raw_info->{INFO_FILE}\"");
         return undef;
       }
 
