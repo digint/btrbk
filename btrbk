@@ -538,7 +538,7 @@ sub IS_ABORTED($;$)
   my $abrt_key = $config->{ABORTED}->{key};
   return undef unless(defined($abrt_key));
   my $filter_prefix = shift;
-  return ($abrt_key =~ /^$filter_prefix/) if($filter_prefix);
+  return undef if($filter_prefix && ($abrt_key !~ /^$filter_prefix/));
   return $abrt_key;
 }
 
