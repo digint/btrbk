@@ -3756,14 +3756,14 @@ sub get_best_parent($$$;@)
   my @parent;
   my @isk = map { $_ eq "defaults" ? @incremental_prefs_default : $_ } @{config_key($svol, "incremental_prefs")};
   foreach(@isk) {
-    DEBUG "processing incremental_prefs: $_";
+    TRACE "processing incremental_prefs: $_";
     my ($k, $n) = split /:/;
     my $c_list = $c_map{$k} // next;
     for(1 .. ($n // @$c_list)) {
       my $cc = shift @$c_list // last;
       next if(grep { $_->[0]{node}{id} == $cc->[0]{node}{id} } @parent);
       DEBUG "Resolved " . (@parent ? "clone source" : "parent") . " (" .
-            "next closest " . ($k =~ /n/ ? " newer" : "older") .
+            "next closest " . ($k =~ /n/ ? "newer" : "older") .
             " by " . ($k =~ /s/ ? "btrbk timestamp in snapdir" : "cgen") .
             ", " . ($k =~ /r/ ? "with" : "regardless of") . " parent_uuid relationship" .
             "): $cc->[0]{PRINT}" if($loglevel >= 3);
