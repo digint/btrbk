@@ -1709,7 +1709,7 @@ sub btrfs_send_to_file($$$;$$)
   $stream_options->{stream_compress} = $compress if($compress);
 
   my @send_options;
-  push(@send_options, '-p', $parent_path) if($parent_path);
+  push(@send_options, '-p', { unsafe => $parent_path } ) if($parent_path);
   #push(@send_options, '-v') if($loglevel >= 3);
 
   my @cmd_pipe;
