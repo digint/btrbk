@@ -5348,7 +5348,6 @@ MAIN:
   my ($config_cmdline, $lockfile_cmdline, $print_schedule,
       $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups,
       $archive_raw, $extents_related,
-      $resume_only_DEPRECATED,  # as of btrbk-v0.26.0
      );
 
   # Calling btrbk via "lsbtr" symlink acts as an alias for "btrbk ls",
@@ -5382,7 +5381,6 @@ MAIN:
     'preserve-snapshots' => sub { $preserve_snapshots = "preserve-snapshots" },
     'preserve-backups'   => sub { $preserve_backups = "preserve-backups" },
     'wipe'               => \$wipe_snapshots,
-    'resume-only|r'      => \$resume_only_DEPRECATED,
     'progress'           => \$show_progress,
     'related'            => \$extents_related,
     'table|t'            => sub { $output_format = "table" },
@@ -5421,14 +5419,6 @@ MAIN:
   }
   $do_trace = 1 if($loglevel >= 4);
   require_data_dumper() if($do_trace || ($VERSION =~ /-dev$/));
-
-  # DEPRECATED options
-  if($resume_only_DEPRECATED) {
-    WARN "Found deprecated command line option \"-r, --resume-only\": Use \"btrbk resume --preserve\"";
-    $skip_snapshots = "resume-only";
-    $preserve_backups = "resume-only";
-    $preserve_snapshots = "resume-only";
-  }
 
   # check command line options
   if($show_progress && (not check_exe('mbuffer'))) {
