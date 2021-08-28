@@ -788,13 +788,14 @@ sub _safe_cmd($$)
   my $offending = shift;
   foreach(@$aref) {
     if(ref($_) eq 'HASH') {
-      my $prefix = $_->{prefix} // "";
+      my $prefix  = $_->{prefix}  // "";
+      my $postfix = $_->{postfix} // "";
       $_ = $_->{unsafe};  # replace in-place
       # NOTE: all files must be absolute (if not, check for leading dash '-' here!)
       unless(defined(check_file($_, { absolute => 1 }))) {
         push @$offending, "\"$_\"";
       }
-      $_ = $prefix . quoteshell($_);
+      $_ = $prefix . quoteshell($_) . $postfix;
     }
   }
   return join(' ', @$aref);
@@ -1445,11 +1446,7 @@ sub btrfs_subvolume_delete($@)
   if($target_type eq "raw") {
     my @cmd_target_paths;
     foreach(@$targets) {
-      if($_->{node}{BTRBK_RAW}{split}) {
-        push @cmd_target_paths, "$_->{PATH}.split_??"; # unsafe is checked with path.info below
-      } else {
-        push @cmd_target_paths, { unsafe => $_->{PATH} };
-      }
+      push @cmd_target_paths, { unsafe => $_->{PATH}, postfix => ($_->{node}{BTRBK_RAW}{split} && ".split_??") };
       push @cmd_target_paths, { unsafe => "$_->{PATH}.info" };
     }
     $ret = run_cmd(cmd  => [ 'rm', '-f',  @cmd_target_paths ],
