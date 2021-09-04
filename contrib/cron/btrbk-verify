@@ -107,8 +107,8 @@ options:
    --ignore-xattrs       ignore xattrs when verifying subvolumes
    --ssh-identity FILE   override ssh_identity from btrbk.conf(5) with FILE,
                          and clear all other ssh_* options (use with --ssh-user)
-   --ssh-user USER       override ssh_user from btrbk.conf(5) with USER
-                         (only in conjunction with --ssh-identity)
+   --ssh-user USER       override ssh_user from btrbk.conf(5) with USER, and
+                         clear all other ssh_* options(use with --ssh-identity)
    --ssh-agent           start ssh-agent(1) and add identity
 
 commands:
@@ -157,7 +157,6 @@ while [[ "$#" -ge 1 ]]; do
           ;;
       --ssh-identity)
           # use different ssh identity (-i option) for rsync rsh.
-          # if set, ssh_user defaults to root.
           # NOTE: this overrides all btrbk ssh_* options
           ssh_identity="$2"
           shift
@@ -267,11 +266,14 @@ rsync_rsh()
     local rsh_match="(.*) ([a-z0-9_-]+)@([a-zA-Z0-9.-]+)$"
 
     if [[ -z "$rsh" ]]; then
-        echo
-    elif [[ -n "$ssh_identity" ]]; then
+        return
+    elif [[ -n "$ssh_user" ]] || [[ -n "$ssh_identity" ]]; then
         # override btrbk.conf from command line arguments
         log_debug "Overriding all ssh_* options from btrbk.conf"
-        echo "ssh -q -i $ssh_identity -l $ssh_user"
+        local cmd="ssh -q"
+        [[ -n "$ssh_identity" ]] && cmd="$cmd -i '$ssh_identity'"
+        [[ -n "$ssh_user" ]] && cmd="$cmd -l '$ssh_user'"
+        echo "$cmd"
     elif [[ $rsh =~ $rsh_match ]]; then
         echo "${BASH_REMATCH[1]} -l ${BASH_REMATCH[2]}"
     else
@@ -326,10 +328,6 @@ exit_trap_action()
     [[ -n "${ssh_agent_running:-}" ]] && kill_ssh_agent
     [[ $verbose -gt 0 ]] && tlog_print
 }
-
-# restrictions from rsync_rsh():
-[[ -z "$ssh_identity" ]] && [[ -n "$ssh_user" ]] && print_usage 2
-[[ -n "$ssh_identity" ]] && [[ -z "$ssh_user" ]] && print_usage 2
 
 # start ssh-agent(1)
 [[ -n "$ssh_start_agent" ]] && start_ssh_agent
