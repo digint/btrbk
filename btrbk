@@ -3313,7 +3313,7 @@ sub vinfo_prefixed_keys($$)
   }
   $ret{$prefix . "subvolume"} = $vinfo->{PATH};
   my $rsh = vinfo_rsh($vinfo);
-  $ret{$prefix . "rsh"} = ($rsh ? join(" ", @$rsh) : undef),
+  $ret{$prefix . "rsh"} = $rsh ? _safe_cmd($rsh) : undef,
   return %ret;
 }
 
