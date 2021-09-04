@@ -781,24 +781,25 @@ sub quoteshell(@) {
   join ' ', map { "'" . s/'/'\\''/gr . "'" } @_
 }
 
-sub _safe_cmd($$)
+sub _safe_cmd($;$)
 {
-  # NOTE: this function alters $aref: hashes of form: "{ unsafe => 'string' }" get translated to "'string'"
+  # hashes of form: "{ unsafe => 'string' }" get translated to "'string'"
   my $aref = shift;
   my $offending = shift;
-  foreach(@$aref) {
-    if(ref($_) eq 'HASH') {
+  return join ' ', map {
+    if(ref($_)) {
       my $prefix  = $_->{prefix}  // "";
       my $postfix = $_->{postfix} // "";
-      $_ = $_->{unsafe};  # replace in-place
-      # NOTE: all files must be absolute (if not, check for leading dash '-' here!)
-      unless(defined(check_file($_, { absolute => 1 }))) {
-        push @$offending, "\"$_\"";
+      $_ = $_->{unsafe};
+      die "cannot quote leading dash for command: $_" if(/^-/);
+      # NOTE: all files must be absolute
+      if($offending && !defined(check_file($_, { absolute => 1 }))) {
+        push @$offending, $_;
       }
       $_ = $prefix . quoteshell($_) . $postfix;
     }
-  }
-  return join(' ', @$aref);
+    $_
+  } @$aref;
 }
 
 sub run_cmd(@)
@@ -925,7 +926,7 @@ sub run_cmd(@)
   my $cmd = _piped_cmd_txt(\@cmd_pipe);
 
   if(scalar(@unsafe_cmd)) {
-    ERROR "Unsafe command `$cmd` (offending string: " . join(', ', @unsafe_cmd) . ')';
+    ERROR "Unsafe command `$cmd` (offending string: " . join(', ', map "\"$_\"", @unsafe_cmd) . ')';
     return undef;
   }
 
