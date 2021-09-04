@@ -365,8 +365,8 @@ while read -r btrbk_list_line; do
         break
     fi
 
-    source="${R_snapshot_subvolume}"
-    target="${R_target_subvolume}"
+    source="${R_snapshot_subvolume}/"
+    target="${R_target_subvolume}/"
     [[ -n "$R_source_host" ]] && source="${R_source_host}:${source}"
     [[ -n "$R_target_host" ]] && target="${R_target_host}:${target}"
 
@@ -384,10 +384,11 @@ while read -r btrbk_list_line; do
         # rsync rsh is either source_rsh or target_rsh or empty
         eff_rsh="$R_source_rsh"
         [[ -z "$eff_rsh" ]] && eff_rsh="$R_target_rsh"
+        eff_rsh=$(rsync_rsh "$eff_rsh")
 
         rsync_cmd=("rsync" "${rsync_args[@]}")
-        [[ -n "$eff_rsh" ]] && rsync_cmd+=(-e "$(rsync_rsh "$eff_rsh")")
-        rsync_cmd+=("${source}/" "${target}/")
+        [[ -n "$eff_rsh" ]] && rsync_cmd+=("-e" "$eff_rsh")
+        rsync_cmd+=("${source}" "${target}")
         log_cmd "${rsync_cmd[@]}"
         [[ -n "$dryrun" ]] && rsync_cmd=("cat" "/dev/null")
 
