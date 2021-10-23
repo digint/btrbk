@@ -1157,6 +1157,10 @@ sub btrfs_subvolume_show($;@)
       "Top Level"             => "top_level",
       "Top level ID"          => "top_level",       # btrfs-progs >= 4.1
       "Flags"                 => "flags",
+      "Send transid"          => "send_transid",    # btrfs-progs >= 5.14.2
+      "Send time"             => "send_time",       # btrfs-progs >= 5.14.2
+      "Receive transid"       => "receive_transid", # btrfs-progs >= 5.14.2
+      "Receive time"          => "receive_time",    # btrfs-progs >= 5.14.2
      );
     foreach(@$ret) {
       next unless /^\s+(.+):\s+(.*)$/;
