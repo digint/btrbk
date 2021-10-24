@@ -96,7 +96,7 @@ my %config_options = (
   target_preserve_min         => { default => "all",     accept => [ "all", "latest", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
   archive_preserve            => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1, context => [ "global" ] },
   archive_preserve_min        => { default => "all",     accept => [ "all", "latest", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/, context => [ "global" ] },
-  btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
+  btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "sync", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
   ssh_compression             => { default => undef,     accept => [ "yes", "no" ] },
@@ -320,6 +320,7 @@ my %backend_cmd_map = (
                            "btrfs subvolume show"     => [ "sudo", "-n", "btrfs", "subvolume", "show"     ],
                            "btrfs subvolume snapshot" => [ "sudo", "-n", "btrfs", "subvolume", "snapshot" ],
                            "btrfs subvolume delete"   => [ "sudo", "-n", "btrfs", "subvolume", "delete"   ],
+                           "btrfs subvolume sync"     => [ "sudo", "-n", "btrfs", "subvolume", "sync"     ],
                            "btrfs send"               => [ "sudo", "-n", "btrfs", "send"                  ],
                            "btrfs receive"            => [ "sudo", "-n", "btrfs", "receive"               ],
                            "btrfs filesystem usage"   => [ "sudo", "-n", "btrfs", "filesystem", "usage"   ],
@@ -1425,7 +1426,7 @@ sub btrfs_subvolume_delete($@)
   my $targets = shift // die;
   my %opts = @_;
   my $commit = $opts{commit};
-  die if($commit && ($commit ne "after") && ($commit ne "each"));
+  die if($commit && ($commit ne "after") && ($commit ne "each") && ($commit ne "sync"));
   $targets = [ $targets ] unless(ref($targets) eq "ARRAY");
   return () unless(scalar(@$targets));
 
@@ -1469,14 +1470,27 @@ sub btrfs_subvolume_delete($@)
     }
   }
   else {
-    my @cmd_target_paths = map { { unsafe => $_->{PATH} } } @$targets;
-    my @options;
-    @options = ("--commit-$commit") if($commit);
-    $ret = run_cmd(cmd => vinfo_cmd($targets->[0], "btrfs subvolume delete", @options, @cmd_target_paths ),
-                   rsh => vinfo_rsh($targets->[0]),
-                   fatal_stderr  => sub { m/^ERROR: /; },  # probably not needed, "btrfs sub delete" returns correct exit status
-                   filter_stderr => \&_btrfs_filter_stderr,
-                  );
+    if($commit && $commit eq "sync") {
+      foreach my $target (@$targets) {
+        $ret = run_cmd(cmd => vinfo_cmd($target, "btrfs subvolume delete", { unsafe => $target->{PATH} } ),
+                       rsh => vinfo_rsh($target),
+                       fatal_stderr  => sub { m/^ERROR: /; },  # probably not needed, "btrfs sub delete" returns correct exit status
+                       filter_stderr => \&_btrfs_filter_stderr,
+                      );
+        $ret = run_cmd(cmd => vinfo_cmd($target, "btrfs subvolume sync", { unsafe => $target->{VINFO_MOUNTPOINT}{PATH} }, $target->{node}{id} ),
+                       rsh => vinfo_rsh($target),
+                      );
+      }
+    } else {
+      my @options;
+      my @cmd_target_paths = map { { unsafe => $_->{PATH} } } @$targets;
+      @options = ("--commit-$commit") if($commit);
+      $ret = run_cmd(cmd => vinfo_cmd($targets->[0], "btrfs subvolume delete", @options, @cmd_target_paths ),
+                     rsh => vinfo_rsh($targets->[0]),
+                     fatal_stderr  => sub { m/^ERROR: /; },  # probably not needed, "btrfs sub delete" returns correct exit status
+                     filter_stderr => \&_btrfs_filter_stderr,
+                    );
+    }
     unless(defined($ret)) {
       foreach(@stderr) {
         next unless(/'(\/.*?)'/ || /: (\/.*)$/ || /(\/.*?):/);
