@@ -321,6 +321,7 @@ my %backend_cmd_map = (
                            "btrfs subvolume snapshot" => [ "sudo", "-n", "btrfs", "subvolume", "snapshot" ],
                            "btrfs subvolume delete"   => [ "sudo", "-n", "btrfs", "subvolume", "delete"   ],
                            "btrfs subvolume sync"     => [ "sudo", "-n", "btrfs", "subvolume", "sync"     ],
+                           "btrfs filesystem sync"    => [ "sudo", "-n", "btrfs", "filesystem", "sync"    ],
                            "btrfs send"               => [ "sudo", "-n", "btrfs", "send"                  ],
                            "btrfs receive"            => [ "sudo", "-n", "btrfs", "receive"               ],
                            "btrfs filesystem usage"   => [ "sudo", "-n", "btrfs", "filesystem", "usage"   ],
@@ -1476,6 +1477,9 @@ sub btrfs_subvolume_delete($@)
                        rsh => vinfo_rsh($target),
                        fatal_stderr  => sub { m/^ERROR: /; },  # probably not needed, "btrfs sub delete" returns correct exit status
                        filter_stderr => \&_btrfs_filter_stderr,
+                      );
+        $ret = run_cmd(cmd => vinfo_cmd($target, "btrfs filesystem sync", { unsafe => $target->{VINFO_MOUNTPOINT}{PATH} } ),
+                       rsh => vinfo_rsh($target),
                       );
         $ret = run_cmd(cmd => vinfo_cmd($target, "btrfs subvolume sync", { unsafe => $target->{VINFO_MOUNTPOINT}{PATH} }, $target->{node}{id} ),
                        rsh => vinfo_rsh($target),

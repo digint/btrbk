@@ -140,6 +140,8 @@ while [[ "$#" -ge 1 ]]; do
 
       -d|--delete)
           allow_cmd "${sudo_prefix}btrfs subvolume delete"
+          allow_cmd "${sudo_prefix}btrfs subvolume sync"
+          allow_cmd "${sudo_prefix}btrfs filesystem sync"
           ;;
 
       -i|--info)
