@@ -59,7 +59,7 @@ For more information, read the [installation documentation].
 
   [btrfs-progs]: https://www.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/
   [Perl interpreter]: https://www.perl.org
-  [OpenSSH]: https://www.openssh.org
+  [OpenSSH]: https://www.openssh.com
   [mbuffer]: https://www.maier-komor.de/mbuffer.html
 
 
