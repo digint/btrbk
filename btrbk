@@ -926,7 +926,7 @@ sub run_cmd(@)
   my $cmd = _piped_cmd_txt(\@cmd_pipe);
 
   if(scalar(@unsafe_cmd)) {
-    ERROR "Unsafe command `$cmd` (offending string: " . join(', ', map "\"$_\"", @unsafe_cmd) . ')';
+    ERROR "Unsafe command `$cmd`", map "Offending string: \"$_\"", @unsafe_cmd;
     return undef;
   }
 
