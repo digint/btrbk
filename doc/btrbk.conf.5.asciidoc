@@ -116,7 +116,7 @@ snapshots are created during a daylight saving time clock
 change).
 +
 Note that using ``long-iso'' has implications on the scheduling, see
-<<_retention_policy,RETENTION POLICY>> (caveats) below.
+<<_reference_time,Reference Time>> below.
 
 *snapshot_dir* <directory>::
     Directory in which the btrfs snapshots are created, relative to
@@ -537,29 +537,31 @@ Use an asterisk for ``all'' (e.g. "target_preserve 60d *m"
 states: "preserve daily backups for 60 days back, and all monthly
 backups").
 
-The reference time (which defines the beginning of a day, week, month
-or year) for all date/time calculations is the local time of the host
-running btrbk.
-
 Hint: Run btrbk with the '-S', '--print-schedule' option to get a
 comprehensive output of the scheduler results.
 
-Caveats:
 
-* If you run a setup with several btrbk instances (e.g. one
-  snapshot-only instance per remote client, and a separate fetch-only
-  instance on the backup server), it makes perfectly sense to run
-  btrbk with different local time on the clients, in order to make
-  sure the backups from all the remote hosts are preserved for
-  "midnight", and not at "00:00 UTC" (which would be "14:00" in
-  Honolulu). If you want this behavior, do NOT use "timestamp_format
-  long-iso".
+=== Reference Time
 
-* If "timestamp_format long-iso" is set, running btrbk from different
-  time zones leads to different interpretation of "first in day, week,
-  month, or year". Make sure to run btrbk with the same time zone on
-  every host, e.g. by setting the TZ environment variable (see
-  tzset(3)).
+The local time on the host running btrbk defines the reference time
+for all date/time calculations, especially for "beginning of a day",
+and as a consequence for the first daily, weekly, monthly or yearly
+backups. The local time on remote hosts (ssh source/target) is never
+used.
+
+Unless "timestamp_format long-iso" is set, daily backups are preserved
+at "preserve_hour_of_day" (defaults to midnight) of the respective
+time zone (and not for "00:00 UTC", which would be "14:00" in
+Honolulu). This becomes relevant for setups with multiple btrbk
+instances, e.g. many snapshot-only instances (spread around the
+world), and a fetch-only instance on the backup server.
+
+Caveat:
+
+* If "timestamp_format long-iso" is set, each btrbk instance on has a
+  different interpretation of "first in day". Make sure to run btrbk
+  with the same time zone on every host, e.g. by setting the TZ
+  environment variable (see tzset(3)).
 
 
 TARGET TYPES
