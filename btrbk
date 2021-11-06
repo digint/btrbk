@@ -64,6 +64,7 @@ my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 my $btrbk_timestamp_match = qr/(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
 my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))?/;  # matches ".btrfs[.gz|bz2|xz][.gpg|encrypted]"
+my $safe_file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
@@ -143,6 +144,7 @@ my %config_options = (
   compat                      => { default => undef,     accept => [ "no", "busybox" ] },
   compat_local                => { default => undef,     accept => [ "no", "busybox" ] },
   compat_remote               => { default => undef,     accept => [ "no", "busybox" ] },
+  safe_commands               => { default => undef,     accept => [ "yes", "no" ], context => [ "global" ] },
 
   snapshot_qgroup_destroy     => { default => undef,     accept => [ "yes", "no" ], context => [ "global", "volume", "subvolume" ] },
   target_qgroup_destroy       => { default => undef,     accept => [ "yes", "no" ] },
@@ -357,6 +359,7 @@ my $tree_inject_id   = 0;  # fake subvolume id for injected nodes (negative)
 my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id: XXXXXXXX-XXXX-XXXX-XXXX-000000000000
 
 my $program_name; # "btrbk" or "lsbtr", default to "btrbk"
+my $safe_commands;
 my $dryrun;
 my $loglevel = 1;
 my $quiet;
@@ -793,8 +796,9 @@ sub _safe_cmd($;$)
       $_ = $_->{unsafe};
       die "cannot quote leading dash for command: $_" if(/^-/);
       # NOTE: all files must be absolute
-      if($offending && !defined(check_file($_, { absolute => 1 }))) {
-        push @$offending, $_;
+      if($offending) {
+        push @$offending, $_ unless(defined(check_file($_, { absolute => 1 })));
+        push @$offending, $_ unless(!$safe_commands || /^($safe_file_match)$/);
       }
       $_ = $prefix . quoteshell($_) . $postfix;
     }
@@ -5656,6 +5660,7 @@ MAIN:
     ERROR "Configuration file not found: " . join(', ', @config_src);
     exit 2;
   }
+  $safe_commands = config_key($config, 'safe_commands');
 
   unless(ref($config->{SUBSECTION}) eq "ARRAY") {
     ERROR "No volumes defined in configuration file";
