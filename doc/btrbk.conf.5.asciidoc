@@ -487,20 +487,23 @@ sources for all (!) known candidates on the filesystem.
 RETENTION POLICY
 ----------------
 
-btrbk uses separate retention policies for snapshots and backups,
-which are defined by the 'snapshot_preserve_min', 'snapshot_preserve',
-'target_preserve_min', 'target_preserve', 'preserve_day_of_week' and
-'preserve_hour_of_day' configuration options.
+Retention policies are defined individually for snapshots, backups and
+archives (summarized as "backups" in the following text), using a
+combination of:
 
-Within this section, any statement about "backups" is always valid for
-backups as well as snapshots, referring to 'target_preserve' or
-'snapshot_preserve' respectively.
+**_preserve_min* all|latest|no|<number>{h,d,w,m,y}::
+    Amount of time (duration) in which all backups are preserved.
+
+**_preserve* no|<retention_policy>::
+    Schedule (single points in time) for which individual backups are
+    preserved.
+
+Note that if "preserve_min" is set to ``all'' (the default), any
+setting of "preserve" obviously has no effect.
 
 The format for '<retention_policy>' is:
 
     [<hourly>h] [<daily>d] [<weekly>w] [<monthly>m] [<yearly>y]
-
-With the following semantics:
 
 *hourly*::
     Defines how many hours back hourly backups should be
