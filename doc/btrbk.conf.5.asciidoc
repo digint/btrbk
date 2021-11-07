@@ -96,7 +96,7 @@ otherwise.
 
 *timestamp_format* short|long|long-iso::
     Timestamp format used as postfix for new snapshot subvolume
-    names. Defaults to ``short''.
+    names. Defaults to ``long''.
 +
 --
 ifndef::backend-docbook,backend-manpage[]

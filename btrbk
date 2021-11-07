@@ -81,7 +81,7 @@ my %config_options = (
   # NOTE: the parser always maps "no" to undef
   # NOTE: keys "volume", "subvolume" and "target" are hardcoded
   # NOTE: files "." and "no" map to <undef>
-  timestamp_format            => { default => "short",   accept => [ "short", "long", "long-iso" ], context => [ "global", "volume", "subvolume" ] },
+  timestamp_format            => { default => "long",    accept => [ "short", "long", "long-iso" ], context => [ "global", "volume", "subvolume" ] },
   snapshot_dir                => { default => undef,     accept_file => { relative => 1, absolute => 1 }, context => [ "global", "volume", "subvolume" ] },
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "global", "volume", "subvolume" ] },
