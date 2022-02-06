@@ -2958,7 +2958,8 @@ sub mountinfo_tree($)
   my %id = map +( $_->{mount_id} => $_ ), @$mountinfo;
   my $tree_root;
   foreach my $node (@$mountinfo) {
-    if(my $parent = $id{$node->{parent_id}}) {
+    my $parent = $id{$node->{parent_id}};
+    if($parent && ($node->{mount_id} != $node->{parent_id})) {
       $node->{PARENT} = $parent;
       push @{$parent->{SUBTREE}}, $node;
     } else {
