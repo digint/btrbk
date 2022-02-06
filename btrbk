@@ -2023,9 +2023,7 @@ sub system_realpath($)
 {
   my $vol = shift // die;
   my $path = $vol->{PATH} // die;
-  my $compat = (($vol->{HOST} && config_key($vol, "compat_remote")) //
-                config_key($vol, "compat_local") //
-                config_key($vol, "compat")) // "" eq "busybox";
+  my $compat = config_key_lru($vol, "compat", "busybox");
   my @options = ("-v");                # report error messages
   push @options, "-e" unless($compat); # all components must exist (not available in busybox!)
   push @options, "-f" if($compat);     # all but the last component must exist.
@@ -2837,14 +2835,7 @@ sub vinfo_cmd($$@)
   my $cmd = shift || die;
   my @cmd_args = @_;
   my $ret;
-  my $backend;
-  if(defined($vinfo->{HOST})) {
-    $backend //= config_key($vinfo, "backend_remote");
-  } else {
-    $backend //= config_key($vinfo, "backend_local_user") if($>); # $EUID, $EFFECTIVE_USER_ID
-    $backend //= config_key($vinfo, "backend_local");
-  }
-  $backend //= config_key($vinfo, "backend") // die;
+  my $backend = config_key_lru($vinfo, "backend") // die;
   my $cmd_mapped = $backend_cmd_map{$backend}{$cmd};
   if(defined($cmd_mapped)) {
     TRACE "vinfo_cmd: found mapping for backend=$backend cmd=\"$cmd\": " . join(' ', @$cmd_mapped) if($do_trace);
@@ -3929,6 +3920,22 @@ sub config_key($$;$)
   } else {
     return ($val eq $match) ? $match : undef;
   }
+}
+
+
+sub config_key_lru($$;$) {
+  my $vinfo = shift || die;
+  my $key = shift || die;
+  my $match = shift;
+  my $retval;
+  if(defined($vinfo->{HOST})) {
+    $retval //= config_key($vinfo, $key . "_remote", $match);
+  } else {
+    $retval //= config_key($vinfo, $key . "_local_user", $match) if($>); # $EUID, $EFFECTIVE_USER_ID
+    $retval //= config_key($vinfo, $key . "_local", $match);
+  }
+  $retval //= config_key($vinfo, $key, $match);
+  return $retval;
 }
 
 
