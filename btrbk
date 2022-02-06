@@ -3900,24 +3900,35 @@ sub check_url($;@)
 }
 
 
-sub config_key($$)
+sub config_key($$;$)
 {
   my $config = shift || die;
   my $key = shift || die;
+  my $match = shift;
   $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
 
+  my $val;
   if(exists($config_override{$key})) {
     TRACE "config_key: OVERRIDE key=$key to value=" . ($config_override{$key} // "<undef>") if($do_trace);
-    return $config_override{$key};
+    $val = $config_override{$key};
   }
+  else {
+    while(not exists($config->{$key})) {
+      # note: while all config keys exist in "meta" context (at least with default values),
+      #       we also allow fake configs (CONTEXT="cmdline") which have no PARENT.
+      return undef unless($config->{PARENT});
+      $config = $config->{PARENT};
+    }
+    $val = $config->{$key};
+  }
+  return undef unless defined($val);
+  return $val unless defined($match);
 
-  while(not exists($config->{$key})) {
-    # note: while all config keys exist in "meta" context (at least with default values),
-    #       we also allow fake configs (CONTEXT="cmdline") which have no PARENT.
-    return undef unless($config->{PARENT});
-    $config = $config->{PARENT};
+  if(ref($val) eq "ARRAY") {
+    return grep(/^$match$/, @$val) ? $match : undef;
+  } else {
+    return ($val eq $match) ? $match : undef;
   }
-  return $config->{$key};
 }
 
 
