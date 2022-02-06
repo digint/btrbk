@@ -3900,12 +3900,10 @@ sub check_url($;@)
 }
 
 
-sub config_key($$;@)
+sub config_key($$)
 {
   my $config = shift || die;
   my $key = shift || die;
-  my %opts = @_;
-  my $orig_config = $config;
   $config = $config->{CONFIG} if($config->{CONFIG});  # accept vinfo for $config
 
   if(exists($config_override{$key})) {
@@ -3919,10 +3917,7 @@ sub config_key($$;@)
     return undef unless($config->{PARENT});
     $config = $config->{PARENT};
   }
-  my $retval = $config->{$key};
-  $retval = $opts{prefix} . $retval if(defined($opts{prefix}) && defined($retval));
-  $retval .= $opts{postfix} if(defined($opts{postfix}) && defined($retval));
-  return $retval;
+  return $config->{$key};
 }
 
 
