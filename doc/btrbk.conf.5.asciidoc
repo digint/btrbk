@@ -368,9 +368,9 @@ constraints.
     held by another btrbk instance. Ignored on dryrun ('-n',
     '--dry-run'). See also '--lockfile' command-line option.
 
-*backend* btrfs-progs|btrfs-progs-btrbk|btrfs-progs-sudo::
+*backend* <backend>::
     Backend filesystem utilities to be used for btrfs specific
-    operations. Defaults to ``btrfs-progs''.
+    operations. Available backends:
 +
 --
 *btrfs-progs*::
@@ -389,6 +389,9 @@ constraints.
     subvolume show" instead of "btrfs subvolume show"). Make sure to
     have appropriate (root) permissions for the "btrfs" command groups
     as well as the "readlink" and "test" commands in /etc/sudoers.
+
+*btrfs-progs-doas*::
+    Similar to btrfs-progs-sudo, using prefix "doas -n".
 
 If you want to set this option for local or remote hosts only, set
 *backend_local* or *backend_remote* (e.g. "backend_remote
