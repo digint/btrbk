@@ -308,26 +308,23 @@ my %table_formats = (
   },
 );
 
+my @btrfs_cmd = (
+  "btrfs subvolume list",
+  "btrfs subvolume show",
+  "btrfs subvolume snapshot",
+  "btrfs subvolume delete",
+  "btrfs send",
+  "btrfs receive",
+  "btrfs filesystem usage",
+  "btrfs qgroup destroy",
+);
+my @system_cmd = (
+  "readlink",
+  "test",
+);
 my %backend_cmd_map = (
-  "btrfs-progs-btrbk" => { "btrfs subvolume list"     => [ "btrfs-subvolume-list"     ],
-                           "btrfs subvolume show"     => [ "btrfs-subvolume-show"     ],
-                           "btrfs subvolume snapshot" => [ "btrfs-subvolume-snapshot" ],
-                           "btrfs subvolume delete"   => [ "btrfs-subvolume-delete"   ],
-                           "btrfs send"               => [ "btrfs-send"               ],
-                           "btrfs receive"            => [ "btrfs-receive"            ],
-                           "btrfs filesystem usage"   => [ "btrfs-filesystem-usage"   ],
-                           "btrfs qgroup destroy"     => [ "btrfs-qgroup-destroy"     ],
-                         },
-  "btrfs-progs-sudo" =>  { "btrfs subvolume list"     => [ "sudo", "-n", "btrfs", "subvolume", "list"     ],
-                           "btrfs subvolume show"     => [ "sudo", "-n", "btrfs", "subvolume", "show"     ],
-                           "btrfs subvolume snapshot" => [ "sudo", "-n", "btrfs", "subvolume", "snapshot" ],
-                           "btrfs subvolume delete"   => [ "sudo", "-n", "btrfs", "subvolume", "delete"   ],
-                           "btrfs send"               => [ "sudo", "-n", "btrfs", "send"                  ],
-                           "btrfs receive"            => [ "sudo", "-n", "btrfs", "receive"               ],
-                           "btrfs filesystem usage"   => [ "sudo", "-n", "btrfs", "filesystem", "usage"   ],
-                           "btrfs qgroup destroy"     => [ "sudo", "-n", "btrfs", "qgroup", "destroy"     ],
-                           "readlink"                 => [ "sudo", "-n", "readlink"                       ],
-                         },
+  "btrfs-progs-btrbk" => { map +( $_ => [ s/ /-/gr ] ), @btrfs_cmd },
+  "btrfs-progs-sudo"  => { map +( $_ => [ qw( sudo -n ), split(" ", $_) ] ), @btrfs_cmd, @system_cmd },
 );
 
 # keys used in raw target sidecar files (.info):
@@ -2834,19 +2831,9 @@ sub vinfo_cmd($$@)
   my $vinfo = shift || die;
   my $cmd = shift || die;
   my @cmd_args = @_;
-  my $ret;
   my $backend = config_key_lru($vinfo, "backend") // die;
-  my $cmd_mapped = $backend_cmd_map{$backend}{$cmd};
-  if(defined($cmd_mapped)) {
-    TRACE "vinfo_cmd: found mapping for backend=$backend cmd=\"$cmd\": " . join(' ', @$cmd_mapped) if($do_trace);
-    $ret = [ @$cmd_mapped, @cmd_args ];
-  }
-  else {
-    my @ret_cmd = split(/\s/, $cmd);
-    TRACE "vinfo_cmd: no mapping found for backend=$backend cmd=\"$cmd\", assuming btrfs-progs: " . join(' ', @ret_cmd) if($do_trace);
-    $ret = [ @ret_cmd, @cmd_args ];
-  }
-  return $ret;
+  my $cmd_mapped = $backend_cmd_map{$backend}{$cmd} // [ split(" ", $cmd) ];
+  return [ @$cmd_mapped, @cmd_args ];
 }
 
 sub _get_btrbk_date(@)
