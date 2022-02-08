@@ -136,10 +136,10 @@ my %config_options = (
   group                       => { default => undef,     accept_regexp => qr/^$group_match($split_match$group_match)*$/, allow_multiple => 1, split => $split_match },
   noauto                      => { default => undef,     accept => [ "yes", "no" ] },
 
-  backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
-  backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
-  backend_remote              => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
-  backend_local_user          => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo" ] },
+  backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo", "btrfs-progs-doas" ] },
+  backend_local               => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo", "btrfs-progs-doas" ] },
+  backend_remote              => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo", "btrfs-progs-doas" ] },
+  backend_local_user          => { default => undef,         accept => [ "no", "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo", "btrfs-progs-doas" ] },
 
   compat                      => { default => undef,     accept => [ "no", "busybox" ] },
   compat_local                => { default => undef,     accept => [ "no", "busybox" ] },
@@ -325,6 +325,7 @@ my @system_cmd = (
 my %backend_cmd_map = (
   "btrfs-progs-btrbk" => { map +( $_ => [ s/ /-/gr ] ), @btrfs_cmd },
   "btrfs-progs-sudo"  => { map +( $_ => [ qw( sudo -n ), split(" ", $_) ] ), @btrfs_cmd, @system_cmd },
+  "btrfs-progs-doas"  => { map +( $_ => [ qw( doas -n ), split(" ", $_) ] ), @btrfs_cmd, @system_cmd },
 );
 
 # keys used in raw target sidecar files (.info):

@@ -105,6 +105,7 @@ reject_filtered_cmd()
 sudo_prefix=
 for key; do
     [[ "$key" == "--sudo" ]] && sudo_prefix="sudo -n "
+    [[ "$key" == "--doas" ]] && sudo_prefix="doas -n "
 done
 
 while [[ "$#" -ge 1 ]]; do
@@ -115,7 +116,7 @@ while [[ "$#" -ge 1 ]]; do
           enable_log=1
           ;;
 
-      --sudo)
+      --sudo|--doas)
           # already processed above
           ;;
 
