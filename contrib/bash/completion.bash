@@ -4,7 +4,7 @@ _btrbk_init_cmds()
   #
   # for example, for this command:
   #
-  #     btrbk -v list config --long
+  #     btrbk -v --override warn_unknown_targets=yes list config --long
   #
   # then $cmds is:
   #
@@ -14,6 +14,11 @@ _btrbk_init_cmds()
 
   local i
   for ((i = 1; i < cword; i++)); do
+    case "${words[i-1]}" in
+      '-c' | '--config' | '--exclude' | '-l' | '--loglevel' | '--format' | '--lockfile' | '--override')
+        continue
+        ;;
+    esac
     [[ ${words[i]} != -* ]] && cmds+=(${words[i]})
   done
 
@@ -29,21 +34,28 @@ _btrbk()
   case "$prev" in
     '-c' | '--config')
       _filedir
+      return
       ;;
     '--exclude')
+      return
       ;;
     '-l' | '--loglevel')
       COMPREPLY=($(compgen -W 'error warn info debug trace' -- "$cur"))
+      return
       ;;
     '--format')
       COMPREPLY=($(compgen -W 'table long raw' -- "$cur"))
+      return
       ;;
     '--lockfile')
       _filedir
+      return
       ;;
     '--override')
+      return
       ;;
   esac
+
   $split && return
 
   if [[ $cur == -* ]]; then
