@@ -79,12 +79,8 @@ install-completion:
 install-systemd:
 	@echo 'installing systemd service units...'
 	install -d -m 755 "$(DESTDIR)$(SYSTEMDDIR)"
-	$(replace_vars) contrib/systemd/btrbk.service.in > contrib/systemd/btrbk.service.tmp
-	$(replace_vars) contrib/systemd/btrbk.timer.in > contrib/systemd/btrbk.timer.tmp
-	install -p -m 644 contrib/systemd/btrbk.service.tmp "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
-	install -p -m 644 contrib/systemd/btrbk.timer.tmp "$(DESTDIR)$(SYSTEMDDIR)/btrbk.timer"
-	rm contrib/systemd/btrbk.service.tmp
-	rm contrib/systemd/btrbk.timer.tmp
+	$(replace_vars) contrib/systemd/btrbk.service.in | install -p -m 644 /dev/stdin "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
+	$(replace_vars) contrib/systemd/btrbk.timer.in | install -p -m 644 /dev/stdin "$(DESTDIR)$(SYSTEMDDIR)/btrbk.timer"
 
 install-share:
 	@echo 'installing auxiliary scripts...'
