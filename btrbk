@@ -6439,7 +6439,7 @@ MAIN:
       return unless($mountpoint);
       my $mount_source = $mountpoint->{mount_source};
       my $mid = $vol->{MACHINE_ID} . $mount_source;
-      $usage_cache{$mid} //= btrfs_filesystem_usage($vol);
+      $usage_cache{$mid} //= btrfs_filesystem_usage($vol) // {};
       push @data, { %{$usage_cache{$mid}},
                     type => $type,
                     mount_source => $mount_source,
