@@ -242,15 +242,18 @@ set to ``all'' (the default).
 
 === SSH Options
 
-*ssh_identity* <file>::
-    Absolute path to a ssh identity file (private key). Note that if
-    the private key is password protected, btrbk will prompt for user
-    input, which is usually not desired.
+*ssh_identity* <file>|no::
+    Absolute path to a ssh identity file (private key). If not set,
+    the ssh default is used (see ssh(1), "-i identity_file"). Note
+    that if the identity key is password protected and no
+    authentication agent is used, btrbk will prompt for user input on
+    every connection attempt.
 
-*ssh_user* <username>::
+*ssh_user* <username>|no::
     Remote username for ssh. Defaults to ``root''. Make sure the
     remote user is able to run "btrfs" with root privileges (see
-    option 'backend' for details).
+    option 'backend' for details). If set to ``no'', the ssh default
+    is used.
 
 *ssh_compression* yes|no::
     Enables or disables the compression of ssh connections. Defaults
