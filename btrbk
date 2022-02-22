@@ -98,7 +98,7 @@ my %config_options = (
   archive_preserve            => { default => undef,         accept => [qw( no )], accept_preserve_matrix => 1, context => [qw( global )] },
   archive_preserve_min        => { default => "all",         accept => [qw( all latest no ), qr/[0-9]+[hdwmy]/ ], context => [qw( global )] },
   ssh_identity                => { default => undef,         accept => [qw( no ) ], accept_file => { absolute => 1 } },
-  ssh_user                    => { default => "root",        accept => [ qr/[a-z_][a-z0-9_-]*/ ] },
+  ssh_user                    => { default => "root",        accept => [qw( no ), qr/[a-z_][a-z0-9_-]*/ ] },
   ssh_compression             => { default => undef,         accept => [qw( yes no )] },
   ssh_cipher_spec             => { default => [ "default" ], accept => [qw( default ), qr/[a-z0-9][a-z0-9@.-]+/ ], split => 1 },
   transaction_log             => { default => undef,         accept => [qw( no )], accept_file => { absolute => 1 }, context => [qw( global )] },
@@ -2762,7 +2762,8 @@ sub vinfo_rsh($;@)
   } elsif($ssh_compression) {
     push(@ssh_options, '-C');
   }
-  return ['ssh', @ssh_options, $ssh_user . '@' . $host ];
+  my $ssh_dest = $ssh_user ? $ssh_user . '@' . $host : $host;
+  return ['ssh', @ssh_options, $ssh_dest ];
 }
 
 
