@@ -178,6 +178,21 @@ volume ssh://my-remote-host.com/mnt/btr_pool
     target /mnt/btr_backup/my-remote-host.com
 
 
+# Backup on demand (noauto) to remote host running busybox, login as
+# regular user using ssh-agent with current user name (ssh_user no)
+# and default credentials (ssh_identity no).
+volume /home
+  noauto  yes
+  compat  busybox
+  backend_remote  btrfs-progs-sudo
+  ssh_user      no
+  ssh_identity  no
+
+  target ssh://my-user-host.com/mnt/btr_backup/home
+  subvolume  alice
+  subvolume  bob
+
+
 # Resume backups from remote host which runs its own btrbk instance
 # creating snapshots for "home" in "/mnt/btr_pool/btrbk_snapshots".
 volume ssh://my-remote-host.com/mnt/btr_pool
