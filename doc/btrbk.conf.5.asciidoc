@@ -264,7 +264,7 @@ set to ``all'' (the default).
     Selects the cipher specification for encrypting the session
     (comma-separated list of ciphers in order of preference). See the
     "-c cipher_spec" option in ssh(1) for more information. Defaults
-    to ``default'' (the ciphers specified in 'ssh_config').
+    to ``default'' (the ciphers specified in ssh_config(5)).
 
 Previous versions btrbk allowed you to set a *ssh_port* option, this
 has been dropped in favor of the `ssh://hostname:port` notation in the
