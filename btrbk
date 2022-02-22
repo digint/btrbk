@@ -100,6 +100,7 @@ my %config_options = (
   ssh_identity                => { default => undef,         accept => [qw( no ) ], accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",        accept => [qw( no ), qr/[a-z_][a-z0-9_-]*/ ] },
   ssh_compression             => { default => undef,         accept => [qw( yes no )] },
+  ssh_password_prompt         => { default => undef,         accept => [qw( yes no )] },
   ssh_cipher_spec             => { default => [ "default" ], accept => [qw( default ), qr/[a-z0-9][a-z0-9@.-]+/ ], split => 1 },
   transaction_log             => { default => undef,         accept => [qw( no )], accept_file => { absolute => 1 }, context => [qw( global )] },
   transaction_syslog          => { default => undef,         accept => [qw( no ), @syslog_facilities ], context => [qw( global )] },
@@ -2749,6 +2750,7 @@ sub vinfo_rsh($;@)
   my $ssh_user        = config_key($config, "ssh_user");
   my $ssh_identity    = config_key($config, "ssh_identity");
   my $ssh_compression = config_key($config, "ssh_compression");
+  my $ssh_prompt      = config_key($config, "ssh_password_prompt");
   my $ssh_cipher_spec = join(",", @{config_key($config, "ssh_cipher_spec")});
   my @ssh_options; # as of btrbk-0.29.0, we run ssh without -q (catching @stderr)
   push(@ssh_options, '-p', $ssh_port) if($ssh_port);
@@ -2759,6 +2761,7 @@ sub vinfo_rsh($;@)
   } elsif($ssh_compression) {
     push(@ssh_options, '-C');
   }
+  push(@ssh_options, '-o', 'NumberOfPasswordPrompts=0') unless($ssh_prompt);
   my $ssh_dest = $ssh_user ? $ssh_user . '@' . $host : $host;
   return ['ssh', @ssh_options, $ssh_dest ];
 }
