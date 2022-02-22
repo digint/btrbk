@@ -6449,13 +6449,13 @@ MAIN:
     };
     foreach my $sroot (vinfo_subsection($config, 'volume')) {
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-        $push_data->(vinfo_snapshot_root($svol), "source");
+        $push_data->($svol, "source");
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           $push_data->($droot, "target");
         }
       }
     }
-    @data = sort { $a->{type} cmp $b->{type} || $a->{url} cmp $b->{url} } @data;
+    @data = sort { $a->{url} cmp $b->{url} } @data;
     print_formatted("usage", \@data);
     exit exit_status($config);
   }
