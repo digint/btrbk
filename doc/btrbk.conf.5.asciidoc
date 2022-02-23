@@ -266,6 +266,12 @@ set to ``all'' (the default).
     "-c cipher_spec" option in ssh(1) for more information. Defaults
     to ``default'' (the ciphers specified in ssh_config(5)).
 
+*ssh_password_prompt* yes|no::
+    If set to ``yes'', enables ssh password prompt. This is usually
+    not desired, as btrbk opens many ssh connections and thus asks for
+    the same password multiple times. Consider using ssh-agent(1), or
+    an 'ssh_identity' with no password protection. Defaults to ``no''.
+
 
 === Data Stream Options
 
