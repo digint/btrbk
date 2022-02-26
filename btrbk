@@ -5907,6 +5907,7 @@ MAIN:
           my $svol_path = $svol->{PATH};
           $svol_path =~ s/^\/\//\//;  # sanitize "//" (see vinfo_child)
 
+          next unless($root_path eq "/" || $svol_path =~ /^\Q$root_path\E(\/|\z)/);
           if(_find_mountpoint($mnt, $svol_path) ne $mnt) {
             DEBUG "Subvolume is hidden by another mount point: $svol->{PRINT}";
             next;
