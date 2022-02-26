@@ -17,9 +17,6 @@
 # Enable transaction log
 transaction_log            /var/log/btrbk.log
 
-# Use long timestamp format (includes hour/minute)
-timestamp_format           long
-
 # Enable stream buffer. Adding a buffer between the sending and
 # receiving side is generally a good idea.
 # NOTE: If enabled, make sure to install the "mbuffer" package!
