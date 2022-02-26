@@ -185,10 +185,9 @@ not be certain about this, such operations are disallowed in
     Defines after what time (in full hours since midnight) a
     snapshot/backup is considered to be a "daily" backup. Daily,
     weekly, monthly and yearly backups are preserved on this hour (see
-    <<_retention_policy,RETENTION POLICY>> below). If you set this
-    option, make sure to also set 'timestamp_format' to ``long'' or
-    ``long-iso'' (backups and snapshots having no time information
-    will ignore this option). Defaults to ``0''.
+    <<_retention_policy,RETENTION POLICY>> below). Ignored on
+    snapshots or backups without time information ('timestamp_format
+    short'). Defaults to ``0''.
 
 *snapshot_preserve* no|<retention_policy>::
     Set retention policy for snapshots (see
@@ -511,9 +510,7 @@ The format for '<retention_policy>' is:
 *hourly*::
     Defines how many hours back hourly backups should be
     preserved. The first backup of an hour is considered an hourly
-    backup. Note that if you use <hourly> scheduling, make sure to
-    also set 'timestamp_format' to ``long'' or ``long-iso'', or the
-    scheduler will interpret the time as "00:00" (midnight).
+    backup.
 
 *daily*::
     Defines how many days back daily backups should be preserved. The
