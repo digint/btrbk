@@ -1,8 +1,19 @@
+btrbk-0.32.2
+
+  * Fix regression: archive on missing target directories.
+  * Fix action "config print".
+  * Print version and help message to stdout (close #452).
+  * Check results of filesystem usage (close #469).
+  * Add "compat ignore_receive_errors" option (close #383).
+  * Support multiple gpg recipients (close #471).
+  * Fix changelog: remove "compat missing_otime" item in v0.32.1.
+  * Fix changelog: correct "warn_unknown_targets" item in v0.31.3.
+  * Minor bugfixes and framework improvements.
+
 btrbk-0.32.1
 
   * Fix regression: correctly read mountinfo (close #445).
   * Fix regression: filter paths for "lsbtr" (action "ls").
-  * Add "compat missing_otime" configuration option (close #393).
   * Add backend btrfs-progs-doas (close #444).
   * Allow directory traversal for local command line arguments.
   * Display all source subvolumes in "usage" action.
@@ -33,7 +44,7 @@ btrbk-0.32.0
 
 btrbk-0.31.3
 
-  * Add "warn_duplicate_targets" configuration option (close #393).
+  * Add "warn_unknown_targets" configuration option (close #393).
   * Add -1,--single-column command-line option for listing actions.
   * Allow relative path command line argument for all actions.
   * Add support for zstd adaptive compression (close #397).
