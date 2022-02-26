@@ -1,3 +1,13 @@
+btrbk-0.32.1
+
+  * Fix regression: correctly read mountinfo (close #445).
+  * Fix regression: filter paths for "lsbtr" (action "ls").
+  * Add "compat missing_otime" configuration option (close #393).
+  * Add backend btrfs-progs-doas (close #444).
+  * Allow directory traversal for local command line arguments.
+  * Display all source subvolumes in "usage" action.
+  * Handle errors from btrfs filesystem usage.
+
 btrbk-0.32.0
 
   * MIGRATION
