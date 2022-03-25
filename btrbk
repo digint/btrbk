@@ -35,7 +35,7 @@ use IPC::Open3 qw(open3);
 use Symbol qw(gensym);
 use Cwd qw(abs_path);
 
-our $VERSION         = '0.32.1';
+our $VERSION         = '0.32.2-dev';
 our $AUTHOR          = 'Axel Burri <axel@tty0.ch>';
 our $PROJECT_HOME    = '<https://digint.ch/btrbk/>';
 
