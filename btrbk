@@ -401,6 +401,12 @@ sub VERSION_MESSAGE
   print STDERR $VERSION_INFO . "\n\n";
 }
 
+sub ERROR_HELP_MESSAGE
+{
+  return if($quiet);
+  print STDERR "See '$program_name --help'.\n";
+}
+
 sub HELP_MESSAGE
 {
   return if($quiet);
@@ -5408,8 +5414,7 @@ MAIN:
     'tbytes'             => sub { @output_unit = ("TiB", 1024 * 1024 * 1024 * 1024 ) },
    );
   unless(GetOptions(@getopt_options)) {
-    VERSION_MESSAGE();
-    HELP_MESSAGE(0);
+    ERROR_HELP_MESSAGE;
     exit 2;
   }
   if($program_name eq "lsbtr") {
@@ -5428,7 +5433,7 @@ MAIN:
   $loglevel = { error => 0, warn => 1, warning => 1, info => 2, debug => 3, trace => 4 }->{$loglevel} // $loglevel;
   unless($loglevel =~ /^[0-9]+$/) {
     ERROR "Unknown loglevel: $loglevel";
-    HELP_MESSAGE(0);
+    ERROR_HELP_MESSAGE;
     exit 2;
   }
   $do_trace = 1 if($loglevel >= 4);
@@ -5568,18 +5573,18 @@ MAIN:
     }
     else {
       ERROR "Unknown subcommand for \"config\" command: $subcommand";
-      HELP_MESSAGE(0);
+      ERROR_HELP_MESSAGE;
       exit 2;
     }
   }
   else {
     ERROR "Unrecognized command: $command";
-    HELP_MESSAGE(0);
+    ERROR_HELP_MESSAGE;
     exit 2;
   }
   if(($args_expected_min > scalar(@ARGV)) || ($args_expected_max < scalar(@ARGV))) {
     ERROR "Incorrect number of arguments";
-    HELP_MESSAGE(0);
+    ERROR_HELP_MESSAGE;
     exit 2;
   }
 
@@ -5591,7 +5596,7 @@ MAIN:
     }
     unless(defined($path)) {
       ERROR "Bad argument: not a subvolume declaration: $_";
-      HELP_MESSAGE(0);
+      ERROR_HELP_MESSAGE;
       exit 2;
     }
     $_ = $url_prefix . $path;
@@ -5601,7 +5606,7 @@ MAIN:
     my $vf = vinfo_filter_statement($_);
     unless($vf) {
       ERROR "Bad argument: invalid filter statement: $_";
-      HELP_MESSAGE(0);
+      ERROR_HELP_MESSAGE;
       exit 2;
     }
     push @filter_vf, $vf;
@@ -5610,7 +5615,7 @@ MAIN:
     my $vf = vinfo_filter_statement($_);
     unless($vf) {
       ERROR "Bad argument: invalid filter statement: --exclude='$_'";
-      HELP_MESSAGE(0);
+      ERROR_HELP_MESSAGE;
       exit 2;
     }
     push @exclude_vf, $vf;
@@ -5620,13 +5625,13 @@ MAIN:
       my $key = $1;
       my $value = $2;
       unless(append_config_option(\%config_override, $key, $value, "OVERRIDE", error_statement => "in option \"--override\"")) {
-        HELP_MESSAGE(0);
+        ERROR_HELP_MESSAGE;
         exit 2;
       }
     }
     else {
       ERROR "Option \"override\" requires \"<config_option>=<value>\" format";
-      HELP_MESSAGE(0);
+      ERROR_HELP_MESSAGE;
       exit 2;
     }
   }
