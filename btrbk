@@ -398,7 +398,7 @@ $SIG{INT} = sub {
 
 sub VERSION_MESSAGE
 {
-  print STDERR $VERSION_INFO . "\n\n";
+  print $VERSION_INFO . "\n";
 }
 
 sub ERROR_HELP_MESSAGE
@@ -412,7 +412,7 @@ sub HELP_MESSAGE
   return if($quiet);
 #80-----------------------------------------------------------------------------
   if($program_name eq "lsbtr") {
-    print STDERR <<"END_HELP_LSBTR";
+    print <<"END_HELP_LSBTR";
 usage: lsbtr [<options>] [[--] <path>...]
 
 options:
@@ -430,7 +430,7 @@ For additional information, see $PROJECT_HOME
 END_HELP_LSBTR
   }
   else {
-    print STDERR <<"END_HELP_BTRBK";
+    print <<"END_HELP_BTRBK";
 usage: btrbk [<options>] <command> [[--] <filter>...]
 
 options:
@@ -5376,8 +5376,8 @@ MAIN:
   $program_name =~ s/^.*\///; # remove path
   my @getopt_options = (
     # common options
-    'help|h'             => sub { VERSION_MESSAGE(); HELP_MESSAGE(0); exit 0; },
-    'version'            => sub { VERSION_MESSAGE(); exit 0; },
+    'help|h'             => sub { HELP_MESSAGE; exit 0; },
+    'version'            => sub { VERSION_MESSAGE; exit 0; },
     'quiet|q'            => \$quiet,
     'verbose|v'          => sub { $loglevel = ($loglevel =~ /^[0-9]+$/) ? $loglevel+1 : 2; },
     'loglevel|l=s'       => \$loglevel,
@@ -5423,8 +5423,7 @@ MAIN:
   }
   my $command = shift @ARGV;
   unless($command) {
-    VERSION_MESSAGE();
-    HELP_MESSAGE(0);
+    HELP_MESSAGE;
     exit 2;
   }
 
