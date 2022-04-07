@@ -110,8 +110,8 @@ have to create a run-time (rw) snapshot before booting into it:
 How do I convert '/' (subvolid=5) into a subvolume?
 ---------------------------------------------------
 
-There's several ways to achieve this, the solution described below is
-that it guarantees not to create new files (extents) on disk.
+There's several ways to achieve this, the solution described below
+guarantees not to create new files (extents) on disk.
 
 ### Step 1: make a snapshot of your root filesystem
 
@@ -191,7 +191,7 @@ What is the most efficient way to clone btrfs storage?
 ------------------------------------------------------
 
 It is very common (and avisable!) to keep backups on a separate
-location. In some situations, is is also required to transport the
+location. In some situations, it is also required to transport the
 data physically, either to the datacenter or to your safe in the
 basement.
 
