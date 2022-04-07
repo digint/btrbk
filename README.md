@@ -18,7 +18,8 @@ Key Features:
   * Flexible retention policy
   * Backups to multiple destinations
   * Transfer via ssh
-  * Resume backups (for removable and mobile devices)
+  * Robust recovery from interrupted backups (for removable and mobile
+    devices, also see note below)
   * Archive to offline storage
   * Encrypted backups to non-btrfs storage
   * Wildcard subvolumes (useful for docker and lxc containers)
@@ -31,6 +32,17 @@ Key Features:
 Btrbk is designed to run as a cron job for triggering periodic
 snapshots and backups, as well as from the command line (e.g. for
 instantly creating additional snapshots).
+
+Note that when btrbk is interrupted during the backup of snapshots
+to/from a remote host, it is able to recover from it and will only
+transfer the outstanding snapshots that failed to transfer successfully
+in the previous interrupted run. However, individual snapshot transfers
+will have to be restarted from the beginning, since resuming an
+interrupted send/receive process is currently not possible in btrfs.
+Therefore, btrbk might not be the best solution for scenarios where
+large amounts of data (either the initial snapshot or big changes
+between snapshots) have to be send over an unstable connection (e.g. bad
+wireless connectivity).
 
 
 Installation
