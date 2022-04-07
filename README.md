@@ -9,7 +9,7 @@ The source and target locations are specified in a config file, which
 allows to easily configure simple scenarios like "laptop with locally
 attached backup disks", as well as more complex ones, e.g. "server
 receiving backups from several hosts via ssh, with different retention
-policy".
+policies".
 
 Key Features:
 
@@ -111,7 +111,7 @@ the `subvolume` declarations in the examples accordingly.
 Example: Local Regular Snapshots (time-machine)
 -----------------------------------------------
 
-The simpliest use case is to only create snapshots of your data. This
+The simplest use case is to only create snapshots of your data. This
 will obviously not protect it against hardware failure, but can be
 useful for:
 
@@ -167,13 +167,10 @@ If it works as expected, configure a cron job to run btrbk hourly:
     #!/bin/sh
     exec /usr/bin/btrbk -q run
 
-Snapshots will now be created every hour, kept for 48h
-(`snapshot_preserve`), then automatically removed.
-
-With this setup, the snapshots will be kept at least for 18 hours
-(`snapshot_preserve_min`). This can be useful to create manual
-snapshots by calling `sudo btrbk run` on the command line and keep
-them around for a while, in addition to the regular snapshots.
+Snapshots will now be created every hour. All snapshots are preserved for at
+least 18 hours (`snapshot_preserve_min`), whether they are created by the cron
+job or manually by calling `sudo btrbk run` on the command line. Additionally,
+48 hourly snapshots are preserved (`snapshot_preserve`).
 
 
 Example: Backups to USB Disk
@@ -249,7 +246,7 @@ Example: Host-initiated Backup on Fileserver
 --------------------------------------------
 
 Let's say you have a fileserver at "myserver.mydomain.com" where you
-want to create backups of your laptop disk, the config would look like
+want to create backups of your laptop disk. The config could look like
 this:
 
     ssh_identity /etc/btrbk/ssh/id_rsa

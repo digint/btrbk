@@ -45,26 +45,27 @@ btrbk.conf(5) for more details.
 
 === Snapshots and Backups
 
-Snapshots as well as backup subvolumes are created in form:
+Snapshots as well as backup subvolumes are created in the form:
 
     <snapshot-name>.<timestamp>[_N]
 
 Where '<snapshot-name>' is identical to the source subvolume name,
-unless the configuration option 'snapshot_name' is set. The
-<timestamp> is either "YYYYMMDD" or "YYYYMMDDThhmm" (dependent of the
-'timestamp_format' configuration option), where "YYYY" is the year,
-"MM" is the month, "DD" is the day, "hh" is the hour and "mm" is the
-minute of the creation time (local time of the host running btrbk). If
-multiple snapshots/backups are created on the same date/time, N will
-be incremented on each snapshot, starting at 1.
+unless the configuration option 'snapshot_name' is set. '<timestamp>'
+is a timestamp describing the creation time (local time of the host
+running btrbk) of the snapshot/backup. The format can be configured
+using the 'timestamp_format' option, refer to btrbk.conf(5) for
+details. If multiple snapshots/backups are created on the same
+date/time, 'N' will be incremented on each snapshot, starting at 1.
 
 If a snapshot or backup does not match the naming scheme above
-(i.e. if it has been renamed manually), btrbk will leave it untouched.
+(e.g. if it has been renamed manually), btrbk will leave it untouched.
 
-Note that 'snapshot' is a btrfs terminology for a ``read-only
-subvolume'' (showing a parent-uuid, see btrfs-subvolume(8)); 'backup'
-is a btrbk terminology for a ``read-only subvolume created with
-send/receive'' (showing a received-uuid).
+Note that in btrfs terminology, a 'snapshot' is a ``subvolume with
+a given initial content of the original subvolume'' (showing a
+parent-uuid, see btrfs-subvolume(8)), and they can be read-write
+(default) or read-only. In btrbk terminology, 'snapshot' means
+``read-only btrfs snapshot'', and 'backup' means ``read-only subvolume
+created with send/receive'' (showing a received-uuid).
 
 
 OPTIONS
@@ -104,7 +105,7 @@ OPTIONS
     specified in the configuration file.
 
 --wipe::
-    Ignore configured snapshot retention policy, delete all but latest
+    Ignore configured snapshot retention policy, delete all but the latest
     snapshots instead. All snapshots needed for incremental backup
     (latest common) are also preserved. Useful if you are getting low
     on disk space (ENOSPC).
