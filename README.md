@@ -18,7 +18,8 @@ Key Features:
   * Flexible retention policy
   * Backups to multiple destinations
   * Transfer via ssh
-  * Resume backups (for removable and mobile devices)
+  * Robust recovery from interrupted backups (for removable and mobile
+    devices)
   * Archive to offline storage
   * Encrypted backups to non-btrfs storage
   * Wildcard subvolumes (useful for docker and lxc containers)
