@@ -87,6 +87,10 @@ snapshot_dir               _btrbk_snap
 # disk when btrbk terminates.
 #btrfs_commit_delete        no
 
+# Include full path in the snapshot name to distinguish between snapshots
+# with the same name, but different roots
+# snapshot_name_prefix_fullpath yes
+
 
 #
 # Volume section (optional): "volume <volume-directory>"
