@@ -124,7 +124,7 @@ my %config_options = (
   raw_target_block_size       => { default => "128K",        accept => [ qr/[0-9]+[kmgKMG]?/ ] },
   raw_target_split            => { default => undef,         accept => [qw( no ), qr/[0-9]+([kmgtpezyKMGTPEZY][bB]?)?/ ] },
   gpg_keyring                 => { default => undef,         accept_file => { absolute => 1 } },
-  gpg_recipient               => { default => undef,         accept => [ qr/[0-9a-zA-Z_@\+\-\.]+/ ] },
+  gpg_recipient               => { default => undef,         accept => [ qr/[0-9a-zA-Z_@\+\-\.]+/ ], split => 1 },
   openssl_ciphername          => { default => "aes-256-cbc", accept => [ qr/[0-9a-zA-Z\-]+/ ] },
   openssl_iv_size             => { default => undef,         accept => [qw( no ), qr/[0-9]+/ ] },
   openssl_keyfile             => { default => undef,         accept_file => { absolute => 1 } },
@@ -1750,7 +1750,9 @@ sub btrfs_send_to_file($$$;$$)
       my @gpg_options = ( '--batch', '--no-tty', '--no-random-seed-file', '--trust-model', 'always' );
       push @gpg_options, ( '--compress-algo', 'none' ) if($compress);  # NOTE: if --compress-algo is not set, gpg might still compress according to OpenPGP standard.
       push(@gpg_options, ( '--no-default-keyring', '--keyring', { unsafe => $encrypt->{keyring} } )) if($encrypt->{keyring});
-      push(@gpg_options, ( '--default-recipient', $encrypt->{recipient} )) if($encrypt->{recipient});
+      foreach(@$encrypt->{recipient} // []) {
+        push(@gpg_options, ('--recipient', $_));
+      }
       push @cmd_pipe, {
         cmd => [ 'gpg', @gpg_options, '--encrypt' ],
         compressed_ok => ($compress ? 1 : 0),
