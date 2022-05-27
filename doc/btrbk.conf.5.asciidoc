@@ -415,7 +415,9 @@ If you want to set this option for regular (non-root) user only, set
 
 *btrfs_commit_delete* after|each|no::
     If set, make sure the deletion of snapshot and backup subvolumes
-    are committed to disk when btrbk terminates. Defaults to ``no''.
+    are committed to disk when btrbk terminates (sets '--commit-after'
+    or '--commit-each' options when running "btrfs subvolume
+    delete"). Defaults to ``no''.
 
 *incremental_prefs* <list-spec>[:<amount>]...::
     Specify the preferences to determine the best common (correlated)
