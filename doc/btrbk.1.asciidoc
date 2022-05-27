@@ -473,6 +473,9 @@ Note that for *run* and *snapshot* commands, a filter matching a
 surrounding 'subvolume' section. If this is not desired, consider
 running *snapshot* and *resume* commands separately.
 
+Filter statements can match multiple times (e.g. on group as well as
+host name). In such a case, all matches are processed.
+
 
 FILES
 -----
