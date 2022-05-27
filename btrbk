@@ -5867,7 +5867,7 @@ MAIN:
       @data = sort { $a->{subvol} cmp $b->{subvol} } @data;
     }
 
-    INFO "Printing extents map set difference: (extents \\ extents-on-prev-line)";
+    INFO "Printing extents map set difference: (extents \\ extents-on-prev-line)" if $do_diff;
     print_formatted("extent_diff", \@data, paragraph => 1);
     print_formatted({ table => [ qw( a b ) ], RALIGN => { b=>1 } },
                     \@summary, output_format => "table", no_header => 1);
