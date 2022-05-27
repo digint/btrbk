@@ -2060,6 +2060,7 @@ sub system_mkdir($)
                    );
   end_transaction("mkdir", defined($ret));
   return undef unless(defined($ret));
+  delete $realpath_cache{$vol->{URL}};
   return 1;
 }
 
@@ -6040,6 +6041,7 @@ MAIN:
           $droot->{node} = $archive_root->{node};
           $droot->{NODE_SUBDIR} = $subvol_dir;
           $droot->{VINFO_MOUNTPOINT} = $archive_root->{VINFO_MOUNTPOINT};
+          $realpath_cache{$droot->{URL}} = $droot->{PATH};
         }
         else {
           # after directory is created, try to init again
