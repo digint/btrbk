@@ -68,7 +68,6 @@ my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))
 my $safe_file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
-my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
 my $config_split_match = qr/\s*[,\s]\s*/;
 
 my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
@@ -102,7 +101,7 @@ my %config_options = (
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",    accept => [ qr/[a-z_][a-z0-9_-]*/ ] },
   ssh_compression             => { default => undef,     accept => [qw( yes no )] },
-  ssh_cipher_spec             => { default => "default", accept => [ qr/$ssh_cipher_match(,$ssh_cipher_match)*/ ] },
+  ssh_cipher_spec             => { default => [ "default" ], accept => [qw( default ), qr/[a-z0-9][a-z0-9@.-]+/ ], split => 1 },
   transaction_log             => { default => undef,     accept => [qw( no )], accept_file => { absolute => 1 }, context => [qw( global )] },
   transaction_syslog          => { default => undef,     accept => [qw( no ), @syslog_facilities ], context => [qw( global )] },
   lockfile                    => { default => undef,     accept => [qw( no )], accept_file => { absolute => 1 }, context => [qw( global )] },
@@ -2817,7 +2816,7 @@ sub vinfo_rsh($;@)
   my $ssh_user        = config_key($config, "ssh_user");
   my $ssh_identity    = config_key($config, "ssh_identity");
   my $ssh_compression = config_key($config, "ssh_compression");
-  my $ssh_cipher_spec = config_key($config, "ssh_cipher_spec") // "default";
+  my $ssh_cipher_spec = join(",", @{config_key($config, "ssh_cipher_spec")});
   my @ssh_options; # as of btrbk-0.29.0, we run ssh without -q (catching @stderr)
   push(@ssh_options, '-p', $ssh_port) if($ssh_port);
   push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
