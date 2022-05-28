@@ -87,54 +87,54 @@ my %config_options = (
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [ "subvolume" ], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [ "no", "always", "ondemand", "onchange" ], context => [ "global", "volume", "subvolume" ] },
   incremental                 => { default => "yes",     accept => [ "yes", "no", "strict" ] },
-  incremental_prefs           => { default => \@incremental_prefs_default, accept_regexp => qr/^$incremental_prefs_match($split_match$incremental_prefs_match)*$/, split => $split_match },
+  incremental_prefs           => { default => \@incremental_prefs_default, accept => qr/$incremental_prefs_match/, split => $split_match },
   incremental_clones          => { default => "yes",     accept => [ "yes", "no" ] },
   incremental_resolve         => { default => "mountpoint", accept => [ "mountpoint", "directory", "_all_accessible" ] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
   preserve_hour_of_day        => { default => 0,         accept => [ (0..23) ]  },
   snapshot_preserve           => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1, context => [ "global", "volume", "subvolume" ], },
-  snapshot_preserve_min       => { default => "all",     accept => [ "all", "latest" ], accept_regexp => qr/^[1-9][0-9]*[hdwmy]$/, context => [ "global", "volume", "subvolume" ], },
+  snapshot_preserve_min       => { default => "all",     accept => [ "all", "latest", qr/[1-9][0-9]*[hdwmy]/ ], context => [ "global", "volume", "subvolume" ], },
   target_preserve             => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1 },
-  target_preserve_min         => { default => "all",     accept => [ "all", "latest", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/ },
+  target_preserve_min         => { default => "all",     accept => [ "all", "latest", "no", qr/[0-9]+[hdwmy]/ ] },
   archive_preserve            => { default => undef,     accept => [ "no" ], accept_preserve_matrix => 1, context => [ "global" ] },
-  archive_preserve_min        => { default => "all",     accept => [ "all", "latest", "no" ], accept_regexp => qr/^[0-9]+[hdwmy]$/, context => [ "global" ] },
+  archive_preserve_min        => { default => "all",     accept => [ "all", "latest", "no", qr/[0-9]+[hdwmy]/ ], context => [ "global" ] },
   btrfs_commit_delete         => { default => undef,     accept => [ "after", "each", "no" ] },
   ssh_identity                => { default => undef,     accept_file => { absolute => 1 } },
-  ssh_user                    => { default => "root",    accept_regexp => qr/^[a-z_][a-z0-9_-]*$/ },
+  ssh_user                    => { default => "root",    accept => [ qr/[a-z_][a-z0-9_-]*/ ] },
   ssh_compression             => { default => undef,     accept => [ "yes", "no" ] },
-  ssh_cipher_spec             => { default => "default", accept_regexp => qr/^$ssh_cipher_match(,$ssh_cipher_match)*$/ },
+  ssh_cipher_spec             => { default => "default", accept => [ qr/$ssh_cipher_match(,$ssh_cipher_match)*/ ] },
   transaction_log             => { default => undef,     accept => [ "no" ], accept_file => { absolute => 1 }, context => [ "global" ] },
   transaction_syslog          => { default => undef,     accept => [ "no", @syslog_facilities ], context => [ "global" ] },
   lockfile                    => { default => undef,     accept => [ "no" ], accept_file => { absolute => 1 }, context => [ "global" ] },
 
-  rate_limit                  => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgtKMGT]?$/, require_bin => 'mbuffer' },
-  rate_limit_remote           => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgtKMGT]?$/ },  # NOTE: requires 'mbuffer' command on remote hosts
-  stream_buffer               => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgKMG%]?$/,  require_bin => 'mbuffer' },
-  stream_buffer_remote        => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+[kmgKMG%]?$/  },  # NOTE: requires 'mbuffer' command on remote hosts
+  rate_limit                  => { default => undef,     accept => [ "no", qr/[0-9]+[kmgtKMGT]?/ ], require_bin => 'mbuffer' },
+  rate_limit_remote           => { default => undef,     accept => [ "no", qr/[0-9]+[kmgtKMGT]?/ ] },  # NOTE: requires 'mbuffer' command on remote hosts
+  stream_buffer               => { default => undef,     accept => [ "no", qr/[0-9]+[kmgKMG%]?/  ], require_bin => 'mbuffer' },
+  stream_buffer_remote        => { default => undef,     accept => [ "no", qr/[0-9]+[kmgKMG%]?/  ] },  # NOTE: requires 'mbuffer' command on remote hosts
   stream_compress             => { default => undef,     accept => [ "no", (keys %compression) ] },
-  stream_compress_level       => { default => "default", accept => [ "default" ], accept_numeric => 1 },
-  stream_compress_long        => { default => "default", accept => [ "default" ], accept_numeric => 1 },
-  stream_compress_threads     => { default => "default", accept => [ "default" ], accept_numeric => 1 },
+  stream_compress_level       => { default => "default", accept => [ "default", qr/[0-9]+/ ] },
+  stream_compress_long        => { default => "default", accept => [ "default", qr/[0-9]+/ ] },
+  stream_compress_threads     => { default => "default", accept => [ "default", qr/[0-9]+/ ] },
   stream_compress_adapt       => { default => undef,     accept => [ "yes", "no" ] },
 
   raw_target_compress         => { default => undef,     accept => [ "no", (keys %compression) ] },
-  raw_target_compress_level   => { default => "default", accept => [ "default" ], accept_numeric => 1 },
-  raw_target_compress_long    => { default => "default", accept => [ "default" ], accept_numeric => 1 },
-  raw_target_compress_threads => { default => "default", accept => [ "default" ], accept_numeric => 1 },
+  raw_target_compress_level   => { default => "default", accept => [ "default", qr/[0-9]+/ ] },
+  raw_target_compress_long    => { default => "default", accept => [ "default", qr/[0-9]+/ ] },
+  raw_target_compress_threads => { default => "default", accept => [ "default", qr/[0-9]+/ ] },
   raw_target_encrypt          => { default => undef,     accept => [ "no", "gpg", "openssl_enc" ] },
-  raw_target_block_size       => { default => "128K",    accept_regexp => qr/^[0-9]+[kmgKMG]?$/ },
-  raw_target_split            => { default => undef,     accept => [ "no" ], accept_regexp => qr/^[0-9]+([kmgtpezyKMGTPEZY][bB]?)?$/ },
+  raw_target_block_size       => { default => "128K",    accept => [ qr/[0-9]+[kmgKMG]?/ ] },
+  raw_target_split            => { default => undef,     accept => [ "no", qr/[0-9]+([kmgtpezyKMGTPEZY][bB]?)?/ ] },
   gpg_keyring                 => { default => undef,     accept_file => { absolute => 1 } },
-  gpg_recipient               => { default => undef,     accept_regexp => qr/^[0-9a-zA-Z_@\+\-\.]+$/ },
-  openssl_ciphername          => { default => "aes-256-cbc", accept_regexp => qr/^[0-9a-zA-Z\-]+$/ },
-  openssl_iv_size             => { default => undef,     accept => [ "no" ], accept_numeric => 1 },
+  gpg_recipient               => { default => undef,     accept => [ qr/[0-9a-zA-Z_@\+\-\.]+/ ] },
+  openssl_ciphername          => { default => "aes-256-cbc", accept => [ qr/[0-9a-zA-Z\-]+/ ] },
+  openssl_iv_size             => { default => undef,     accept => [ "no", qr/[0-9]+/ ] },
   openssl_keyfile             => { default => undef,     accept_file => { absolute => 1 } },
 
   kdf_backend                 => { default => undef,     accept_file => { absolute => 1 } },
-  kdf_keysize                 => { default => "32",      accept_numeric => 1 },
+  kdf_keysize                 => { default => "32",      accept => [ qr/[0-9]+/ ] },
   kdf_keygen                  => { default => "once",    accept => [ "once", "each" ] },
 
-  group                       => { default => undef,     accept_regexp => qr/^$group_match($split_match$group_match)*$/, allow_multiple => 1, split => $split_match },
+  group                       => { default => undef,     accept => [ qr/$group_match/ ], allow_multiple => 1, split => $split_match },
   noauto                      => { default => undef,     accept => [ "yes", "no" ] },
 
   backend                     => { default => "btrfs-progs", accept => [       "btrfs-progs", "btrfs-progs-btrbk", "btrfs-progs-sudo", "btrfs-progs-doas" ] },
@@ -160,21 +160,21 @@ my %config_options = (
   warn_unknown_targets        => { default => undef,     accept => [ "yes", "no" ] },
 
   # deprecated options
-  ssh_port                    => { default => "default", accept => [ "default" ], accept_numeric => 1,
+  ssh_port                    => { default => "default", accept => [ "default", qr/[0-9]+/ ],
                                    deprecated => { DEFAULT => { warn => 'Please use "ssh://hostname[:port]" notation in the "volume" and "target" configuration lines.' } } },
   btrfs_progs_compat          => { default => undef, accept => [ "yes", "no" ],
                                    deprecated => { DEFAULT => { ABORT => 1, warn => 'This feature has been dropped in btrbk-v0.23.0. Please update to newest btrfs-progs, AT LEAST >= $BTRFS_PROGS_MIN' } } },
-  snapshot_preserve_daily     => { default => 'all', accept => [ "all" ], accept_numeric => 1, context => [ "global", "volume", "subvolume" ],
+  snapshot_preserve_daily     => { default => 'all', accept => [ "all", qr/[0-9]+/ ], context => [ "global", "volume", "subvolume" ],
                                    deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  snapshot_preserve_weekly    => { default => 0, accept => [ "all" ], accept_numeric => 1, context => [ "global", "volume", "subvolume" ],
+  snapshot_preserve_weekly    => { default => 0, accept => [ "all", qr/[0-9]+/ ], context => [ "global", "volume", "subvolume" ],
                                    deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  snapshot_preserve_monthly   => { default => 'all', accept => [ "all" ], accept_numeric => 1, context => [ "global", "volume", "subvolume" ],
+  snapshot_preserve_monthly   => { default => 'all', accept => [ "all", qr/[0-9]+/ ], context => [ "global", "volume", "subvolume" ],
                                    deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  target_preserve_daily       => { default => 'all', accept => [ "all" ], accept_numeric => 1,
+  target_preserve_daily       => { default => 'all', accept => [ "all", qr/[0-9]+/ ],
                                    deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  target_preserve_weekly      => { default => 0, accept => [ "all" ], accept_numeric => 1,
+  target_preserve_weekly      => { default => 0, accept => [ "all", qr/[0-9]+/ ],
                                    deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  target_preserve_monthly     => { default => 'all', accept => [ "all" ], accept_numeric => 1,
+  target_preserve_monthly     => { default => 'all', accept => [ "all", qr/[0-9]+/ ],
                                    deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
   resume_missing              => { default => "yes", accept => [ "yes", "no" ],
                                    deprecated => { yes => { warn => 'ignoring (missing backups are always resumed since btrbk v0.23.0)' },
@@ -4097,42 +4097,35 @@ sub append_config_option($$$$;@)
     return undef;
   }
 
+  my $ovalue = $value;
+
   if($value eq "") {
-    if(grep(/^yes$/, @{$opt->{accept}})) {
-      $value = "yes";
-      TRACE "option \"$key\" has no value, accepted map to \"yes\"" if($do_trace);
+    $value = "yes";
+    TRACE "option \"$key\" has no value, setting to \"yes\"" if($do_trace);
+  }
+
+  if($opt->{split}) {
+    $value = [ split($opt->{split}, $value) ];
+  }
+
+  my $accepted;
+  if($opt->{accept}) {
+    $accepted = 1;
+    foreach my $val (ref($value) ? @$value : $value) {
+      $accepted = 0, last unless(grep { $val =~ /^$_$/ } @{$opt->{accept}});
+      TRACE "option \"$key=$val\" found in accept list" if($do_trace);
     }
-    else {
-      ERROR "Unsupported empty value for option \"$key\" $error_statement";
-      return undef;
-    }
   }
-  elsif(grep(/^\Q$value\E$/, @{$opt->{accept}})) {
-    TRACE "option \"$key=$value\" found in accept list" if($do_trace);
-  }
-  elsif($opt->{accept_numeric} && ($value =~ /^[0-9]+$/)) {
-    TRACE "option \"$key=$value\" is numeric, accepted" if($do_trace);
-  }
-  elsif($opt->{accept_file})
-  {
+  if(!$accepted && $opt->{accept_file}) {
     # be very strict about file options, for security sake
     $value = check_file($value, $opt->{accept_file}, sanitize => 1, error_statement => ($error_statement ? "for option \"$key\" $error_statement" : undef));
     return undef unless(defined($value));
 
     TRACE "option \"$key=$value\" is a valid file, accepted" if($do_trace);
     $value = "no" if($value eq ".");  # maps to undef later
+    $accepted = 1;
   }
-  elsif($opt->{accept_regexp}) {
-    my $match = $opt->{accept_regexp};
-    if($value =~ m/$match/) {
-      TRACE "option \"$key=$value\" matched regexp, accepted" if($do_trace);
-    }
-    else {
-      ERROR "Value \"$value\" failed input validation for option \"$key\" $error_statement";
-      return undef;
-    }
-  }
-  elsif($opt->{accept_preserve_matrix}) {
+  if(!$accepted && $opt->{accept_preserve_matrix}) {
     my %preserve;
     my $s = ' ' . $value;
     while($s =~ s/\s+(\*|[0-9]+)([hdwmyHDWMY])//) {
@@ -4153,9 +4146,12 @@ sub append_config_option($$$$;@)
     $config->{$key} = \%preserve;
     return $config;
   }
-  else
-  {
-    ERROR "Unsupported value \"$value\" for option \"$key\" $error_statement";
+  if(!$accepted) {
+    if($ovalue eq "") {
+      ERROR "Unsupported empty value for option \"$key\" $error_statement";
+    } else {
+      ERROR "Unsupported value \"$ovalue\" for option \"$key\" $error_statement";
+    }
     return undef;
   }
 
@@ -4195,17 +4191,10 @@ sub append_config_option($$$$;@)
 
   if($opt->{allow_multiple}) {
     my $aref = $config->{$key} // [];
-    if($opt->{split}) {
-      push(@$aref, split($opt->{split}, $value));
-    }
-    else {
-      push(@$aref, $value);
-    }
-    TRACE "pushing option \"$key=$value\" to $aref=[" . join(',', @$aref) . "]" if($do_trace);
+    my @val = ref($value) ? @$value : $value;
+    push(@$aref, @val);
+    TRACE "pushing option \"$key=[" . join(",", @val) . "]\" to $aref=[" . join(',', @$aref) . "]" if($do_trace);
     $value = $aref;
-  }
-  elsif($opt->{split}) { # note: allow_multiple split has different semantics
-    $value = [ split($opt->{split}, $value) ];
   }
   elsif(exists($config->{$key})) {
     unless($opt->{c_default}) { # note: computed defaults are already present
