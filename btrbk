@@ -69,7 +69,7 @@ my $safe_file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in th
 
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
 my $ssh_cipher_match = qr/[a-z0-9][a-z0-9@.-]+/;
-my $split_match = qr/\s*[,\s]\s*/;
+my $config_split_match = qr/\s*[,\s]\s*/;
 
 my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
 my @syslog_facilities = qw( user mail daemon auth lpr news cron authpriv local0 local1 local2 local3 local4 local5 local6 local7 );
@@ -87,7 +87,7 @@ my %config_options = (
   snapshot_name               => { c_default => 1,       accept_file => { name_only => 1 }, context => [qw( subvolume )], deny_glob_context => 1 },   # NOTE: defaults to the subvolume name (hardcoded)
   snapshot_create             => { default => "always",  accept => [qw( no always ondemand onchange )], context => [qw( global volume subvolume )] },
   incremental                 => { default => "yes",     accept => [qw( yes no strict )] },
-  incremental_prefs           => { default => \@incremental_prefs_default, accept => [ qr/$incremental_prefs_match/ ], split => $split_match },
+  incremental_prefs           => { default => \@incremental_prefs_default, accept => [ qr/$incremental_prefs_match/ ], split => 1 },
   incremental_clones          => { default => "yes",     accept => [qw( yes no )] },
   incremental_resolve         => { default => "mountpoint", accept => [qw( mountpoint directory _all_accessible )] },
   preserve_day_of_week        => { default => "sunday",  accept => [ (keys %day_of_week_map) ] },
@@ -134,7 +134,7 @@ my %config_options = (
   kdf_keysize                 => { default => "32",      accept => [ qr/[0-9]+/ ] },
   kdf_keygen                  => { default => "once",    accept => [qw( once each )] },
 
-  group                       => { default => undef,     accept => [ qr/$group_match/ ], allow_multiple => 1, split => $split_match },
+  group                       => { default => undef,     accept => [ qr/$group_match/ ], allow_multiple => 1, split => 1 },
   noauto                      => { default => undef,     accept => [qw( yes no )] },
 
   backend                     => { default => "btrfs-progs", accept => [qw(    btrfs-progs btrfs-progs-btrbk btrfs-progs-sudo btrfs-progs-doas )] },
@@ -4105,7 +4105,7 @@ sub append_config_option($$$$;@)
   }
 
   if($opt->{split}) {
-    $value = [ split($opt->{split}, $value) ];
+    $value = [ split($config_split_match, $value) ];
   }
 
   my $accepted;
