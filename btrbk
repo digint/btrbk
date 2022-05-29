@@ -4045,27 +4045,25 @@ sub config_dump_keys($;@)
   {
     my $val;
     next if($config_options{$key}->{deprecated});
-    if($opts{resolve}) {
-      $val = config_key($config, $key);
-    } else {
-      next unless exists($config->{$key});
-      $val = $config->{$key};
-    }
-    my @valary = (ref($val) eq "ARRAY") ? @$val : $val;
-    foreach(@valary) {
+    next unless($opts{all} || exists($config->{$key}) || exists($config_override{$key}));
+    next if($config_options{$key}{context} && !grep(/^$config->{CONTEXT}$/, @{$config_options{$key}{context}}));
+    $val = config_key($config, $key);
+
+    my @va = (ref($val) eq "ARRAY") ? ($config_options{$key}->{split} ? join(" ", @$val) : @$val) : $val;
+    foreach(@va) {
       if(defined($_)) {
         if($config_options{$key}->{accept_preserve_matrix}) {
           $_ = format_preserve_matrix($_, format => "config");
         }
       }
-      $_ //= exists($config->{$key}) ? "no" : "<unset>";
+      $_ //= grep(/^no$/, @{$config_options{$key}{accept} // []}) ? "no" : "<unset>";
+      my $comment = $_ eq "<unset>" ? "# " : "";
       my $len = length($key);
       $maxlen = $len if($len > $maxlen);
-      push @ret, { key => $key, val => $_, len => $len };
+      push @ret, { comment => $comment, key => $key, val => $_, len => $len };
     }
   }
-  # print as table
-  return map { ($opts{prefix} // "") . $_->{key} . (' ' x (1 + $maxlen - $_->{len})) . ' ' . $_->{val} } @ret;
+  return map { ($opts{prefix} // "") . $_->{comment} . $_->{key} . (' ' x (1 + $maxlen - $_->{len})) . ' ' . $_->{val} } @ret;
 }
 
 
@@ -6455,30 +6453,30 @@ MAIN:
 
   if($action_config_print)
   {
-    my $resolve = ($action_config_print eq "print-all");
     #
     # print configuration lines, machine readable
     #
+    my %opts = (all => ($action_config_print eq "print-all"));
     my @out;
-    push @out, config_dump_keys($config, resolve => $resolve);
+    push @out, config_dump_keys($config, %opts);
     my $indent = "";
     foreach my $sroot (vinfo_subsection($config, 'volume', 1)) {
       unless($sroot->{CONFIG}{DUMMY}) {
         push @out, "";
         push @out, "volume $sroot->{URL}";
         $indent .= "\t";
-        push @out, config_dump_keys($sroot, prefix => $indent, resolve => $resolve);
+        push @out, config_dump_keys($sroot, prefix => $indent, %opts);
       }
       foreach my $svol (vinfo_subsection($sroot, 'subvolume', 1)) {
         push @out, "";
         push @out, "${indent}# subvolume $svol->{CONFIG}->{url_glob}" if(defined($svol->{CONFIG}->{url_glob}));
         push @out, "${indent}subvolume $svol->{URL}";
         $indent .= "\t";
-        push @out, config_dump_keys($svol, prefix => $indent, resolve => $resolve);
+        push @out, config_dump_keys($svol, prefix => $indent, %opts);
         foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
           push @out, "";
           push @out, "${indent}target $droot->{CONFIG}->{target_type} $droot->{URL}";
-          push @out, config_dump_keys($droot, prefix => "\t$indent", resolve => $resolve);
+          push @out, config_dump_keys($droot, prefix => "\t$indent", %opts);
         }
         $indent =~ s/\t//;
       }
@@ -6487,7 +6485,6 @@ MAIN:
 
     print_header(title => "Configuration Dump",
                  config => $config,
-                 options => [ map { "exclude: $_" } @exclude_cmdline ],
                  time => $start_time,
                 );
 
