@@ -421,8 +421,7 @@ execution times and high ram usage. Consider setting 'cache_dir'.
     lsbtr(1).
 
 *config* print|print-all::
-    Prints the parsed configuration file. Use the '--format' command
-    line option to switch between different output formats.
+    Prints the parsed configuration file.
 
 
 FILTER STATEMENTS
