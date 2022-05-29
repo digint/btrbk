@@ -647,7 +647,7 @@ Additional options for "raw_target_encrypt gpg":
 
 *gpg_keyring* <file>::
     Keyring to use for gpg, e.g. "`/etc/btrbk/gpg/pubring.kbx`".
-*gpg_recipient* <name>::
+*gpg_recipient* <name>...::
     Encrypt for user id '<name>' (email address).
 
 
