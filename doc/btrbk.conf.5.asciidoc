@@ -257,7 +257,7 @@ set to ``all'' (the default).
     to ``no''. Note that if *stream_compress* is enabled, ssh
     compression will always be disabled for send/receive operations.
 
-*ssh_cipher_spec* <cipher_spec>::
+*ssh_cipher_spec* default|<cipher_spec>::
     Selects the cipher specification for encrypting the session
     (comma-separated list of ciphers in order of preference). See the
     "-c cipher_spec" option in ssh(1) for more information. Defaults
@@ -355,7 +355,7 @@ constraints.
     in a space-separated table format: "localtime type status
     target_url source_url parent_url message".
 
-*transaction_syslog*  <facility>|no::
+*transaction_syslog* <facility>|no::
     If set, all transactions (as described in 'transaction_log' above)
     are logged to syslog. The program name used in the messages is
     "btrbk".  Accepted parameters for '<facility>': user, mail,
