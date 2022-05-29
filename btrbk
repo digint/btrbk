@@ -264,7 +264,7 @@ my %table_formats = (
   },
 
   usage => {
-    table => [ qw(      -host -port mount_source  path size used free ) ],
+    table => [ qw(      -host -port mount_source path size used free ) ],
     long  => [ qw( type -host -port mount_source path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
     raw   => [ qw( type  host  port mount_source path size used device_size device_allocated device_unallocated device_missing device_used free free_min data_ratio metadata_ratio global_reserve global_reserve_used ) ],
     RALIGN => { size=>1, used=>1, device_size=>1, device_allocated=>1, device_unallocated=>1, device_missing=>1, device_used=>1, free=>1, free_min=>1, data_ratio=>1, metadata_ratio=>1, global_reserve=>1, global_reserve_used=>1 },
@@ -1058,52 +1058,33 @@ sub btrfs_filesystem_usage($)
 
   my %detail;
   foreach(@$ret) {
-    if(/^\s+Device size:\s+(\S+)/) {
-      $detail{device_size} = $1;
-    }
-    elsif(/^\s+Device allocated:\s+(\S+)/) {
-      $detail{device_allocated} = $1;
-    }
-    elsif(/^\s+Device unallocated:\s+(\S+)/) {
-      $detail{device_unallocated} = $1;
-    }
-    elsif(/^\s+Device missing:\s+(\S+)/) {
-      $detail{device_missing} = $1;
-    }
-    elsif(/^\s+Used:\s+(\S+)/) {
-      $detail{device_used} = $1;
-    }
-    elsif(/^\s+Free \(estimated\):\s+(\S+)\s+\(min: (\S+)\)/) {
-      $detail{free} = $1;
-      $detail{free_min} = $2;
-    }
-    elsif(/^\s+Data ratio:\s+(\S+)/) {
-      $detail{data_ratio} = $1;
-    }
-    elsif(/^\s+Metadata ratio:\s+(\S+)/) {
-      $detail{metadata_ratio} = $1;
-    }
-    elsif(/^\s+Used:\s+(\S+)/) {
-      $detail{used} = $1;
-    }
-    elsif(/^\s+Global reserve:\s+(\S+)\s+\(used: (\S+)\)/) {
-      $detail{global_reserve} = $1;
-      $detail{global_reserve_used} = $2;
-    }
-    else {
-      TRACE "Failed to parse filesystem usage line \"$_\" for: $vol->{PRINT}" if($do_trace);
-    }
+    $detail{device_size}        = $1, next if(/^\s+Device size:\s+(\S+)/);
+    $detail{device_allocated}   = $1, next if(/^\s+Device allocated:\s+(\S+)/);
+    $detail{device_unallocated} = $1, next if(/^\s+Device unallocated:\s+(\S+)/);
+    $detail{device_missing}     = $1, next if(/^\s+Device missing:\s+(\S+)/);
+    $detail{device_used}        = $1, next if(/^\s+Used:\s+(\S+)/);
+    @detail{qw(free free_min)}  = ($1,$2), next if(/^\s+Free \(estimated\):\s+(\S+)\s+\(min: (\S+)\)/);
+    $detail{data_ratio}         = $1, next if(/^\s+Data ratio:\s+([0-9]+\.[0-9]+)/);
+    $detail{metadata_ratio}     = $1, next if(/^\s+Metadata ratio:\s+([0-9]+\.[0-9]+)/);
+    $detail{used}               = $1, next if(/^\s+Used:\s+(\S+)/);
+    @detail{qw(global_reserve global_reserve_used)} = ($1,$2), next if(/^\s+Global reserve:\s+(\S+)\s+\(used: (\S+)\)/);
+    TRACE "Failed to parse filesystem usage line \"$_\" for: $vol->{PRINT}" if($do_trace);
   }
   DEBUG "Parsed " . scalar(keys %detail) . " filesystem usage detail items: $vol->{PRINT}";
 
+  foreach (qw(device_size device_used data_ratio)) {
+    unless(defined($detail{$_})) {
+      ERROR "Failed to parse filesystem usage detail (unsupported btrfs-progs) for: $vol->{PRINT}";
+      return undef;
+    }
+  }
+
   # calculate aggregate size / usage
-  if($detail{data_ratio} =~ /^[0-9]+\.[0-9]+$/) {
-    if($detail{device_size} =~ /^([0-9]+\.[0-9]+)(.*)/) {
-      $detail{size} = sprintf('%.2f%s', $1 / $detail{data_ratio}, $2);
-    }
-    if($detail{device_used} =~ /^([0-9]+\.[0-9]+)(.*)/) {
-      $detail{used} = sprintf('%.2f%s', $1 / $detail{data_ratio}, $2);
-    }
+  if($detail{device_size} =~ /^([0-9]+\.[0-9]+)(.*)/) {
+    $detail{size} = sprintf('%.2f%s', $1 / $detail{data_ratio}, $2);
+  }
+  if($detail{device_used} =~ /^([0-9]+\.[0-9]+)(.*)/) {
+    $detail{used} = sprintf('%.2f%s', $1 / $detail{data_ratio}, $2);
   }
 
   TRACE(Data::Dumper->Dump([\%detail], ["btrfs_filesystem_usage($vol->{URL})"])) if($do_trace && $do_dumper);
