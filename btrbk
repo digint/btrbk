@@ -7006,9 +7006,10 @@ MAIN:
             my $resume_total = 0;
             my $resume_success = 0;
 
+            my $unexpected_only = [];
             foreach my $snapshot (@snapshots)
             {
-              if(get_receive_targets($droot, $snapshot, exact => 1, warn => 1)){
+              if(get_receive_targets($droot, $snapshot, exact => 1, warn => 1, ret_unexpected_only => $unexpected_only)) {
                 DEBUG "Found correlated target of: $snapshot->{PRINT}";
                 next;
               }
@@ -7019,6 +7020,16 @@ MAIN:
                                 # not enforcing resuming of latest snapshot anymore (since v0.23.0)
                                 # preserve   => $snapshot->{node}{FORCE_PRESERVE},
                               });
+            }
+
+            if(scalar @$unexpected_only && ((config_key($droot, "incremental") // "") eq "strict")) {
+              # If target exists at unexpected location ONLY, we can't send/receive it.
+              ABORTED($droot, "Receive targets of backup candidates exist at unexpected location only");
+              WARN "Skipping backup of \"$sroot->{PRINT}/${snapshot_basename}.*\": " . ABORTED_TEXT($droot),
+                "Please check your target configuration, or fix manually by running" . ($droot->{URL_PREFIX} ? " (on $droot->{URL_PREFIX}):" : ":"),
+                "`btrfs subvolume snapshot -r <found> <target>`",
+                map { "target: $droot->{PATH}/$_->{src_vol}{NAME}, found: " . _fs_path($_->{target_node}) } @$unexpected_only;
+              next;
             }
 
             if(scalar @schedule)
