@@ -7013,6 +7013,10 @@ MAIN:
                 DEBUG "Found correlated target of: $snapshot->{PRINT}";
                 next;
               }
+              if(my $ff = vinfo_match(\@exclude_vf, $snapshot)) {
+                INFO "Skipping backup candidate \"$snapshot->{PRINT}\": Match on exclude pattern \"$ff->{unparsed}\"";
+                next;
+              }
 
               DEBUG "Adding backup candidate: $snapshot->{PRINT}";
               push(@schedule, { value      => $snapshot,
