@@ -3769,8 +3769,8 @@ sub get_best_parent($$$;@)
 
   if($strict_related && (!grep(exists($c_rel_id{$_->[0]{node}{id}}), @parent))) {
     # no relations by parent_uuid found
-    WARN "No related common parent found (by parent_uuid relationship) for: $svol->{PRINT}";
-    WARN "Hint: setting option \"incremental\" to \"yes\" (instead of \"strict\") will use parent: " . join(", ", map { $_->[0]{PRINT} } @parent);
+    WARN "No related common parent found (by parent_uuid relationship) for: $svol->{PRINT}",
+         "Hint: setting option \"incremental\" to \"yes\" (instead of \"strict\") will use parent: " . join(", ", map $_->[0]{PRINT}, @parent);
     return undef;
   }
 
