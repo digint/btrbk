@@ -3443,7 +3443,7 @@ sub get_receive_targets($$;@)
   my @ret;
 
   my @correlated = _correlated_nodes($droot->{node}, $src_vol->{node});
-  my $unexpected;
+  my @unexpected;
   foreach (@correlated) {
     my $vinfo = vinfo_resolved($_, $droot); # returns undef if not below $droot
     if(exists($_->{BTRBK_RAW})) {
@@ -3457,7 +3457,7 @@ sub get_receive_targets($$;@)
     }
     else {
       TRACE "get_receive_targets: skip unexpected match: " . _fs_path($_) if($do_trace);
-      $unexpected = 1;
+      push @unexpected, { src_vol => $src_vol, target_node => $_ };
       if($opts{warn} && config_key($droot, "warn_unknown_targets")) {
         WARN "Receive target of \"$src_vol->{PRINT}\" exists at unknown location: " . ($vinfo ? $vinfo->{PRINT} : _fs_path($_));
       }
@@ -3465,7 +3465,7 @@ sub get_receive_targets($$;@)
     }
     push(@ret, $vinfo);
   }
-  ${$opts{ret_unexpected_only}} = 1 if($opts{ret_unexpected_only} && $unexpected && !scalar(@ret));
+  push(@{$opts{ret_unexpected_only}}, @unexpected) if($opts{ret_unexpected_only} && scalar(@unexpected) && !scalar(@ret));
   return @ret;
 }
 
@@ -4559,14 +4559,14 @@ sub macro_archive_target($$$;$)
   my @schedule;
 
   # NOTE: this is pretty much the same as "resume missing"
-  my $has_unexpected_location = 0;
+  my $unexpected_only = [];
   foreach my $svol (@{vinfo_subvol_list($sroot, readonly => 1, btrbk_direct_leaf => $snapshot_name, sort => 'path')})
   {
     if(my $ff = vinfo_match(\@exclude_vf, $svol)) {
       INFO "Skipping archive candidate \"$svol->{PRINT}\": Match on exclude pattern \"$ff->{unparsed}\"";
       next;
     }
-    next if(get_receive_targets($droot, $svol, exact => 1, warn => 1, ret_unexpected_only => \$has_unexpected_location));
+    next if(get_receive_targets($droot, $svol, exact => 1, warn => 1, ret_unexpected_only => $unexpected_only));
     DEBUG "Adding archive candidate: $svol->{PRINT}";
 
     push @schedule, { value      => $svol,
@@ -4575,9 +4575,12 @@ sub macro_archive_target($$$;$)
                     };
   }
 
-  if($has_unexpected_location) {
-    ABORTED($droot, "Receive targets of archive candidates exist at unexpected location");
-    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": " . ABORTED_TEXT($droot);
+  if(scalar @$unexpected_only) {
+    ABORTED($droot, "Receive targets of archive candidates exist at unexpected location only");
+    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": " . ABORTED_TEXT($droot),
+      "Please check your target configuration, or fix manually by running" . ($droot->{URL_PREFIX} ? " (on $droot->{URL_PREFIX}):" : ":"),
+      "`btrfs subvolume snapshot -r <found> <target>`",
+      map { "target: $droot->{PATH}/$_->{src_vol}{NAME}, found: " . _fs_path($_->{target_node}) } @$unexpected_only;
     return undef;
   }
 
