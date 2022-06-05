@@ -4516,6 +4516,10 @@ sub macro_delete($$$$;@)
 
   my @schedule;
   foreach my $vol (@{vinfo_subvol_list($root_subvol, btrbk_direct_leaf => $subvol_basename)}) {
+    if(my $ff = vinfo_match(\@exclude_vf, $vol)) {
+      INFO "Skipping deletion of \"$vol->{PRINT}\": Match on exclude pattern \"$ff->{unparsed}\"";
+      $vol->{node}{FORCE_PRESERVE} ||= "preserve forced: Match on exclude pattern \"$ff->{unparsed}\"";
+    }
     push(@schedule, { value      => $vol,
                       # name       => $vol->{PRINT},  # only for logging
                       btrbk_date => $vol->{node}{BTRBK_DATE},
