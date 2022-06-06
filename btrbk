@@ -4398,7 +4398,7 @@ sub parse_config($)
   open(FILE, '<', $file) or die $!;
   while (<FILE>) {
     chomp;
-    s/#.*//;         # remove comments # TODO fixme within quotes
+    s/((?:[^"'#]*(?:"[^"]*"|'[^']*'))*[^"'#]*)#.*/$1/; # remove comments
     next if /^\s*$/; # ignore empty lines
     s/^\s*//;        # remove leading whitespace
     s/\s*$//;        # remove trailing whitespace
