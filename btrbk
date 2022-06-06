@@ -96,6 +96,7 @@ my %config_options = (
   snapshot_preserve_min       => { default => "all",         accept => [qw( all latest ), qr/[1-9][0-9]*[hdwmy]/ ], context => [qw( global volume subvolume )], },
   target_preserve             => { default => undef,         accept => [qw( no )], accept_preserve_matrix => 1 },
   target_preserve_min         => { default => "all",         accept => [qw( all latest no ), qr/[0-9]+[hdwmy]/ ] },
+  target_create_dir           => { default => undef,         accept => [qw( yes no )] },
   archive_preserve            => { default => undef,         accept => [qw( no )], accept_preserve_matrix => 1, context => [qw( global )] },
   archive_preserve_min        => { default => "all",         accept => [qw( all latest no ), qr/[0-9]+[hdwmy]/ ], context => [qw( global )] },
   ssh_identity                => { default => undef,         accept => [qw( no ) ], accept_file => { absolute => 1 } },
@@ -6599,7 +6600,7 @@ MAIN:
     }
   }
 
-  # read target btrfs tree
+  # read target btrfs tree, create target directories
   if($action_run && $skip_backups && $preserve_snapshots && $preserve_backups) {
     # if running "btrbk snapshot --preserve", there is no need to
     # initialize targets, and we don't want to fail on missing targets.
@@ -6611,6 +6612,21 @@ MAIN:
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           DEBUG "Initializing target section: $droot->{PRINT}";
           my $target_type = $droot->{CONFIG}->{target_type} || die;
+
+          if($config_override{FAILSAFE_PRESERVE}) {
+            ABORTED($droot, $config_override{FAILSAFE_PRESERVE});
+            WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
+            next;
+          }
+
+          if(config_key($droot, "target_create_dir")) {
+            unless(my $ret = vinfo_mkdir($droot)) {
+              ABORTED($droot, "Failed to create directory: $droot->{PRINT}/");
+              WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot), @stderr;
+              next;
+            }
+          }
+
           if($target_type eq "send-receive")
           {
             unless(vinfo_init_root($droot)) {
@@ -6626,11 +6642,6 @@ MAIN:
               WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot), @stderr;
               next;
             }
-          }
-
-          if($config_override{FAILSAFE_PRESERVE}) {
-            ABORTED($droot, $config_override{FAILSAFE_PRESERVE});
-            WARN  "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
           }
         }
       }
@@ -7270,6 +7281,9 @@ MAIN:
               push @subvol_out, "--- $_->{PRINT}";
             }
             foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
+              if($droot->{SUBDIR_CREATED}) {
+                push @subvol_out, "++. $droot->{PRINT}/";
+              }
               foreach(@{$droot->{SUBVOL_RECEIVED} // []}) {
                 my $create_mode = "***";
                 $create_mode = ">>>" if($_->{parent});
@@ -7319,6 +7333,7 @@ MAIN:
                      options => \@cmdline_options,
                      legend => [
                        "===  up-to-date subvolume (source snapshot)",
+                       "++.  created directory",
                        "+++  created subvolume (source snapshot)",
                        "---  deleted subvolume",
                        "***  received subvolume (non-incremental)",
