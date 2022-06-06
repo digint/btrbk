@@ -6295,6 +6295,14 @@ MAIN:
     }
     foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
       DEBUG "Initializing subvolume section: $svol->{PRINT}";
+      my $snaproot = vinfo_snapshot_root($svol);
+      unless(vinfo_init_root($snaproot)) {
+        ABORTED($svol, "Failed to fetch subvolume detail for snapshot_dir");
+        WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol), @stderr;
+        next;
+      }
+      next if($skip_snapshots || $action_archive);
+
       unless(vinfo_init_root($svol)) {
         ABORTED($svol, "Failed to fetch subvolume detail");
         WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol), @stderr;
@@ -6313,13 +6321,6 @@ MAIN:
       if($svol->{node}{received_uuid} ne '-') {
         ABORTED($svol, "\"Received UUID\" is set");
         WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
-        next;
-      }
-
-      my $snaproot = vinfo_snapshot_root($svol);
-      unless(vinfo_init_root($snaproot)) {
-        ABORTED($svol, "Failed to fetch subvolume detail for snapshot_dir");
-        WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol), @stderr;
         next;
       }
       unless(_is_same_fs_tree($snaproot->{node}, $svol->{node})) {
