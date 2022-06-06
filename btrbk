@@ -4198,9 +4198,12 @@ sub append_config_option($$$$;@)
 }
 
 
-sub parse_config_line($$$$$)
+sub parse_config_line($$$;@)
 {
-  my ($file, $root, $cur, $key, $value) = @_;
+  my ($cur, $key, $value, %opts) = @_;
+  my $root = $cur;
+  $root = $root->{PARENT} while($root->{CONTEXT} ne "global");
+  my $error_statement = $opts{error_statement} // "";
 
   if($key eq "volume")
   {
@@ -4208,7 +4211,7 @@ sub parse_config_line($$$$$)
     TRACE "config: context forced to: $cur->{CONTEXT}" if($do_trace);
 
     # be very strict about file options, for security sake
-    my ($url_prefix, $path) = check_url($value, error_statement => "for option \"$key\" in \"$file\" line $.");
+    my ($url_prefix, $path) = check_url($value, error_statement => "for option \"$key\" $error_statement");
     return undef unless(defined($path));
     TRACE "config: adding volume \"$url_prefix$path\" to global context" if($do_trace);
     die unless($cur->{CONTEXT} eq "global");
@@ -4244,7 +4247,7 @@ sub parse_config_line($$$$$)
       $url = ($rel_path eq '.') ? $cur->{url} : $cur->{url} . '/' . $rel_path;
     }
     else {
-      my ($url_prefix, $path) = check_url($value, accept_wildcards => 1, error_statement => "for option \"$key\"" . ($cur->{DUMMY} ?  " (if no \"volume\" section is declared)" : "") . " in \"$file\" line $.");
+      my ($url_prefix, $path) = check_url($value, accept_wildcards => 1, error_statement => "for option \"$key\"" . ($cur->{DUMMY} ?  " (if no \"volume\" section is declared)" : "") . " $error_statement");
       return undef unless(defined($path));
       $url = $url_prefix . $path;
     }
@@ -4277,11 +4280,11 @@ sub parse_config_line($$$$$)
       my $target_type = $+{target_type} // "send-receive";
       my $url = $+{url};
       unless(grep(/^\Q$target_type\E$/, @config_target_types)) {
-        ERROR "Unknown target type \"$target_type\" in \"$file\" line $.";
+        ERROR "Unknown target type \"$target_type\" $error_statement";
         return undef;
       }
       # be very strict about file options, for security sake
-      my ($url_prefix, $path) = check_url($url, error_statement => "for option \"$key\" in \"$file\" line $.");
+      my ($url_prefix, $path) = check_url($url, error_statement => "for option \"$key\" $error_statement");
       return undef unless(defined($path));
 
       TRACE "config: adding target \"$url_prefix$path\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "") if($do_trace);
@@ -4297,13 +4300,13 @@ sub parse_config_line($$$$$)
     }
     else
     {
-      ERROR "Ambiguous target configuration, in \"$file\" line $.";
+      ERROR "Ambiguous target configuration $error_statement";
       return undef;
     }
   }
   else
   {
-    return append_config_option($cur, $key, $value, $cur->{CONTEXT}, error_statement => "in \"$file\" line $.");
+    return append_config_option($cur, $key, $value, $cur->{CONTEXT}, error_statement => $error_statement);
   }
 
   return $cur;
@@ -4403,7 +4406,7 @@ sub parse_config($)
       my ($indent, $key, $value) = (length($1), lc($2), $4 // "");
       $value =~ s/^"(.*)"$/$1/;
       $value =~ s/^'(.*)'$/$1/;
-      $cur = parse_config_line($file, $root, $cur, $key, $value);
+      $cur = parse_config_line($cur, $key, $value, error_statement => "in \"$file\" line $.");
       unless(defined($cur)) {
         # error, bail out
         $root = undef;
