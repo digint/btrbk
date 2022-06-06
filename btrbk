@@ -194,7 +194,7 @@ my %config_options = (
                                  }
  );
 
-my @config_target_types = qw(send-receive raw);
+my @config_target_types = qw(send-receive raw); # first in list is default
 
 my %table_formats = (
   config_volume => {
@@ -4207,6 +4207,9 @@ sub parse_config_line($$$;@)
 
   if($key eq "volume")
   {
+    $value =~ s/^"(.*)"$/$1/;
+    $value =~ s/^'(.*)'$/$1/;
+
     $cur = $root;
     TRACE "config: context forced to: $cur->{CONTEXT}" if($do_trace);
 
@@ -4225,6 +4228,9 @@ sub parse_config_line($$$;@)
   }
   elsif($key eq "subvolume")
   {
+    $value =~ s/^"(.*)"$/$1/;
+    $value =~ s/^'(.*)'$/$1/;
+
     while($cur->{CONTEXT} ne "volume") {
       if($cur->{CONTEXT} eq "global") {
         TRACE "config: adding dummy volume context" if($do_trace);
@@ -4274,35 +4280,31 @@ sub parse_config_line($$$;@)
       $cur = $cur->{PARENT} || die;
       TRACE "config: context changed to: $cur->{CONTEXT}" if($do_trace);
     }
-    if($value =~ /^((?<target_type>\S+)\s+)?(?<url>\S+)$/)
-    {
-      # as of btrbk-0.28.0, target_type is optional and defaults to "send-receive"
-      my $target_type = $+{target_type} // "send-receive";
-      my $url = $+{url};
-      unless(grep(/^\Q$target_type\E$/, @config_target_types)) {
-        ERROR "Unknown target type \"$target_type\" $error_statement";
-        return undef;
-      }
-      # be very strict about file options, for security sake
-      my ($url_prefix, $path) = check_url($url, error_statement => "for option \"$key\" $error_statement");
-      return undef unless(defined($path));
 
-      TRACE "config: adding target \"$url_prefix$path\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "") if($do_trace);
-      my $target = { CONTEXT => "target",
-                     PARENT => $cur,
-                     target_type => $target_type,
-                     url => $url_prefix . $path,
-                   };
-      # NOTE: target sections are propagated to the apropriate SUBSECTION in _config_propagate_target()
-      $cur->{TARGET} //= [];
-      push(@{$cur->{TARGET}}, $target);
-      $cur = $target;
-    }
-    else
-    {
-      ERROR "Ambiguous target configuration $error_statement";
+    # As of btrbk-0.28.0, target_type is optional and defaults to "send-receive"
+    my $target_type = $config_target_types[0];
+    $target_type = lc($1) if($value =~ s/^([a-zA-Z_-]+)\s+//);
+    unless(grep(/^\Q$target_type\E$/, @config_target_types)) {
+      ERROR "Unknown target type \"$target_type\" $error_statement";
       return undef;
     }
+
+    $value =~ s/^"(.*)"$/$1/;
+    $value =~ s/^'(.*)'$/$1/;
+
+    my ($url_prefix, $path) = check_url($value, error_statement => "for option \"$key\" $error_statement");
+    return undef unless(defined($path));
+
+    TRACE "config: adding target \"$url_prefix$path\" (type=$target_type) to $cur->{CONTEXT} context" . ($cur->{url} ? ": $cur->{url}" : "") if($do_trace);
+    my $target = { CONTEXT => "target",
+                   PARENT => $cur,
+                   target_type => $target_type,
+                   url => $url_prefix . $path,
+                 };
+    # NOTE: target sections are propagated to the apropriate SUBSECTION in _config_propagate_target()
+    $cur->{TARGET} //= [];
+    push(@{$cur->{TARGET}}, $target);
+    $cur = $target;
   }
   else
   {
@@ -4396,30 +4398,21 @@ sub parse_config($)
   open(FILE, '<', $file) or die $!;
   while (<FILE>) {
     chomp;
-    s/#.*//;         # remove comments
-    s/\s*$//;        # remove trailing whitespace
+    s/#.*//;         # remove comments # TODO fixme within quotes
     next if /^\s*$/; # ignore empty lines
+    s/^\s*//;        # remove leading whitespace
+    s/\s*$//;        # remove trailing whitespace
     TRACE "config: parsing line $. with context=$cur->{CONTEXT}: \"$_\"" if($do_trace);
-    if(/^(\s*)([a-zA-Z_]+)(\s+(.*))?$/)
-    {
-      # NOTE: we do not perform checks on indentation!
-      my ($indent, $key, $value) = (length($1), lc($2), $4 // "");
-      $value =~ s/^"(.*)"$/$1/;
-      $value =~ s/^'(.*)'$/$1/;
-      $cur = parse_config_line($cur, $key, $value, error_statement => "in \"$file\" line $.");
-      unless(defined($cur)) {
-        # error, bail out
-        $root = undef;
-        last;
-      }
-      TRACE "line processed: new context=$cur->{CONTEXT}" if($do_trace);
-    }
-    else
-    {
+    unless(/^([a-zA-Z_]+)(?:\s+(.*))?$/) {
       ERROR "Parse error in \"$file\" line $.";
       $root = undef;
       last;
     }
+    unless($cur = parse_config_line($cur, lc($1), $2 // "", error_statement => "in \"$file\" line $.")) {
+      $root = undef;
+      last;
+    }
+    TRACE "line processed: new context=$cur->{CONTEXT}" if($do_trace);
   }
   close FILE || ERROR "Failed to close configuration file: $!";
 
