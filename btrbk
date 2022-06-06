@@ -4572,97 +4572,6 @@ sub macro_delete($$$$;@)
 }
 
 
-sub macro_archive_target($$$;$)
-{
-  my $sroot = shift || die;
-  my $droot = shift || die;
-  my $snapshot_name = shift // die;
-  my $schedule_options = shift // {};
-  my @schedule;
-
-  # NOTE: this is pretty much the same as "resume missing"
-  my $unexpected_only = [];
-  foreach my $svol (@{vinfo_subvol_list($sroot, readonly => 1, btrbk_direct_leaf => $snapshot_name, sort => 'path')})
-  {
-    if(my $ff = vinfo_match(\@exclude_vf, $svol)) {
-      INFO "Skipping archive candidate \"$svol->{PRINT}\": Match on exclude pattern \"$ff->{unparsed}\"";
-      next;
-    }
-    next if(get_receive_targets($droot, $svol, exact => 1, warn => 1, ret_unexpected_only => $unexpected_only));
-    DEBUG "Adding archive candidate: $svol->{PRINT}";
-
-    push @schedule, { value      => $svol,
-                      btrbk_date => $svol->{node}{BTRBK_DATE},
-                      preserve   => $svol->{node}{FORCE_PRESERVE},
-                    };
-  }
-
-  if(scalar @$unexpected_only) {
-    ABORTED($droot, "Receive targets of archive candidates exist at unexpected location only");
-    WARN "Skipping archiving of \"$sroot->{PRINT}/${snapshot_name}.*\": " . ABORTED_TEXT($droot),
-      "Please check your target configuration, or fix manually by running" . ($droot->{URL_PREFIX} ? " (on $droot->{URL_PREFIX}):" : ":"),
-      "`btrfs subvolume snapshot -r <found> <target>`",
-      map { "target: $droot->{PATH}/$_->{src_vol}{NAME}, found: " . _fs_path($_->{target_node}) } @$unexpected_only;
-    return undef;
-  }
-
-  # add all present archives as informative_only: these are needed for correct results of schedule()
-  my $last_dvol_date;
-  foreach my $dvol (@{vinfo_subvol_list($droot, readonly => 1, btrbk_direct_leaf => $snapshot_name)})
-  {
-    my $btrbk_date = $dvol->{node}{BTRBK_DATE};
-    push @schedule, { informative_only => 1,
-                      value            => $dvol,
-                      btrbk_date       => $btrbk_date,
-                    };
-
-    # find last present archive (by btrbk_date, needed for archive_exclude_older below)
-    $last_dvol_date = $btrbk_date if((not defined($last_dvol_date)) || (cmp_date($btrbk_date, $last_dvol_date) > 0));
-  }
-
-  my ($preserve, undef) = schedule(
-    schedule => \@schedule,
-    preserve => config_preserve_hash($droot, "archive"),
-    preserve_threshold_date => (config_key($droot, "archive_exclude_older") ? $last_dvol_date : undef),
-    result_preserve_action_text => 'archive',
-    result_delete_action_text   => '',
-    %$schedule_options
-  );
-  my @archive = grep defined, @$preserve;   # remove entries with no value from list (archive subvolumes)
-  my $archive_total = scalar @archive;
-  my $archive_success = 0;
-  foreach my $svol (@archive)
-  {
-    my ($clone_src, $target_parent_node);
-    my $parent = get_best_parent($svol, $sroot, $droot,
-                                 strict_related     => 0,
-                                 clone_src          => \$clone_src,
-                                 target_parent_node => \$target_parent_node);
-    if(macro_send_receive(source    => $svol,
-                          target    => $droot,
-                          parent    => $parent,  # this is <undef> if no suitable parent found
-                          clone_src => $clone_src,
-                          target_parent_node => $target_parent_node,
-                         ))
-    {
-      $archive_success++;
-    }
-    else {
-      ERROR("Error while archiving subvolumes, aborting");
-      last;
-    }
-  }
-
-  if($archive_total) {
-    INFO "Archived $archive_success/$archive_total subvolumes";
-  } else {
-    INFO "No missing archives found";
-  }
-
-  return $archive_success;
-}
-
-
 sub cmp_date($$)
 {
   return (($_[0]->[0] <=> $_[1]->[0]) ||  # unix time
@@ -5955,13 +5864,11 @@ MAIN:
     # thing used from the configuration is the SSH and transaction log
     # stuff.
     #
-    init_transaction_log(config_key($config, "transaction_log"),
-                         config_key($config, "transaction_syslog"));
+    # FIXME: add command line options for preserve logic
 
     my $src_root     = $subvol_args[0] || die;
     my $archive_root = $subvol_args[1] || die;
 
-    # FIXME: add command line options for preserve logic
     $config->{SUBSECTION} = [];  # clear configured subsections, we build them dynamically
 
     unless(vinfo_init_root($src_root)) {
@@ -5972,6 +5879,14 @@ MAIN:
       ERROR "Failed to fetch " . ($archive_raw ? "raw target metadata" : "subvolume detail") . " for '$archive_root->{PRINT}'", @stderr;
       exit 1;
     }
+
+    my $config_volume = { CONTEXT    => "volume",
+                          PARENT     => $config,
+                          SUBSECTION => [],
+                          DUMMY      => 1,
+                          url        => "/dev/null",
+                        };
+    push(@{$config->{SUBSECTION}}, $config_volume);
 
     my %name_uniq;
     my @subvol_list = @{vinfo_subvol_list($src_root)};
@@ -5988,205 +5903,27 @@ MAIN:
       $name_uniq{"$subvol_dir/$snapshot_name"} = 1;
       my $droot_url = $archive_root->{URL} . ($subvol_dir eq "" ? "" : "/$subvol_dir");
       my $sroot_url = $src_root->{URL} . ($subvol_dir eq "" ? "" : "/$subvol_dir");
-      my $config_sroot = { CONTEXT       => "archive_source",
-                           PARENT        => $config,
+      my $config_sroot = { # CONTEXT       => "archive_source",
+                           CONTEXT       => "subvolume",
+                           PARENT        => $config_volume,
                            url           => $sroot_url,     # ABORTED() needs this
                            snapshot_name => $snapshot_name,
+                           snapshot_dir  => $sroot_url,
                          };
-      my $config_droot = { CONTEXT       => "archive_target",
+      my $config_droot = { # CONTEXT       => "archive_target",
+                           CONTEXT       => "target",
                            PARENT        => $config_sroot,
                            target_type   => ($archive_raw ? "raw" : "send-receive"), # macro_send_receive checks this
                            url           => $droot_url,     # ABORTED() needs this
+                           target_create_dir => "yes",
                          };
       $config_sroot->{SUBSECTION} = [ $config_droot ];
-      push(@{$config->{SUBSECTION}}, $config_sroot);
-
-      my $sroot = vinfo($sroot_url, $config_sroot);
-      vinfo_assign_config($sroot);
-      unless(vinfo_init_root($sroot)) {
-        ABORTED($sroot, "Failed to fetch subvolume detail");
-        WARN "Skipping archive source \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot), @stderr;
-        next;
-      }
-
-      my $droot = vinfo($droot_url, $config_droot);
-      vinfo_assign_config($droot);
-      unless($archive_raw ? vinfo_init_raw_root($droot) : vinfo_init_root($droot)) {
-        DEBUG "Failed to fetch " . ($archive_raw ? "raw target metadata" : "subvolume detail") . " for '$droot->{PRINT}'";
-        unless(vinfo_mkdir($droot)) {
-          ABORTED($droot, "Failed to create directory: $droot->{PRINT}/");
-          WARN "Skipping archive target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot), @stderr;
-          next;
-        }
-        $droot->{SUBDIR_CREATED} = 1;
-        if($dryrun) {
-          # we need to fake this directory on dryrun
-          $droot->{node} = $archive_root->{node};
-          $droot->{NODE_SUBDIR} = $subvol_dir;
-          $droot->{VINFO_MOUNTPOINT} = $archive_root->{VINFO_MOUNTPOINT};
-          $realpath_cache{$droot->{URL}} = $droot->{PATH};
-        }
-        else {
-          # after directory is created, try to init again
-          unless($archive_raw ? vinfo_init_raw_root($droot) : vinfo_init_root($droot)) {
-            ABORTED($droot, "Failed to fetch subvolume detail");
-            WARN "Skipping archive target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot), @stderr;
-            next;
-          }
-        }
-      }
-      if(_is_same_fs_tree($droot->{node}, $vol->{node})) {
-        ERROR "Source and target subvolumes are on the same btrfs filesystem!";
-        exit 1;
-      }
+      push(@{$config_volume->{SUBSECTION}}, $config_sroot);
     }
 
     # translate archive_exclude globs, add to exclude args
     my $archive_exclude = config_key($config, 'archive_exclude') // [];
     push @exclude_vf, map(vinfo_filter_statement($_), (@$archive_exclude));
-
-    # create archives
-    my $schedule_results = [];
-    my $aborted;
-    foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
-      if($aborted) {
-        # abort all subsequent sources on any abort (we don't want to go on hammering on "disk full" errors)
-        ABORTED($sroot, $aborted);
-        next;
-      }
-      my $snapshot_name = config_key($sroot, "snapshot_name") // die;
-
-      # skip on archive_exclude and --exclude option
-      if(vinfo_match(\@exclude_vf, $sroot) ||
-         vinfo_match(\@exclude_vf, vinfo_child($sroot, $snapshot_name)))
-      {
-        ABORTED($sroot, "skip_archive_exclude", "Match on exclude pattern");
-        INFO "Skipping archive subvolumes \"$sroot->{PRINT}/${snapshot_name}.*\": " . ABORTED_TEXT($sroot);
-        next;
-      }
-
-      foreach my $droot (vinfo_subsection($sroot, 'archive_target')) {
-        INFO "Archiving subvolumes: $sroot->{PRINT}/${snapshot_name}.*";
-        macro_archive_target($sroot, $droot, $snapshot_name, { results => $schedule_results });
-        if(IS_ABORTED($droot)) {
-          # also abort $sroot
-          $aborted = "At least one target aborted earlier";
-          ABORTED($sroot, $aborted);
-          WARN "Skipping archiving of \"$sroot->{PRINT}/\": " . ABORTED_TEXT($sroot);
-          last;
-        }
-      }
-    }
-
-    # delete archives
-    my $del_schedule_results;
-    if($preserve_backups) {
-      INFO "Preserving all archives (option \"-p\" or \"-r\" present)";
-    }
-    else
-    {
-      $del_schedule_results = [];
-      foreach my $sroot (vinfo_subsection($config, 'archive_source')) {
-        my $snapshot_name = config_key($sroot, "snapshot_name") // die;
-        foreach my $droot (vinfo_subsection($sroot, 'archive_target')) {
-          INFO "Cleaning archive: $droot->{PRINT}/${snapshot_name}.*";
-          macro_delete($droot, $snapshot_name, $droot,
-                       { preserve     => config_preserve_hash($droot, "archive"),
-                         results      => $del_schedule_results,
-                         result_hints => { topic => "archive", root_path => $droot->{PATH} },
-                       },
-                       commit => config_key($droot, "btrfs_commit_delete"),
-                       type   => "delete_archive",
-                       qgroup => { destroy => config_key($droot, "archive_qgroup_destroy"),
-                                   type => "qgroup_destroy_archive" },
-                      );
-        }
-      }
-    }
-
-
-    my $exit_status = exit_status($config);
-    my $time_elapsed = time - $start_time;
-    INFO "Completed within: ${time_elapsed}s  (" . localtime(time) . ")";
-    action("finished",
-           status => $exit_status ? "partial" : "success",
-           duration => $time_elapsed,
-           message => $exit_status ? "At least one backup task aborted" : undef,
-          );
-    close_transaction_log();
-
-    unless($quiet)
-    {
-      # print scheduling results
-      if($print_schedule) {
-        my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
-        print_formatted("schedule", \@data, title => "ARCHIVE SCHEDULE", paragraph => 1);
-      }
-
-      if($print_schedule && $del_schedule_results) {
-        my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$del_schedule_results;
-        print_formatted("schedule", \@data, title => "DELETE SCHEDULE", paragraph => 1);
-      }
-
-      # print summary
-      $output_format ||= "custom";
-      if($output_format eq "custom")
-      {
-        my @out;
-        foreach my $sroot (vinfo_subsection($config, 'archive_source', 1)) {
-          foreach my $droot (vinfo_subsection($sroot, 'archive_target', 1)) {
-            my @subvol_out;
-            if($droot->{SUBDIR_CREATED}) {
-              push @subvol_out, "++. $droot->{PRINT}/";
-            }
-            foreach(@{$droot->{SUBVOL_RECEIVED} // []}) {
-              my $create_mode = "***";
-              $create_mode = ">>>" if($_->{parent});
-              $create_mode = "!!!" if($_->{ERROR});
-              push @subvol_out, "$create_mode $_->{received_subvolume}->{PRINT}";
-            }
-            foreach(@{$droot->{SUBVOL_DELETED} // []}) {
-              push @subvol_out, "--- $_->{PRINT}";
-            }
-            if(IS_ABORTED($droot, "abort_") || IS_ABORTED($sroot, "abort_")) {
-              push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . (ABORTED_TEXT($droot) || ABORTED_TEXT($sroot));
-            }
-            elsif(IS_ABORTED($sroot, "skip_archive_exclude")) {
-              push @subvol_out, "<archive_exclude>";
-            }
-            unless(@subvol_out) {
-              push @subvol_out, "[-] $droot->{PRINT}/$sroot->{CONFIG}->{snapshot_name}.*";
-            }
-            push @out, "$sroot->{PRINT}/$sroot->{CONFIG}->{snapshot_name}.*", @subvol_out, "";
-          }
-        }
-
-        my @cmdline_options = map { "exclude: $_" } @exclude_cmdline;
-        push @cmdline_options, "preserve: Preserved all archives" if($preserve_backups);
-
-        print_header(title => "Archive Summary",
-                     time => $start_time,
-                     options => \@cmdline_options,
-                     legend => [
-                       "++.  created directory",
-                       "---  deleted subvolume",
-                       "***  received subvolume (non-incremental)",
-                       ">>>  received subvolume (incremental)",
-                       "[-]  no action",
-                      ],
-                    );
-        print join("\n", @out);
-        print_footer($config, $exit_status);
-      }
-      else
-      {
-        # print action log (without transaction start messages)
-        my @data = grep { $_->{status} !~ /starting$/ } @transaction_log;
-        print_formatted("transaction", \@data, title => "TRANSACTION LOG");
-      }
-    }
-
-    exit $exit_status;
   }
 
 
@@ -6918,13 +6655,13 @@ MAIN:
   }
 
 
-  if($action_run)
+  if($action_run || $action_archive)
   {
     init_transaction_log(config_key($config, "transaction_log"),
                          config_key($config, "transaction_syslog"));
 
-    if($skip_snapshots) {
-      INFO "Skipping snapshot creation (btrbk resume)";
+    if($skip_snapshots || $action_archive) {
+      INFO "Skipping snapshot creation (btrbk resume)" unless($action_archive);
     }
     else
     {
@@ -7204,8 +6941,8 @@ MAIN:
           #
           # delete snapshots
           #
-          if($preserve_snapshots) {
-            INFO "Preserving all snapshots";
+          if($preserve_snapshots || $action_archive) {
+            INFO "Preserving all snapshots" unless($action_archive);
           }
           elsif($target_aborted) {
             if($target_aborted == -1) {
