@@ -5896,7 +5896,7 @@ MAIN:
       next if($name_uniq{"$subdir/$snapshot_name"});
       $name_uniq{"$subdir/$snapshot_name"} = 1;
       $cur = parse_config_line($cur, $_->[0], $_->[1]) // die for(
-        [ subvolume         => $sroot->{URL}  . $subdir ],
+        [ subvolume         => $sroot->{URL_PREFIX} . "/dev/null" ],
         [ snapshot_dir      => $sroot->{PATH} . $subdir ],
         [ snapshot_name     => $snapshot_name ],
         [ target            => ($raw_cmdline ? "raw" : "send-receive") . " '" . $droot->{URL} . $subdir . "'" ],
