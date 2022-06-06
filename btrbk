@@ -7043,7 +7043,8 @@ MAIN:
             if(scalar @schedule)
             {
               DEBUG "Checking schedule for backup candidates";
-              # add all present backups as informative_only: these are needed for correct results of schedule()
+              # Add all present backups as informative_only: these are needed for correct results of schedule().
+              # Note that we don't filter readonly here, in order to also get garbled targets.
               foreach my $vol (@{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_basename)}) {
                 push(@schedule, { informative_only => 1,
                                   value      => $vol,
