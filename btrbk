@@ -4491,6 +4491,7 @@ sub macro_send_receive(@)
       TARGET_TYPE    => $target_type,
       FORCE_PRESERVE => 'preserve forced: created just now',
     }, $raw_info);
+    $source->{SUBVOL_SENT}{$target->{URL}} = $vol_received;
   }
 
   # add info to $config->{SUBVOL_RECEIVED}
@@ -6754,10 +6755,12 @@ MAIN:
     #
     # create backups
     #
+    my $schedule_results;
     if($skip_backups) {
       INFO "Skipping backup creation (btrbk snapshot)";
     }
     else {
+      $schedule_results = [];
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snaproot = vinfo_snapshot_root($svol);
@@ -6815,10 +6818,15 @@ MAIN:
                                 });
                 $last_dvol_date = $btrbk_date if(!defined($last_dvol_date) || cmp_date($btrbk_date, $last_dvol_date) > 0);
               }
+              my $schedule_results_mixed = [];
               my ($preserve, undef) = schedule(
                 schedule => \@schedule,
                 preserve => config_preserve_hash($droot, $action_archive ? "archive" : "target"),
                 preserve_threshold_date => ($action_archive && config_key($droot, "archive_exclude_older") ? $last_dvol_date : undef),
+
+                results  => $schedule_results_mixed,
+                result_hints => { topic => "backup", root_path => $snaproot->{PATH} },
+                result_delete_action_text => 'REMOVE_FROM_OUTPUT',
                );
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
               $resume_total = scalar @resume;
@@ -6860,6 +6868,13 @@ MAIN:
                   last;
                 }
               }
+
+              # replace results with target value
+              foreach (@$schedule_results_mixed) {
+                my $replace = $_->{value}{SUBVOL_SENT}{$droot->{URL}} // next;
+                $_->{value} = $replace;
+              }
+              push @$schedule_results, @$schedule_results_mixed;
             }
 
             if($resume_total) {
@@ -6876,7 +6891,6 @@ MAIN:
     #
     # remove backups following a preserve daily/weekly/monthly scheme
     #
-    my $schedule_results;
     if($preserve_snapshots && $preserve_backups) {
       INFO "Preserving all snapshots and backups";
     }
@@ -6988,15 +7002,12 @@ MAIN:
       # print scheduling results
       #
       if($print_schedule && $schedule_results) {
-        my @data = map { { %$_, vinfo_prefixed_keys("", $_->{value}) }; } @$schedule_results;
-        my @data_snapshot = grep { $_->{topic} eq "snapshot" } @data;
-        my @data_backup   = grep { $_->{topic} eq "backup"   } @data;
-
-        if(scalar(@data_snapshot)) {
-          print_formatted("schedule", \@data_snapshot, title => "SNAPSHOT SCHEDULE", paragraph => 1);
-        }
-        if(scalar(@data_backup)) {
-          print_formatted("schedule", \@data_backup, title => "BACKUP SCHEDULE", paragraph => 1);
+        foreach my $topic (qw(snapshot backup)) {
+          my @data = map +{ %$_, vinfo_prefixed_keys("", $_->{value}) },
+                     grep { !($_->{action} && $_->{action} eq "REMOVE_FROM_OUTPUT") }
+                     grep { $_->{topic} eq $topic } @$schedule_results;
+          next unless(@data);
+          print_formatted("schedule", \@data, title => (uc($topic) . " SCHEDULE"), paragraph => 1);
         }
       }
 
