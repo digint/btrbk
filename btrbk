@@ -6842,11 +6842,14 @@ MAIN:
                   next;
                 }
 
+                # Note: strict_related does not make much sense on archive:
+                # on targets, parent_uuid chain is broken after first prune.
                 my ($clone_src, $target_parent_node);
                 my $parent = get_best_parent($snapshot, $snaproot, $droot,
-                                             strict_related     => ((config_key($droot, "incremental") // "") eq "strict"),
-                                             clone_src          => \$clone_src,
-                                             target_parent_node => \$target_parent_node);
+                  strict_related     => ((config_key($droot, "incremental") // "") eq "strict") && !$action_archive,
+                  clone_src          => \$clone_src,
+                  target_parent_node => \$target_parent_node,
+                 );
                 if(macro_send_receive(source    => $snapshot,
                                       target    => $droot,
                                       parent    => $parent,  # this is <undef> if no suitable parent found
