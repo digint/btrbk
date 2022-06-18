@@ -6808,17 +6808,22 @@ MAIN:
             if(scalar @schedule)
             {
               DEBUG "Checking schedule for backup candidates";
+              my $last_dvol_date; # oldest present archive (by btrbk_date)
+
               # Add all present backups as informative_only: these are needed for correct results of schedule().
               # Note that we don't filter readonly here, in order to also get garbled targets.
-              foreach my $vol (@{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_basename)}) {
+              foreach my $dvol (@{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_basename)}) {
+                my $btrbk_date = $dvol->{node}{BTRBK_DATE};
                 push(@schedule, { informative_only => 1,
-                                  value      => $vol,
-                                  btrbk_date => $vol->{node}{BTRBK_DATE},
+                                  value      => $dvol,
+                                  btrbk_date => $dvol->{node}{BTRBK_DATE},
                                 });
+                $last_dvol_date = $btrbk_date if(!defined($last_dvol_date) || cmp_date($btrbk_date, $last_dvol_date) > 0);
               }
               my ($preserve, undef) = schedule(
                 schedule => \@schedule,
                 preserve => config_preserve_hash($droot, $action_archive ? "archive" : "target"),
+                preserve_threshold_date => ($action_archive && config_key($droot, "archive_exclude_older") ? $last_dvol_date : undef),
                );
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
               $resume_total = scalar @resume;
