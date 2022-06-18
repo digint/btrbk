@@ -2838,12 +2838,12 @@ sub vinfo_cmd($$@)
 
 sub _get_btrbk_date(@)
 {
-  my %bts = @_; # named capture buffers (%+) from $btrbk_timestamp_match
+  my %a = @_; # named capture buffers (%+) from $btrbk_timestamp_match
 
-  my @tm = ( ($+{ss} // 0), ($+{mm} // 0), ($+{hh} // 0), $+{DD}, ($+{MM} - 1), ($+{YYYY} - 1900) );
-  my $NN = $+{NN} // 0;
-  my $zz = $+{zz};
-  my $has_exact_time = defined($+{hh}); # false if timestamp_format=short
+  my @tm = ( ($a{ss} // 0), ($a{mm} // 0), ($a{hh} // 0), $a{DD}, ($a{MM} - 1), ($a{YYYY} - 1900) );
+  my $NN = $a{NN} // 0;
+  my $zz = $a{zz};
+  my $has_exact_time = defined($a{hh}); # false if timestamp_format=short
 
   my $time;
   if(defined($zz)) {
