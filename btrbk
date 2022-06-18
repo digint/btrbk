@@ -6818,7 +6818,7 @@ MAIN:
               }
               my ($preserve, undef) = schedule(
                 schedule => \@schedule,
-                preserve => config_preserve_hash($droot, "target"),
+                preserve => config_preserve_hash($droot, $action_archive ? "archive" : "target"),
                );
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
               $resume_total = scalar @resume;
@@ -6923,7 +6923,7 @@ MAIN:
               #
               INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
               unless(macro_delete($droot, $snapshot_basename, $droot,
-                                  { preserve     => config_preserve_hash($droot, "target"),
+                                  { preserve     => config_preserve_hash($droot, $action_archive ? "archive" : "target"),
                                     results      => $schedule_results,
                                     result_hints => { topic => "backup", root_path => $droot->{PATH} },
                                   },
