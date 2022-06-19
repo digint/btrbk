@@ -3315,9 +3315,10 @@ sub vinfo_subsection($$;$)
 # allow (absolute) path / url with wildcards
 # allow group (exact match)
 # allow host[:port] (exact match)
-sub vinfo_filter_statement($) {
+sub vinfo_filter_statement($;$) {
   my $filter = shift;
-  my %ret = ( unparsed => $filter );
+  my $reason = shift // "expression \"$filter\"";
+  my %ret = ( unparsed => $filter, reason => $reason );
 
   my ($url_prefix, $path) = check_url($filter, accept_wildcards => 1);
   unless($path) {
@@ -4537,8 +4538,8 @@ sub macro_delete($$$$;@)
   my @schedule;
   foreach my $vol (@{vinfo_subvol_list($root_subvol, btrbk_direct_leaf => $subvol_basename)}) {
     if(my $ff = vinfo_match(\@exclude_vf, $vol)) {
-      INFO "Skipping deletion of \"$vol->{PRINT}\": Match on exclude pattern \"$ff->{unparsed}\"";
-      $vol->{node}{FORCE_PRESERVE} ||= "preserve forced: Match on exclude pattern \"$ff->{unparsed}\"";
+      INFO "Skipping deletion of \"$vol->{PRINT}\": Match on $ff->{reason}";
+      $vol->{node}{FORCE_PRESERVE} ||= "preserve forced: Match on $ff->{reason}";
     }
     push(@schedule, { value      => $vol,
                       # name       => $vol->{PRINT},  # only for logging
@@ -5504,7 +5505,7 @@ MAIN:
     push @filter_vf, $vf;
   }
   foreach (@exclude_cmdline) {
-    my $vf = vinfo_filter_statement($_);
+    my $vf = vinfo_filter_statement($_, "command line argument \"--exclude=$_\"");
     unless($vf) {
       ERROR "Bad argument: invalid filter statement: --exclude='$_'";
       ERROR_HELP_MESSAGE;
@@ -5918,7 +5919,7 @@ MAIN:
 
     # translate archive_exclude globs, add to exclude args
     my $archive_exclude = config_key($config, 'archive_exclude') // [];
-    push @exclude_vf, map(vinfo_filter_statement($_), (@$archive_exclude));
+    push @exclude_vf, map(vinfo_filter_statement($_, "configuration option \"archive_exclude $_\""), (@$archive_exclude));
   }
 
 
@@ -6110,7 +6111,8 @@ MAIN:
     # handle --exclude command line option
     foreach my $sroot (vinfo_subsection($config, 'volume')) {
       if(my $ff = vinfo_match(\@exclude_vf, $sroot)) {
-        ABORTED($sroot, "skip_cmdline_exclude", "command line argument \"--exclude=$ff->{unparsed}\"");
+
+        ABORTED($sroot, "skip_cmdline_exclude", $ff->{reason});
         DEBUG "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
         next;
       }
@@ -6783,7 +6785,7 @@ MAIN:
                 next;
               }
               if(my $ff = vinfo_match(\@exclude_vf, $snapshot)) {
-                INFO "Skipping backup candidate \"$snapshot->{PRINT}\": Match on exclude pattern \"$ff->{unparsed}\"";
+                INFO "Skipping backup candidate \"$snapshot->{PRINT}\": Match on $ff->{reason}";
                 next;
               }
 
