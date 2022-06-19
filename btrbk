@@ -5476,7 +5476,10 @@ MAIN:
     exit 2;
   }
   if(($args_expected_min > scalar(@ARGV)) || ($args_expected_max < scalar(@ARGV))) {
-    ERROR "Incorrect number of arguments";
+    ERROR "Incorrect number of arguments for \"$command\" command: expected " . (
+      ($args_expected_min == $args_expected_max) ? $args_expected_min :
+      ($args_expected_min > scalar(@ARGV)) ? "at least $args_expected_min" : "at most $args_expected_max")
+      . ", got " . scalar(@ARGV);
     ERROR_HELP_MESSAGE;
     exit 2;
   }
