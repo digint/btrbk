@@ -4490,6 +4490,7 @@ sub macro_send_receive(@)
       readonly       => 1,
       TARGET_TYPE    => $target_type,
       FORCE_PRESERVE => 'preserve forced: created just now',
+      INJECTED_BY    => 'receive',
     }, $raw_info);
     $source->{SUBVOL_SENT}{$target->{URL}} = $vol_received;
   }
@@ -6741,6 +6742,7 @@ MAIN:
               received_uuid  => '-',
               readonly       => 1,
               FORCE_PRESERVE => 'preserve forced: created just now',
+              INJECTED_BY    => 'snapshot',
             });
             $svol->{SNAPSHOT_CREATED} = $snapshot;
           }
@@ -6826,7 +6828,9 @@ MAIN:
 
                 results  => $schedule_results_mixed,
                 result_hints => { topic => "backup", root_path => $snaproot->{PATH} },
-                result_delete_action_text => 'REMOVE_FROM_OUTPUT',
+                result_delete_action_text   => 'REMOVE_FROM_OUTPUT',
+                # not required, we patch this in late, before displaying
+                #result_preserve_action_text => 'create',
                );
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
               $resume_total = scalar @resume;
@@ -7004,7 +7008,8 @@ MAIN:
       if($print_schedule && $schedule_results) {
         foreach my $topic (qw(snapshot backup)) {
           my @data = map +{ %$_, vinfo_prefixed_keys("", $_->{value}) },
-                     grep { !($_->{action} && $_->{action} eq "REMOVE_FROM_OUTPUT") }
+                     grep { $_->{action} = "create" if($_->{value}{node}{INJECTED_BY});
+                            !($_->{action} && $_->{action} eq "REMOVE_FROM_OUTPUT") }
                      grep { $_->{topic} eq $topic } @$schedule_results;
           next unless(@data);
           print_formatted("schedule", \@data, title => (uc($topic) . " SCHEDULE"), paragraph => 1);
