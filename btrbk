@@ -5258,7 +5258,7 @@ MAIN:
   my @exclude_cmdline;
   my ($config_cmdline, $lockfile_cmdline, $print_schedule,
       $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups,
-      $archive_raw, $extents_related,
+      $raw_cmdline, $extents_related,
      );
 
   # Calling btrbk via "lsbtr" symlink acts as an alias for "btrbk ls",
@@ -5297,7 +5297,7 @@ MAIN:
     'table|t'            => sub { $output_format = "table" },
     'long|L'             => sub { $output_format = "long" },
     'print-schedule|S'   => \$print_schedule,
-    'raw'                => \$archive_raw,
+    'raw'                => \$raw_cmdline,
     'bytes'              => sub { @output_unit = ("",    1                         ) },
     'kbytes'             => sub { @output_unit = ("KiB", 1024                      ) },
     'mbytes'             => sub { @output_unit = ("MiB", 1024 * 1024               ) },
@@ -5866,15 +5866,15 @@ MAIN:
     #
     # FIXME: add command line options for preserve logic
 
-    my $src_root     = $subvol_args[0] || die;
-    my $archive_root = $subvol_args[1] || die;
+    my $sroot = $subvol_args[0] || die;
+    my $droot = $subvol_args[1] || die;
 
-    unless(vinfo_init_root($src_root)) {
-      ERROR "Failed to fetch subvolume detail for '$src_root->{PRINT}'", @stderr;
+    unless(vinfo_init_root($sroot)) {
+      ERROR "Failed to fetch subvolume detail for '$sroot->{PRINT}'", @stderr;
       exit 1;
     }
-    unless($archive_raw ? vinfo_init_raw_root($archive_root) : vinfo_init_root($archive_root)) {
-      ERROR "Failed to fetch " . ($archive_raw ? "raw target metadata" : "subvolume detail") . " for '$archive_root->{PRINT}'", @stderr;
+    unless($raw_cmdline ? vinfo_init_raw_root($droot) : vinfo_init_root($droot)) {
+      ERROR "Failed to fetch " . ($raw_cmdline ? "raw target metadata" : "subvolume detail") . " for '$droot->{PRINT}'", @stderr;
       exit 1;
     }
 
@@ -5884,7 +5884,7 @@ MAIN:
     my %name_uniq;
     foreach my $vol (sort { ($a->{subtree_depth} <=> $b->{subtree_depth}) ||
                             ($a->{SUBVOL_DIR}    cmp $b->{SUBVOL_DIR})
-                          } @{vinfo_subvol_list($src_root)})
+                          } @{vinfo_subvol_list($sroot)})
     {
       next unless($vol->{node}{readonly});
       my $snapshot_name = $vol->{node}{BTRBK_BASENAME};
@@ -5896,10 +5896,10 @@ MAIN:
       next if($name_uniq{"$subdir/$snapshot_name"});
       $name_uniq{"$subdir/$snapshot_name"} = 1;
       $cur = parse_config_line($cur, $_->[0], $_->[1]) // die for(
-        [ subvolume         => $src_root->{URL}  . $subdir ],
-        [ snapshot_dir      => $src_root->{PATH} . $subdir ],
+        [ subvolume         => $sroot->{URL}  . $subdir ],
+        [ snapshot_dir      => $sroot->{PATH} . $subdir ],
         [ snapshot_name     => $snapshot_name ],
-        [ target            => ($archive_raw ? "raw" : "send-receive") . " '" . $archive_root->{URL} . $subdir . "'" ],
+        [ target            => ($raw_cmdline ? "raw" : "send-receive") . " '" . $droot->{URL} . $subdir . "'" ],
         [ target_create_dir => "yes" ],
        );
     }
