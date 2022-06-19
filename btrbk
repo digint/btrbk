@@ -3601,12 +3601,12 @@ sub _related_nodes($;@)
 
 
 # returns parent, along with clone sources
-sub get_best_parent($$$;@)
+sub get_best_parent($$;@)
 {
   my $svol = shift // die;
-  my $snaproot = shift // die;
   my $droot = shift || die;
   my %opts = @_;
+  my $snaproot               = $opts{snaproot};
   my $ret_clone_src          = $opts{clone_src};
   my $ret_target_parent_node = $opts{target_parent_node};
   my $strict_related         = $opts{strict_related};
@@ -3616,7 +3616,7 @@ sub get_best_parent($$$;@)
   # honor incremental_resolve option
   my $source_incremental_resolve = config_key($svol, "incremental_resolve");
   my $target_incremental_resolve = config_key($droot, "incremental_resolve");
-  my $resolve_sroot = ($source_incremental_resolve eq "mountpoint") ? $snaproot->{VINFO_MOUNTPOINT} : $snaproot;
+  my $resolve_sroot = $snaproot ? (($source_incremental_resolve eq "mountpoint") ? $snaproot->{VINFO_MOUNTPOINT} : $snaproot) : $svol->{VINFO_MOUNTPOINT};
   my $resolve_droot = ($source_incremental_resolve eq "mountpoint") ? $droot->{VINFO_MOUNTPOINT} : $droot;
 
   # NOTE: Using parents from different mount points does NOT work, see
@@ -3676,7 +3676,7 @@ sub get_best_parent($$$;@)
   # A->S, B->S, C->S, delete B: A still has a relation to C.
   #
   # resolve correlated subvolumes in same directory matching btrbk file name scheme
-  if(exists($svol->{node}{BTRBK_BASENAME})) {
+  if($snaproot && exists($svol->{node}{BTRBK_BASENAME})) {
     my $snaproot_btrbk_direct_leaf = vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $svol->{node}{BTRBK_BASENAME});
     my @sbdl_older = sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }
                      grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @$snaproot_btrbk_direct_leaf;
@@ -6862,7 +6862,8 @@ MAIN:
                 # Note: strict_related does not make much sense on archive:
                 # on targets, parent_uuid chain is broken after first prune.
                 my ($clone_src, $target_parent_node);
-                my $parent = get_best_parent($snapshot, $snaproot, $droot,
+                my $parent = get_best_parent($snapshot, $droot,
+                  snaproot           => $snaproot,
                   strict_related     => ((config_key($droot, "incremental") // "") eq "strict") && !$action_archive,
                   clone_src          => \$clone_src,
                   target_parent_node => \$target_parent_node,
