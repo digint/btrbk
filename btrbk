@@ -466,7 +466,8 @@ commands:
    snapshot              run snapshot operations only
    resume                run backup operations, and delete snapshots
    prune                 only delete snapshots and backups
-   archive <src> <dst>   recursively copy all subvolumes
+   archive <src> <dst>   recursively copy btrbk snapshot/backup directories
+   cp <src>... <dst>     copy read-only subvolume (incrementally if possible)
    clean                 delete incomplete (garbled) backups
    stats                 print snapshot/backup statistics
    list <subcommand>     available subcommands are (default "all"):
@@ -5373,7 +5374,7 @@ MAIN:
     WARN 'Found option "--progress", but required executable "mbuffer" does not exist on your system. Please install "mbuffer".';
     $show_progress = 0;
   }
-  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_extents, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive, $action_ls);
+  my ($action_run, $action_usage, $action_resolve, $action_diff, $action_extents, $action_origin, $action_config_print, $action_list, $action_clean, $action_archive, $action_cp, $action_ls);
   my @filter_args;
   my @subvol_args;
   my $args_expected_min = 0;
@@ -5411,6 +5412,13 @@ MAIN:
     $action_archive = 1;
     $fallback_default_config = 1;
     $args_expected_min = $args_expected_max = 2;
+    $subvol_args_allow_relative = 1;
+    @subvol_args = @ARGV;
+  }
+  elsif ($command eq "cp") {
+    $action_cp = 1;
+    $fallback_default_config = 1;
+    $args_expected_min = 2;
     $subvol_args_allow_relative = 1;
     @subvol_args = @ARGV;
   }
@@ -5959,6 +5967,77 @@ MAIN:
     # translate archive_exclude globs, add to exclude args
     my $archive_exclude = config_key($config, 'archive_exclude') // [];
     push @exclude_vf, map(vinfo_filter_statement($_, "archive_exclude"), (@$archive_exclude));
+  }
+
+
+  if($action_cp)
+  {
+    #
+    # copy any subvolume, recursively
+    #
+    # Similar to action "archive", but does not apply scheduling and
+    # thus can operate on non-btrbk snapshots.
+
+    my $droot = pop @subvol_args;
+    $droot->{CONFIG} = {
+      CONTEXT     => "target",
+      PARENT      => $config,
+      target_type => $raw_cmdline ? "raw" : "send-receive",
+      url         => $droot->{URL},
+    };
+
+    my $exit_status = 0;
+    foreach my $svol (@subvol_args) {
+      unless(vinfo_init_root($svol)) {
+        ERROR "Failed to fetch subvolume detail for '$svol->{PRINT}'", @stderr;
+        $exit_status = 1;
+        next;
+      }
+      unless($svol->{node}{readonly}) {
+        ERROR "subvolume is not read-only: $svol->{PRINT}";
+        $exit_status = 1;
+      }
+    }
+    unless($raw_cmdline ? vinfo_init_raw_root($droot) : vinfo_init_root($droot)) {
+      ERROR "Failed to fetch " . ($raw_cmdline ? "raw target metadata" : "subvolume detail") . " for '$droot->{PRINT}'", @stderr;
+      $exit_status = 1;
+    }
+    exit $exit_status if($exit_status);
+
+    my %name_uniq;
+    foreach my $svol (@subvol_args) {
+      next if($name_uniq{$svol->{URL}});
+      $name_uniq{$svol->{URL}} = 1;
+
+      if(my @rt = get_receive_targets($droot, $svol, exact => 1, warn => 1)) {
+        WARN "Correlated target subvolume already exists, skipping: $svol->{PRINT}", map($_->{PRINT}, @rt);
+        next;
+      }
+
+      if(my $err_vol = vinfo_subvol($droot, $svol->{NAME})) {
+        WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$svol->{PRINT}\"";
+        WARN "Skipping subvolume copy: $svol->{PRINT}";
+        $exit_status = 10;
+        next;
+      }
+      my ($clone_src, $target_parent_node);
+      my $parent = get_best_parent(
+        $svol, $droot,
+        clone_src          => \$clone_src,
+        target_parent_node => \$target_parent_node,
+       );
+      unless(macro_send_receive(
+        source    => $svol,
+        target    => $droot,
+        parent    => $parent,
+        clone_src => $clone_src,
+        target_parent_node => $target_parent_node,
+       )) {
+        $exit_status = 10;
+      }
+    }
+
+    exit $exit_status;
   }
 
 
