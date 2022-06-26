@@ -4582,7 +4582,7 @@ sub macro_delete($$$$;@)
   };
 
   my @schedule;
-  foreach my $vol (@{vinfo_subvol_list($root_subvol, btrbk_direct_leaf => $subvol_basename)}) {
+  foreach my $vol (@{get_btrbk_snapshot_siblings($root_subvol, name => $subvol_basename)}) {
     if(my $ff = vinfo_match(\@exclude_vf, $vol)) {
       INFO "Skipping deletion of \"$vol->{PRINT}\": Match on $ff->{reason}";
       $vol->{node}{FORCE_PRESERVE} ||= "preserve forced: Match on $ff->{reason}";
@@ -6505,7 +6505,7 @@ MAIN:
       foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
         my $snaproot = vinfo_snapshot_root($svol);
         my $snapshot_name = config_key($svol, "snapshot_name") // die;
-        my @snapshots = @{vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $snapshot_name, sort => 'path')};
+        my $snapshots = get_btrbk_snapshot_siblings($snaproot, name => $snapshot_name, readonly => 1, sort => 1);
         my %svol_data = (
           vinfo_prefixed_keys("source", $svol),
           snapshot_name => $snapshot_name,
@@ -6517,7 +6517,7 @@ MAIN:
           vinfo_prefixed_keys("snapshot", $_),
           _vinfo => $_,
           _btrbk_date => $_->{node}{BTRBK_DATE},
-        }, @snapshots;
+        }, @$snapshots;
 
         my %svol_stats_data = (
           %svol_data,
@@ -6531,7 +6531,7 @@ MAIN:
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           my %dstats = ( backups => 0, correlated => 0, orphaned => 0, incomplete => 0, uptodate => 0 );
           my $latest_backup;
-          foreach my $target_vol (@{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_name, sort => 'path')}) {
+          foreach my $target_vol (@{get_btrbk_snapshot_siblings($droot, name => $snapshot_name, sort => 1)}) {
             my $target_data = {
               %svol_data,
               type => "backup",
@@ -6644,7 +6644,7 @@ MAIN:
 
           # incomplete received (garbled) subvolumes are not readonly and have no received_uuid (as of btrfs-progs v4.3.1).
           # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
-          my @delete = grep $_->{node}{received_uuid} eq '-', @{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_name, sort => 'path')};
+          my @delete = grep $_->{node}{received_uuid} eq '-', @{get_btrbk_snapshot_siblings($droot, name => $snapshot_name, sort => 1)};
           my @delete_success;
           foreach my $target_vol (@delete) {
             DEBUG "Found incomplete target subvolume: $target_vol->{PRINT}";
@@ -6823,8 +6823,7 @@ MAIN:
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
-          my @snapshots = sort({ cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
-                               @{vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $snapshot_basename)});
+          my $snapshots = get_btrbk_snapshot_siblings($snaproot, name => $snapshot_basename, readonly => 1, sort => 1);
           foreach my $droot (vinfo_subsection($svol, 'target')) {
             INFO "Checking for missing backups of \"$snaproot->{PRINT}/${snapshot_basename}.*\" in: $droot->{PRINT}/";
             my @schedule;
@@ -6832,7 +6831,7 @@ MAIN:
             my $resume_success = 0;
 
             my $unexpected_only = [];
-            foreach my $snapshot (@snapshots)
+            foreach my $snapshot (@$snapshots)
             {
               if(get_receive_targets($droot, $snapshot, exact => 1, warn => 1, ret_unexpected_only => $unexpected_only)) {
                 DEBUG "Found correlated target of: $snapshot->{PRINT}";
@@ -6868,7 +6867,7 @@ MAIN:
 
               # Add all present backups as informative_only: these are needed for correct results of schedule().
               # Note that we don't filter readonly here, in order to also get garbled targets.
-              foreach my $dvol (@{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_basename)}) {
+              foreach my $dvol (@{get_btrbk_snapshot_siblings($droot, name => $snapshot_basename)}) {
                 my $btrbk_date = $dvol->{node}{BTRBK_DATE};
                 push(@schedule, { informative_only => 1,
                                   value      => $dvol,
@@ -6963,8 +6962,7 @@ MAIN:
           my $snaproot = vinfo_snapshot_root($svol);
           my $snapshot_basename = config_key($svol, "snapshot_name") // die;
           my $target_aborted = 0;
-          my @snapshots = sort({ cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }  # sort descending
-                               @{vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $snapshot_basename)});
+          my $snapshots = get_btrbk_snapshot_siblings($snaproot, name => $snapshot_basename, readonly => 1, sort => "desc");
 
           foreach my $droot (vinfo_subsection($svol, 'target', 1)) {
             if(IS_ABORTED($droot)) {
@@ -6978,7 +6976,7 @@ MAIN:
 
             # preserve latest common snapshot/backup (for incremental targets)
             if(config_key($droot, "incremental")) {
-              foreach my $snapshot (@snapshots) {
+              foreach my $snapshot (@$snapshots) {
                 my @receive_targets = get_receive_targets($droot, $snapshot, exact => 1);
                 if(scalar(@receive_targets)) {
                   DEBUG "Force preserve for latest common snapshot: $snapshot->{PRINT}";
