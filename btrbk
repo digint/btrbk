@@ -3607,6 +3607,41 @@ sub _related_nodes($;@)
 }
 
 
+sub get_btrbk_snapshot_siblings($;@)
+{
+  my $sroot = shift || die;
+  my %opts = @_;
+  my $readonly = $opts{readonly};
+  my $tag;
+  my $subtree;
+  if(my $rvol = $opts{refvol}) {
+    $tag     = $rvol->{node}{BTRBK_TAG};
+    $subtree = $rvol->{node}{TOP_LEVEL}{SUBTREE};
+    TRACE "Creating snapshot siblings list for: $rvol->{PRINT}" if($do_trace);
+  } elsif($opts{name}) {
+    my $family = $opts{family} // "btrbk";
+    $tag = join(":", $opts{name}, $family, ($sroot->{NODE_SUBDIR} // ""));
+    $subtree = $sroot->{node}{SUBTREE};
+    TRACE "Creating snapshot siblings list for: $sroot->{PRINT}/$opts{name}.*" if($do_trace);
+  } else {
+    die;
+  }
+  return [] unless defined($tag);
+  my @ret = map { vinfo_resolved($_, $sroot) // die _fs_path($_) . " is not in $sroot->{PRINT}"
+                } grep {
+                  defined($_->{BTRBK_TAG}) && ($_->{BTRBK_TAG} eq $tag) &&
+                  (!$readonly || $_->{readonly})
+                } @$subtree;
+  TRACE "Found " . scalar(@ret) . " btrbk snapshot siblings for tag: $tag" if($do_trace);
+  if($opts{sort} && ($opts{sort} eq "desc")) {
+    @ret = sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) } @ret;
+  } elsif($opts{sort}) {
+    @ret = sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) } @ret;
+  }
+  return \@ret;
+}
+
+
 # returns parent, along with clone sources
 sub get_best_parent($$;@)
 {
