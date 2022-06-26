@@ -5298,7 +5298,7 @@ MAIN:
   my @exclude_cmdline;
   my ($config_cmdline, $lockfile_cmdline, $print_schedule,
       $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups,
-      $raw_cmdline, $extents_related,
+      $raw_cmdline, $extents_related, $recursive
      );
 
   # Calling btrbk via "lsbtr" symlink acts as an alias for "btrbk ls",
@@ -5331,6 +5331,7 @@ MAIN:
     'preserve|p'         => sub { $preserve_snapshots = "preserve", $preserve_backups = "preserve" },
     'preserve-snapshots' => sub { $preserve_snapshots = "preserve-snapshots" },
     'preserve-backups'   => sub { $preserve_backups = "preserve-backups" },
+    'recursive|r'        => sub { $recursive = 1 },
     'wipe'               => \$wipe_snapshots,
     'progress'           => \$show_progress,
     'related'            => \$extents_related,
@@ -5987,34 +5988,56 @@ MAIN:
     };
 
     my $exit_status = 0;
+    my @subvol_src;
     foreach my $svol (@subvol_args) {
       unless(vinfo_init_root($svol)) {
         ERROR "Failed to fetch subvolume detail for '$svol->{PRINT}'", @stderr;
         $exit_status = 1;
         next;
       }
-      unless($svol->{node}{readonly}) {
-        ERROR "subvolume is not read-only: $svol->{PRINT}";
-        $exit_status = 1;
+      if($recursive) {
+        push @subvol_src, sort {
+          ($a->{subtree_depth} <=> $b->{subtree_depth}) ||
+          ($a->{SUBVOL_DIR}    cmp $b->{SUBVOL_DIR})
+        } @{vinfo_subvol_list($svol)};
+      } else {
+        unless($svol->{node}{readonly}) {
+          ERROR "Subvolume is not read-only: $svol->{PRINT}";
+          $exit_status = 1;
+        }
+        push @subvol_src, $svol;
       }
-    }
-    unless($raw_cmdline ? vinfo_init_raw_root($droot) : vinfo_init_root($droot)) {
-      ERROR "Failed to fetch " . ($raw_cmdline ? "raw target metadata" : "subvolume detail") . " for '$droot->{PRINT}'", @stderr;
-      $exit_status = 1;
     }
     exit $exit_status if($exit_status);
 
-    my %name_uniq;
-    foreach my $svol (@subvol_args) {
-      next if($name_uniq{$svol->{URL}});
-      $name_uniq{$svol->{URL}} = 1;
+    my %svol_uniq;
+    foreach my $svol (@subvol_src) {
+      next if($svol_uniq{$svol->{URL}});
+      $svol_uniq{$svol->{URL}} = 1;
 
-      if(my @rt = get_receive_targets($droot, $svol, exact => 1, warn => 1)) {
+      unless($svol->{node}{readonly}) {
+        WARN "Subvolume is not read-only, skipping: $svol->{PRINT}";
+        $exit_status = 10;
+      }
+
+      my $dvol = $svol->{SUBVOL_DIR} ? vinfo($droot->{URL} . "/" . $svol->{SUBVOL_DIR}, $droot->{CONFIG}) : $droot;
+      unless(my $ret = vinfo_mkdir($dvol)) {
+        ERROR "Failed to create directory: $dvol->{PRINT}", @stderr unless(defined($ret));
+        $exit_status = 10;
+        next;
+      }
+
+      unless($raw_cmdline ? vinfo_init_raw_root($dvol) : vinfo_init_root($dvol)) {
+        ERROR "Failed to fetch " . ($raw_cmdline ? "raw target metadata" : "subvolume detail") . " for '$dvol->{PRINT}'", @stderr;
+        exit 1;
+      }
+
+      if(my @rt = get_receive_targets($dvol, $svol, exact => 1, warn => 1)) {
         WARN "Correlated target subvolume already exists, skipping: $svol->{PRINT}", map($_->{PRINT}, @rt);
         next;
       }
 
-      if(my $err_vol = vinfo_subvol($droot, $svol->{NAME})) {
+      if(my $err_vol = vinfo_subvol($dvol, $svol->{NAME})) {
         WARN "Target subvolume \"$err_vol->{PRINT}\" exists, but is not a receive target of \"$svol->{PRINT}\"";
         WARN "Skipping subvolume copy: $svol->{PRINT}";
         $exit_status = 10;
@@ -6022,13 +6045,13 @@ MAIN:
       }
       my ($clone_src, $target_parent_node);
       my $parent = get_best_parent(
-        $svol, $droot,
+        $svol, $dvol,
         clone_src          => \$clone_src,
         target_parent_node => \$target_parent_node,
        );
       unless(macro_send_receive(
         source    => $svol,
-        target    => $droot,
+        target    => $dvol,
         parent    => $parent,
         clone_src => $clone_src,
         target_parent_node => $target_parent_node,
