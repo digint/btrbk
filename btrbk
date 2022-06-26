@@ -3722,18 +3722,18 @@ sub get_best_parent($$;@)
   # A->S, B->S, C->S, delete B: A still has a relation to C.
   #
   # resolve correlated subvolumes in same directory matching btrbk file name scheme
-  if($snaproot && exists($svol->{node}{BTRBK_BASENAME})) {
-    my $snaproot_btrbk_direct_leaf = vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $svol->{node}{BTRBK_BASENAME});
+  if(defined($svol->{node}{BTRBK_TAG})) {
+    my $snapshot_siblings = get_btrbk_snapshot_siblings($resolve_sroot, refvol => $svol, readonly => 1);
     my @sbdl_older = sort { cmp_date($b->{node}{BTRBK_DATE}, $a->{node}{BTRBK_DATE}) }
-                     grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @$snaproot_btrbk_direct_leaf;
+                     grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) < 0 } @$snapshot_siblings;
     my @sbdl_newer = sort { cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
-                     grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snaproot_btrbk_direct_leaf;
+                     grep { cmp_date($_->{node}{BTRBK_DATE}, $svol->{node}{BTRBK_DATE}) > 0 } @$snapshot_siblings;
 
-    # snapdir_all: btrbk_direct_leaf, ordered by btrbk timestamp
+    # snapdir_all: btrbk snapshot siblings, ordered by btrbk timestamp
     $c_map{sao} = [ map { $c_rel_id{$_->{node}{id}} // get_best_correlated($resolve_droot, $_, %gbc_opts) // () } @sbdl_older ];
     $c_map{san} = [ map { $c_rel_id{$_->{node}{id}} // get_best_correlated($resolve_droot, $_, %gbc_opts) // () } @sbdl_newer ];
 
-    # snapdir_related: btrbk_direct_leaf with parent_uuid relationship, ordered by btrbk timestamp
+    # snapdir_related: btrbk snapshot siblings, with parent_uuid relationship, ordered by btrbk timestamp
     $c_map{sro} = [ map { $c_rel_id{$_->{node}{id}} // () } @sbdl_older ];
     $c_map{srn} = [ map { $c_rel_id{$_->{node}{id}} // () } @sbdl_newer ];
   }
