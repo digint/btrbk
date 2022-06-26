@@ -64,7 +64,7 @@ my $ipv4_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}
 my $ipv6_addr_match = qr/[a-fA-F0-9]*:[a-fA-F0-9]*:[a-fA-F0-9:]+/; # simplified (contains at least two colons), matches "::1", "2001:db8::7"
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
-my $btrbk_timestamp_match = qr/(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
+my $btrbk_file_match = qr/(?<name>.+)\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "NAME.YYYYMMDD[Thhmm[ss+0000]][_NN]"
 my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))?/;  # matches ".btrfs[.gz|.bz2|.xz|...][.gpg|.encrypted]"
 my $safe_file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 
@@ -2784,7 +2784,7 @@ sub vinfo_cmd($$@)
 
 sub _get_btrbk_date(@)
 {
-  my %a = @_; # named capture buffers (%+) from $btrbk_timestamp_match
+  my %a = @_; # named capture buffers (%+) from $btrbk_file_match
 
   my @tm = ( ($a{ss} // 0), ($a{mm} // 0), ($a{hh} // 0), $a{DD}, ($a{MM} - 1), ($a{YYYY} - 1900) );
   my $NN = $a{NN} // 0;
@@ -2825,27 +2825,34 @@ sub add_btrbk_filename_info($;$)
 {
   my $node = shift;
   my $raw_info = shift;
-  my $name = $node->{REL_PATH};
-  return undef unless(defined($name));
+  return undef if($node->{is_root});
+  my $rel_path = $node->{REL_PATH};
 
   # NOTE: unless long-iso file format is encountered, the timestamp is interpreted in local timezone.
 
-  $name =~ s/^(.*)\///;
-  if($raw_info && ($name =~ /^(?<name>.+)\.$btrbk_timestamp_match$raw_postfix_match$/)) { ; }
-  elsif((not $raw_info) && ($name =~ /^(?<name>.+)\.$btrbk_timestamp_match$/)) { ; }
-  else {
-    return undef;
-  }
-  $name = $+{name} // die;
-  my $btrbk_date = _get_btrbk_date(%+); # use named capture buffers of previous match
+  my %match;
+  if($raw_info) {
+    if($rel_path =~ /^(?:(?<subdir>.*)\/)?$btrbk_file_match$raw_postfix_match$/) {
+      %match = ( %+, family => "btrbk" );
+    }
+  } else {
+    if($rel_path =~ /^(?:(?<subdir>.*)\/)?$btrbk_file_match$/) {
+      %match = ( %+, family => "btrbk" );
+    }
+  };
+  return undef unless $match{name};
+  my $btrbk_date = _get_btrbk_date(%match); # use named capture buffers of previous match
   unless($btrbk_date) {
     WARN "Illegal timestamp on subvolume \"$node->{REL_PATH}\", ignoring";
     return undef;
   }
 
-  $node->{BTRBK_BASENAME} = $name;
+  $node->{BTRBK_BASENAME} = $match{name};
   $node->{BTRBK_DATE} = $btrbk_date;
   $node->{BTRBK_RAW} = $raw_info if($raw_info);
+  $node->{BTRBK_FAMILY} = $match{family};
+  # NOTE: BTRBK_TAG is uniqe within TOP_LEVEL->SUBTREE: we cannot use $node->{TOP_LEVEL}{uuid} here (unavailable on old filesystems)
+  $node->{BTRBK_TAG} = join(":", $match{name}, $match{family}, ($match{subdir} // ""));
   return $node;
 }
 
