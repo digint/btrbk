@@ -29,7 +29,7 @@ stream_buffer              256m
 # If you want to set a custom name for the snapshot (and backups),
 # use the "snapshot_name" option within the subvolume section.
 #
-# NOTE: btrbk does not autmatically create this directory, and the
+# NOTE: btrbk does not automatically create this directory, and the
 # snapshot creation will fail if it is not present.
 #
 snapshot_dir               _btrbk_snap
