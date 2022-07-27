@@ -430,12 +430,6 @@ If you want to set this option for local or remote hosts only, set
 
 === Btrfs Specific Options
 
-*btrfs_commit_delete* after|each|no::
-    If set, make sure the deletion of snapshot and backup subvolumes
-    are committed to disk when btrbk terminates (sets '--commit-after'
-    or '--commit-each' options when running "btrfs subvolume
-    delete"). Defaults to ``no''.
-
 *incremental_prefs* <list-spec>[:<amount>]...::
     Specify the preferences to determine the best common (correlated)
     parent and clone sources for incremental backups, by choosing from
@@ -487,6 +481,11 @@ sources for all (!) known candidates on the filesystem.
     snapshot/target directories. Set this to ``directory'' if you get
     access problems (when not running btrbk as root). Defaults to
     ``mountpoint''.
+
+*btrfs_commit_delete* yes|no::
+    If set, wait for the transaction commit at the end of each
+    snapshot or backup deletion (sets '--commit-each' option for
+    "btrfs subvolume delete"). Defaults to ``no''.
 
 *snapshot_qgroup_destroy* yes|no  _*experimental*_:: {blank}
 *target_qgroup_destroy* yes|no  _*experimental*_:: {blank}
