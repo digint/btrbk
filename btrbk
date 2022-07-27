@@ -177,7 +177,8 @@ my %config_options = (
                                    deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
   resume_missing              => { default => "yes", accept => [qw( yes no )],
                                    deprecated => { yes => { warn => 'ignoring (missing backups are always resumed since btrbk v0.23.0)' },
-                                                   no  => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve_min latest" and "target_preserve no" if you want to keep only the latest backup', } } },
+                                                   no  => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve_min latest" and "target_preserve no" if you want to keep only the latest backup', },
+                                                   DEFAULT => {} } },
   snapshot_create_always      => { default => undef, accept => [qw( yes no )],
                                    deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
                                                             replace_key   => "snapshot_create",
@@ -186,7 +187,8 @@ my %config_options = (
                                                    no  => { warn => "Please use \"snapshot_create no\" or \"snapshot_create ondemand\"",
                                                             replace_key   => "snapshot_create",
                                                             replace_value => "ondemand",
-                                                           }
+                                                           },
+                                                   DEFAULT => {},
                                                   },
                                  },
   receive_log                 => { default => undef, accept => [qw( sidecar no )], accept_file => { absolute => 1 },
@@ -4036,7 +4038,7 @@ sub config_dump_keys($;@)
   foreach my $key (sort keys %config_options)
   {
     my $val;
-    next if($config_options{$key}->{deprecated});
+    next if($config_options{$key}->{deprecated}{DEFAULT});
     next unless($opts{all} || exists($config->{$key}) || exists($config_override{$key}));
     next if($config_options{$key}{context} && !grep(/^$config->{CONTEXT}$/, @{$config_options{$key}{context}}));
     $val = config_key($config, $key);
