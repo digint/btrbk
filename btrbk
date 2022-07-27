@@ -483,7 +483,7 @@ END_HELP_BTRBK
 #80-----------------------------------------------------------------------------
 }
 
-sub _log_cont { my $p = shift; print STDERR $p . join("\n${p}... ", @_) . "\n"; }
+sub _log_cont { my $p = shift; print STDERR $p . join("\n${p}... ", grep defined, @_) . "\n"; }
 sub TRACE { print STDERR map { "___ $_\n" } @_ if($loglevel >= 4) }
 sub DEBUG { _log_cont("",          @_)         if($loglevel >= 3) }
 sub INFO  { _log_cont("",          @_)         if($loglevel >= 2) }
