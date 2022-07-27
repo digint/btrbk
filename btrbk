@@ -97,7 +97,6 @@ my %config_options = (
   target_preserve_min         => { default => "all",         accept => [qw( all latest no ), qr/[0-9]+[hdwmy]/ ] },
   archive_preserve            => { default => undef,         accept => [qw( no )], accept_preserve_matrix => 1, context => [qw( global )] },
   archive_preserve_min        => { default => "all",         accept => [qw( all latest no ), qr/[0-9]+[hdwmy]/ ], context => [qw( global )] },
-  btrfs_commit_delete         => { default => undef,         accept => [qw( after each no )] },
   ssh_identity                => { default => undef,         accept_file => { absolute => 1 } },
   ssh_user                    => { default => "root",        accept => [ qr/[a-z_][a-z0-9_-]*/ ] },
   ssh_compression             => { default => undef,         accept => [qw( yes no )] },
@@ -145,6 +144,8 @@ my %config_options = (
   compat_local                => { default => undef,         accept => [qw( no busybox ignore_receive_errors )], split => 1 },
   compat_remote               => { default => undef,         accept => [qw( no busybox ignore_receive_errors )], split => 1 },
   safe_commands               => { default => undef,         accept => [qw( yes no )], context => [qw( global )] },
+  btrfs_commit_delete         => { default => undef,         accept => [qw( yes no after each )],
+                                                             deprecated => { MATCH => { regex => qr/^(?:after|each)$/, warn => 'Please use "btrfs_commit_delete yes|no"', replace_key => "btrfs_commit_delete", replace_value => "yes" } } },
 
   snapshot_qgroup_destroy     => { default => undef,         accept => [qw( yes no )], context => [qw( global volume subvolume )] },
   target_qgroup_destroy       => { default => undef,         accept => [qw( yes no )] },
@@ -1413,98 +1414,37 @@ sub btrfs_subvolume_snapshot($$)
 
 sub btrfs_subvolume_delete($@)
 {
-  my $targets = shift // die;
+  my $vol = shift // die;
   my %opts = @_;
-  my $commit = $opts{commit};
-  die if($commit && ($commit ne "after") && ($commit ne "each"));
-  $targets = [ $targets ] unless(ref($targets) eq "ARRAY");
-  return () unless(scalar(@$targets));
-
-  # NOTE: rsh and backend command is taken from first target
-  my $rsh_machine_check = $targets->[0]->{MACHINE_ID};
-  my $target_type = $targets->[0]->{node}{TARGET_TYPE} || "";
-  foreach (@$targets) {
-    # assert all targets share same MACHINE_ID
-    die if($rsh_machine_check ne $_->{MACHINE_ID});
-    # assert all targets share same target type
-    die if($target_type && ($_->{node}{TARGET_TYPE} ne $target_type));
-  }
-
-  INFO "[delete] options: commit-$commit" if($commit && (not $target_type));
-  INFO "[delete] target: $_->{PRINT}" foreach(@$targets);
-  start_transaction($opts{type} // "delete",
-                    # NOTE: "target_url" from vinfo_prefixed_keys() is used for matching in end_transaction() below
-                    map( { { vinfo_prefixed_keys("target", $_) }; } @$targets)
-                   );
+  my $target_type = $vol->{node}{TARGET_TYPE} || "";
   my $ret;
-  my @deleted;
-  my %err_catch;
+  INFO "[delete] target: $vol->{PRINT}";
+  start_transaction($opts{type} // "delete", vinfo_prefixed_keys("target", $vol));
   if($target_type eq "raw") {
-    my @cmd_target_paths;
-    foreach(@$targets) {
-      push @cmd_target_paths, { unsafe => $_->{PATH}, postfix => ($_->{node}{BTRBK_RAW}{split} && ".split_??") };
-      push @cmd_target_paths, { unsafe => "$_->{PATH}.info" };
-    }
-    $ret = run_cmd(cmd  => [ 'rm', '-f',  @cmd_target_paths ],
-                   rsh  => vinfo_rsh($targets->[0]),
+    $ret = run_cmd(cmd => [ 'rm', '-f',
+                            { unsafe => $vol->{PATH}, postfix => ($vol->{node}{BTRBK_RAW}{split} && ".split_??") },
+                            { unsafe => $vol->{PATH}, postfix => ".info" },
+                          ],
+                   rsh => vinfo_rsh($vol),
                   );
-    unless(defined($ret)) {
-      foreach(@stderr) {
-        next unless(/^rm: cannot remove '(.*?)':/);
-        my $catch = $1; # make sure $catch matches $vol->{PATH}
-        $catch =~ s/\.info$//;
-        $catch =~ s/\.split_[a-z][a-z]$//;
-        $err_catch{$catch} //= [];
-        push(@{$err_catch{$catch}}, $_);
-      }
-    }
   }
   else {
-    my @cmd_target_paths = map { { unsafe => $_->{PATH} } } @$targets;
     my @options;
-    @options = ("--commit-$commit") if($commit);
-    $ret = run_cmd(cmd => vinfo_cmd($targets->[0], "btrfs subvolume delete", @options, @cmd_target_paths ),
-                   rsh => vinfo_rsh($targets->[0]),
+    push @options, "--commit-each" if($opts{commit});
+    $ret = run_cmd(cmd => vinfo_cmd($vol, "btrfs subvolume delete", @options, { unsafe => $vol->{PATH} } ),
+                   rsh => vinfo_rsh($vol),
                    fatal_stderr  => sub { m/^ERROR: /; },  # probably not needed, "btrfs sub delete" returns correct exit status
                    filter_stderr => \&_btrfs_filter_stderr,
                   );
-    unless(defined($ret)) {
-      foreach(@stderr) {
-        next unless(/'(\/.*?)'/ || /: (\/.*)$/ || /(\/.*?):/);
-        # NOTE: as of btrfs-progs-4.16, this does not catch anything
-        $err_catch{$1} //= [];
-        push(@{$err_catch{$1}}, $_);
-      }
-    }
+  }
+  end_transaction($opts{type} // "delete", defined($ret));
+
+  unless(defined($ret)) {
+    ERROR "Failed to delete subvolume: $vol->{PRINT}", @stderr;
+    return undef;
   }
 
-  if(defined($ret)) {
-    @deleted = @$targets;
-  }
-  else {
-    if(%err_catch) {
-      my $catch_count = 0;
-      foreach my $check_target (@$targets) {
-        my $err_ary = $err_catch{$check_target->{PATH}};
-        if($err_ary) {
-          ERROR map("Failed to delete subvolume \"$check_target->{PRINT}\": $_", @$err_ary);
-          $catch_count++;
-        }
-        else {
-          push @deleted, $check_target;
-        }
-      }
-      @deleted = () if($catch_count != (scalar keys %err_catch));
-    }
-    unless(scalar(@deleted)) {
-      ERROR "Failed to match error messages from delete command, assuming nothing deleted", @stderr;
-      ERROR map("Possibly not deleted subvolume: $_->{PRINT}", @$targets);
-      ERROR "Consider running 'btrbk prune -n'";
-    }
-  }
-
-  end_transaction($opts{type} // "delete", sub { my $h = shift; return (grep { $_->{URL} eq $h->{target_url} } @deleted); });
-  return @deleted;
+  return $vol;
 }
 
 
@@ -1661,11 +1601,9 @@ sub btrfs_send_receive($$;$$$)
     # NOTE: btrfs-progs does not delete incomplete received (garbled) subvolumes,
     #       we need to do this by hand.
     # TODO: remove this as soon as btrfs-progs handle receive errors correctly.
-    my @deleted = btrfs_subvolume_delete($vol_received, commit => "after", type => "delete_garbled");
-    if(scalar(@deleted)) {
+    if(btrfs_subvolume_delete($vol_received, commit => "after", type => "delete_garbled")) {
       WARN "Deleted partially received (garbled) subvolume: $vol_received->{PRINT}";
-    }
-    else {
+    } else {
       WARN "Deletion of partially received (garbled) subvolume failed, assuming clean environment: $vol_received->{PRINT}";
     }
   }
@@ -4561,23 +4499,23 @@ sub macro_delete($$$$;@)
     preserve_date_in_future => 1,
    );
 
-  if($delete_options{qgroup}->{destroy}) {
+  my @delete_success;
+  foreach my $vol (@$delete) {
     # NOTE: we do not abort on qgroup destroy errors
-    btrfs_qgroup_destroy($_, %{$delete_options{qgroup}}) foreach(@$delete);
+    btrfs_qgroup_destroy($vol, %{$delete_options{qgroup}}) if($delete_options{qgroup}->{destroy});
+    if(btrfs_subvolume_delete($vol, %delete_options)) {
+      push @delete_success, $vol;
+    }
   }
-
-  my @delete_success = btrfs_subvolume_delete($delete, %delete_options);
   INFO "Deleted " . scalar(@delete_success) . " subvolumes in: $root_subvol->{PRINT}/$subvol_basename.*";
   $result_vinfo->{SUBVOL_DELETED} //= [];
   push @{$result_vinfo->{SUBVOL_DELETED}}, @delete_success;
 
-  if(scalar(@delete_success) == scalar(@$delete)) {
-    return 1;
-  }
-  else {
+  if(scalar(@delete_success) != scalar(@$delete)) {
     ABORTED($result_vinfo, "Failed to delete subvolume");
     return undef;
   }
+  return 1;
 }
 
 
@@ -6834,17 +6772,18 @@ MAIN:
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           INFO "Cleaning incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
           push @out, "$droot->{PRINT}/$snapshot_name.*";
-          my @delete;
-          foreach my $target_vol (@{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_name, sort => 'path')}) {
-            # incomplete received (garbled) subvolumes are not readonly and have no received_uuid (as of btrfs-progs v4.3.1).
-            # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
-            if($target_vol->{node}{received_uuid} eq '-') {
-              DEBUG "Found incomplete target subvolume: $target_vol->{PRINT}";
-              push(@delete, $target_vol);
+
+          # incomplete received (garbled) subvolumes are not readonly and have no received_uuid (as of btrfs-progs v4.3.1).
+          # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
+          my @delete = grep $_->{node}{received_uuid} eq '-', @{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_name, sort => 'path')};
+          my @delete_success;
+          foreach my $target_vol (@delete) {
+            DEBUG "Found incomplete target subvolume: $target_vol->{PRINT}";
+            if(btrfs_subvolume_delete($target_vol, commit => config_key($droot, "btrfs_commit_delete"), type => "delete_garbled")) {
+              push(@delete_success, $target_vol);
             }
           }
 
-          my @delete_success = btrfs_subvolume_delete(\@delete, commit => config_key($droot, "btrfs_commit_delete"), type => "delete_garbled");
           INFO "Deleted " . scalar(@delete_success) . " incomplete backups in: $droot->{PRINT}/$snapshot_name.*";
           $droot->{SUBVOL_DELETED} //= [];
           push @{$droot->{SUBVOL_DELETED}}, @delete_success;
