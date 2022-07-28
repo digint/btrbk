@@ -842,7 +842,7 @@ sub run_cmd(@)
     push @filter_stderr, ((ref($href->{filter_stderr}) eq "ARRAY") ? @{$href->{filter_stderr}} : $href->{filter_stderr}) if($href->{filter_stderr});
     $fatal_stderr = $href->{fatal_stderr} if($href->{fatal_stderr});
     $destructive = 1 unless($href->{non_destructive});
-    $has_rsh = 1 if($href->{rsh});
+    $has_rsh = $href->{rsh} if($href->{rsh});
     $large_output = 1 if($href->{large_output});
 
     if($href->{redirect_to_file}) {
@@ -994,6 +994,7 @@ sub run_cmd(@)
     if($has_rsh && ($exitcode == 255)) {
       # SSH returns exit status 255 if an error occurred (including
       # network errors, dns failures).
+      unshift @stderr, "(note: option \"ssh_identity\" is not set, using ssh defaults)" unless(grep /^-i$/, @$has_rsh);
       unshift @stderr, "SSH command failed (exitcode=$exitcode)";
     } else {
       unshift @stderr, "Command execution failed (exitcode=$exitcode)";
@@ -2752,11 +2753,7 @@ sub vinfo_rsh($;@)
   my @ssh_options; # as of btrbk-0.29.0, we run ssh without -q (catching @stderr)
   push(@ssh_options, '-p', $ssh_port) if($ssh_port);
   push(@ssh_options, '-c', $ssh_cipher_spec) if($ssh_cipher_spec ne "default");
-  if($ssh_identity) {
-    push(@ssh_options, '-i', { unsafe => $ssh_identity });
-  } else {
-    WARN_ONCE "No SSH identity provided (option ssh_identity is not set) for: " . ($vinfo->{CONFIG}->{url} // $vinfo->{PRINT});
-  }
+  push(@ssh_options, '-i', { unsafe => $ssh_identity }) if($ssh_identity); # NOTE: hackily used in run_cmd on errors
   if($opts{disable_compression}) {
     push(@ssh_options, '-o', 'compression=no');  # force ssh compression=no (in case it is defined in ssh_config)
   } elsif($ssh_compression) {
