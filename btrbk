@@ -5796,6 +5796,7 @@ MAIN:
     foreach my $root_vol (@subvol_args) {
       my ($root_path, $mountpoint) = vinfo_mountpoint($root_vol);
       unless($mountpoint) {
+        ERROR "Failed to read filesystem details for: $root_vol->{PRINT}", @stderr;
         $exit_status = 1;
         next;
       }
