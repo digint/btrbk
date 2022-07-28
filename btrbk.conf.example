@@ -82,10 +82,10 @@ snapshot_dir               _btrbk_snap
 # can be run at a time.
 #lockfile                   /var/lock/btrbk.lock
 
-# Don't wait for transaction commit on deletion. Set this to "after"
-# or "each" to make sure the deletion of subvolumes is committed to
-# disk when btrbk terminates.
-#btrfs_commit_delete        no
+# Don't wait for transaction commit on deletion. Enable this to make
+# sure the deletion of subvolumes is committed to disk when btrbk
+# terminates.
+#btrfs_commit_delete no
 
 
 #
