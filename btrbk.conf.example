@@ -17,6 +17,13 @@
 # Enable transaction log
 transaction_log            /var/log/btrbk.log
 
+# Specify SSH private key for remote connections
+ssh_identity               /etc/btrbk/ssh/id_ed25519
+ssh_user                   root
+
+# Use sudo if btrbk or lsbtr is run by regular user
+backend_local_user         btrfs-progs-sudo
+
 # Enable stream buffer. Adding a buffer between the sending and
 # receiving side is generally a good idea.
 # NOTE: If enabled, make sure to install the "mbuffer" package!
@@ -66,12 +73,6 @@ snapshot_dir               _btrbk_snap
 # Retention policy for archives ("btrbk archive" command):
 #archive_preserve_min       no
 #archive_preserve           <NN>h <NN>d <NN>w <NN>m <NN>y
-
-# Specify SSH private key for "ssh://" volumes / targets:
-#ssh_identity               /etc/btrbk/ssh/id_ed25519
-#ssh_user                   root
-#ssh_compression            no
-#ssh_cipher_spec            default
 
 # Enable compression for remote btrfs send/receive operations:
 #stream_compress            no
