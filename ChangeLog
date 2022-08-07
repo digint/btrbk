@@ -1,3 +1,9 @@
+btrbk-0.32.3
+
+  * Fix deletion of many subvolumes at once (close #476).
+  * Allow disabling ssh_identity and ssh_user options.
+  * Minor bugfixes and documentation improvements.
+
 btrbk-0.32.2
 
   * Fix regression: archive on missing target directories.
