@@ -4095,13 +4095,14 @@ sub append_config_option($$$$;@)
       ERROR "Deprecated (incompatible) option \"$key\" found $error_statement, refusing to continue", $dh->{warn};
       return undef;
     }
-    my @wmsg = ("Found deprecated option \"$key $value\" $error_statement", $dh->{warn});
+    my @wmsg;
+    push @wmsg, "Found deprecated option \"$key $value\" $error_statement", $dh->{warn} if($dh->{warn});
     if(defined($dh->{replace_key})) {
       $key   = $dh->{replace_key};
       $value = $dh->{replace_value};
       push @wmsg, "Using \"$key $value\"";
     }
-    WARN @wmsg;
+    WARN @wmsg if(@wmsg);
     if($dh->{FAILSAFE_PRESERVE}) {
       unless($config_override{FAILSAFE_PRESERVE}) { # warn only once
         WARN "Entering failsafe mode:";
