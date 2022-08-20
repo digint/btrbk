@@ -1,3 +1,7 @@
+btrbk-0.32.4
+
+  * Fix regression: wrong deprecation warnings in some cases.
+
 btrbk-0.32.3
 
   * Fix deletion of many subvolumes at once (close #476).
