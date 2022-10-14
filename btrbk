@@ -2005,6 +2005,7 @@ sub system_read_raw_info_dir($)
     cmd => [ 'find', { unsafe => $droot->{PATH} },
              '-maxdepth', '1',
              '-type', 'f',
+             '! -size', 0,
              '-name', '\*.btrfs.\*info',  # match ".btrfs[.gz|bz2|xz][.gpg].info"
              '-exec', 'echo INFO_FILE=\{\} \;',
              '-exec', 'cat \{\} \;'
