@@ -2030,14 +2030,8 @@ sub system_read_raw_info_dir($)
       push @raw_targets, $cur_target if($cur_target);
       $cur_target = {};
     }
-    next if /^#/; # ignore comments
-    next if /^\s*$/; # ignore empty lines
-    if(/^([a-zA-Z_]+)=(.*)/) {
-      my ($key, $value) = ($1, $2);
-      if($cur_target) {
-        $cur_target->{$key} = $value;
-      }
-    }
+    next unless($cur_target);
+    $cur_target->{$1} = $2 if /^([a-zA-Z_]+)=(.*)/;
   }
   push @raw_targets, $cur_target if($cur_target);
 
