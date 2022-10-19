@@ -1857,7 +1857,7 @@ sub btrfs_send_to_file($$$;$$)
                   );
     if(defined($ret)) {
       delete $raw_info{INCOMPLETE};
-      $ret = system_write_raw_info($vol_received, \%raw_info);
+      $ret = system_write_raw_info($vol_received, { INCOMPLETE => 0 }, append => 1);
     } else {
       push @cmd_err, "failed to check target file (not present or zero length): $check_file";
     }
