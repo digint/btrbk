@@ -140,6 +140,13 @@ my %config_options = (
   backend_remote              => { default => undef,         accept => [qw( no btrfs-progs btrfs-progs-btrbk btrfs-progs-sudo btrfs-progs-doas )] },
   backend_local_user          => { default => undef,         accept => [qw( no btrfs-progs btrfs-progs-btrbk btrfs-progs-sudo btrfs-progs-doas )] },
 
+  ionice_class                => { default => undef,         accept => [ qw( no ), (0..3) ] },
+  ionice_class_local          => { default => undef,         accept => [ qw( no ), (0..3) ] },
+  ionice_class_remote         => { default => undef,         accept => [ qw( no ), (0..3) ] },
+  ionice_level                => { default => undef,         accept => [ qw( no ), (0..7) ] },
+  ionice_level_local          => { default => undef,         accept => [ qw( no ), (0..7) ] },
+  ionice_level_remote         => { default => undef,         accept => [ qw( no ), (0..7) ] },
+
   compat                      => { default => undef,         accept => [qw( no busybox ignore_receive_errors )], split => 1 },
   compat_local                => { default => undef,         accept => [qw( no busybox ignore_receive_errors )], split => 1 },
   compat_remote               => { default => undef,         accept => [qw( no busybox ignore_receive_errors )], split => 1 },
@@ -2758,7 +2765,14 @@ sub vinfo_cmd($$@)
   my @cmd_args = @_;
   my $backend = config_key_lru($vinfo, "backend") // die;
   my $cmd_mapped = $backend_cmd_map{$backend}{$cmd} // [ split(" ", $cmd) ];
-  return [ @$cmd_mapped, @cmd_args ];
+  my @ionice;
+  my $ionice_class = config_key_lru($vinfo, "ionice_class");
+  my $ionice_level = config_key_lru($vinfo, "ionice_level");
+  push @ionice, "-c", $ionice_class if $ionice_class;
+  push @ionice, "-n", $ionice_level if $ionice_level;
+  unshift @ionice, "ionice" if @ionice;
+
+  return [ @ionice, @$cmd_mapped, @cmd_args ];
 }
 
 sub _get_btrbk_date(@)
