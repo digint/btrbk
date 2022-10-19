@@ -849,6 +849,10 @@ sub run_cmd(@)
       die unless($href->{stream_sink});
       $href->{cmd_text} = _safe_cmd([ '>', $href->{redirect_to_file} ], \@unsafe_cmd);
     }
+    elsif($href->{append_to_file}) {
+      die unless($href->{stream_sink});
+      $href->{cmd_text} = _safe_cmd([ '>>', $href->{append_to_file} ], \@unsafe_cmd);
+    }
     elsif($href->{compress_stdin}) {
       # does nothing if already compressed correctly by stream_compress
       if($compressed && ($compression{$compressed->{key}}->{format} ne $compression{$href->{compress_stdin}->{key}}->{format})) {
@@ -911,7 +915,7 @@ sub run_cmd(@)
       @decompress_in = ();
 
       # fixup redirect_to_file
-      if((scalar(@rsh_cmd_pipe) == 1) && ($rsh_cmd_pipe[0]->{redirect_to_file})) {
+      if((scalar(@rsh_cmd_pipe) == 1) && ($rsh_cmd_pipe[0]->{redirect_to_file} || $rsh_cmd_pipe[0]->{append_to_file})) {
         # NOTE: direct redirection in ssh command does not work: "ssh '> outfile'"
         # we need to assemble: "ssh 'cat > outfile'"
         unshift @rsh_cmd_pipe, { cmd_text => 'cat' };
