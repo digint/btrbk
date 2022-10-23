@@ -1,3 +1,7 @@
+btrbk-0.32.5
+
+  * Correct handling of zero-size raw info file (close #491).
+
 btrbk-0.32.4
 
   * Fix regression: wrong deprecation warnings in some cases.
