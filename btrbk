@@ -1476,6 +1476,18 @@ sub btrfs_qgroup_destroy($@)
   return $vol;
 }
 
+sub _btrfs_send_options($$;$$)
+{
+  my $snapshot = shift;
+  my $target = shift;
+  my $parent = shift;
+  my $clone_src = shift // [];
+  my @send_options;
+  push(@send_options, '-p', { unsafe => $parent->{PATH} } ) if($parent);
+  push(@send_options, '-c', { unsafe => $_ } ) foreach(map { $_->{PATH} } @$clone_src);
+  #push(@send_options, '-v') if($loglevel >= 3);
+  return \@send_options;
+}
 
 sub btrfs_send_receive($$;$$$)
 {
@@ -1484,9 +1496,6 @@ sub btrfs_send_receive($$;$$$)
   my $parent = shift;
   my $clone_src = shift // [];
   my $ret_vol_received = shift;
-  my $snapshot_path = $snapshot->{PATH} // die;
-  my $target_path = $target->{PATH} // die;
-  my $parent_path = $parent ? $parent->{PATH} : undef;
 
   my $vol_received = vinfo_child($target, $snapshot->{NAME});
   $$ret_vol_received = $vol_received if(ref $ret_vol_received);
@@ -1501,24 +1510,20 @@ sub btrfs_send_receive($$;$$$)
   my $stream_options = config_stream_hash($snapshot, $target);
   my $compat_ignore_err = config_key_lru($target, "compat", "ignore_receive_errors");
 
-  my @send_options;
+  my $send_options = _btrfs_send_options($snapshot, $target, $parent, $clone_src);
   my @receive_options;
-  push(@send_options, '-p', { unsafe => $parent_path} ) if($parent_path);
-  push(@send_options, '-c', { unsafe => $_ } ) foreach(map { $_->{PATH} } @$clone_src);
-  # push(@send_options, '-v') if($loglevel >= 3);
-  # push(@receive_options, '-v') if($loglevel >= 3);
   push(@receive_options, '--max-errors=0') if($compat_ignore_err);
 
   my @cmd_pipe;
   push @cmd_pipe, {
-    cmd => vinfo_cmd($snapshot, "btrfs send", @send_options, { unsafe => $snapshot_path } ),
+    cmd => vinfo_cmd($snapshot, "btrfs send", @$send_options, { unsafe => $snapshot->{PATH} }),
     rsh => vinfo_rsh($snapshot, disable_compression => $stream_options->{stream_compress}),
     stream_options => $stream_options,
     filter_stderr => [ \&_btrfs_filter_stderr, sub { $_ = undef if(/^At subvol/) } ],
   };
 
   push @cmd_pipe, {
-    cmd => vinfo_cmd($target, "btrfs receive", @receive_options, { unsafe => $target_path . '/' } ),
+    cmd => vinfo_cmd($target, "btrfs receive", @receive_options, { unsafe => $target->{PATH} . '/' } ),
     rsh => vinfo_rsh($target, disable_compression => $stream_options->{stream_compress}),
     fatal_stderr => sub {
       # NOTE: btrfs-progs < 4.11: if "btrfs send" fails, "btrfs receive" returns 0!
@@ -1595,7 +1600,7 @@ sub btrfs_send_receive($$;$$$)
   end_transaction("send-receive", not $send_receive_error);
 
   if($send_receive_error) {
-    ERROR "Failed to send/receive subvolume: $snapshot->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}", @cmd_err;
+    ERROR "Failed to send/receive subvolume: $snapshot->{PRINT}" . ($parent ? " [$parent->{PATH}]" : "") . " -> $vol_received->{PRINT}", @cmd_err;
   }
 
   if($is_garbled) {
@@ -1619,9 +1624,7 @@ sub btrfs_send_to_file($$$;$$)
   my $parent = shift;
   my $ret_vol_received = shift;
   my $ret_raw_info = shift;
-  my $source_path   = $source->{PATH} // die;
   my $target_path   = $target->{PATH} // die;
-  my $parent_path   = $parent ? $parent->{PATH} : undef;
   my $parent_uuid   = $parent ? $parent->{node}{uuid} : undef ;
   my $received_uuid = $source->{node}{uuid};
   die unless($received_uuid);
@@ -1645,13 +1648,10 @@ sub btrfs_send_to_file($$$;$$)
   # make sure we dont re-compress, override "stream_compress" with "raw_target_compress"
   $stream_options->{stream_compress} = $compress if($compress);
 
-  my @send_options;
-  push(@send_options, '-p', { unsafe => $parent_path } ) if($parent_path);
-  #push(@send_options, '-v') if($loglevel >= 3);
-
+  my $send_options = _btrfs_send_options($source, $target, $parent);
   my @cmd_pipe;
   push @cmd_pipe, {
-    cmd => vinfo_cmd($source, "btrfs send", @send_options, { unsafe => $source_path } ),
+    cmd => vinfo_cmd($source, "btrfs send", @$send_options, { unsafe => $source->{PATH} } ),
     rsh => vinfo_rsh($source, disable_compression => $stream_options->{stream_compress}),
     stream_options => $stream_options,
     filter_stderr => [ \&_btrfs_filter_stderr, sub { $_ = undef if(/^At subvol/) } ],
@@ -1864,7 +1864,7 @@ sub btrfs_send_to_file($$$;$$)
   }
   end_transaction("send-to-raw", defined($ret));
   unless(defined($ret)) {
-    ERROR "Failed to send btrfs subvolume to raw file: $source->{PRINT} " . ($parent_path ? "[$parent_path]" : "") . " -> $vol_received->{PRINT}", @cmd_err;
+    ERROR "Failed to send btrfs subvolume to raw file: $source->{PRINT}" . ($parent ? " [$parent->{PATH}]" : "") . " -> $vol_received->{PRINT}", @cmd_err;
     return undef;
   }
   return 1;
