@@ -146,6 +146,8 @@ my %config_options = (
   safe_commands               => { default => undef,         accept => [qw( yes no )], context => [qw( global )] },
   btrfs_commit_delete         => { default => undef,         accept => [qw( yes no after each )],
                                                              deprecated => { MATCH => { regex => qr/^(?:after|each)$/, warn => 'Please use "btrfs_commit_delete yes|no"', replace_key => "btrfs_commit_delete", replace_value => "yes" } } },
+  send_protocol               => { default => undef,         accept => [qw( no 1 2 )] }, # NOTE: requires btrfs-progs-5.19
+  send_compressed_data        => { default => undef,         accept => [qw( yes no )] }, # NOTE: implies send_protocol=2
 
   snapshot_qgroup_destroy     => { default => undef,         accept => [qw( yes no )], context => [qw( global volume subvolume )] },
   target_qgroup_destroy       => { default => undef,         accept => [qw( yes no )] },
@@ -1482,9 +1484,13 @@ sub _btrfs_send_options($$;$$)
   my $target = shift;
   my $parent = shift;
   my $clone_src = shift // [];
+  my $send_protocol = config_key($target, "send_protocol");
+  my $send_compressed_data = config_key($target, "send_compressed_data");
   my @send_options;
   push(@send_options, '-p', { unsafe => $parent->{PATH} } ) if($parent);
   push(@send_options, '-c', { unsafe => $_ } ) foreach(map { $_->{PATH} } @$clone_src);
+  push(@send_options, '--proto', $send_protocol ) if($send_protocol);
+  push(@send_options, '--compressed-data' ) if($send_compressed_data);
   #push(@send_options, '-v') if($loglevel >= 3);
   return \@send_options;
 }
