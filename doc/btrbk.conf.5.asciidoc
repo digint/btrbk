@@ -484,6 +484,18 @@ sources for all (!) known candidates on the filesystem.
     snapshot or backup deletion (sets '--commit-each' option for
     "btrfs subvolume delete"). Defaults to ``no''.
 
+*send_protocol* <number>|no  _*experimental*_::
+    Use btrfs send protocol version N. If enabled on 'target', btrbk
+    adds "--proto <number>" to the btrfs-send(8) command. Defaults to
+    ``no'' (btrfs default).
+
+*send_compressed_data* yes|no  _*experimental*_::
+    Send data that is compressed on the filesystem directly without
+    decompressing it. This requires protocol version 2 or higher
+    (btrfs-progs >= 5.19), and implies "send_protocol 2". If enabled
+    on 'target', btrbk adds "--compressed-data" to the btrfs-send(8)
+    command. Defaults to ``no'' (btrfs default).
+
 *snapshot_qgroup_destroy* yes|no  _*experimental*_:: {blank}
 *target_qgroup_destroy* yes|no  _*experimental*_:: {blank}
 *archive_qgroup_destroy* yes|no  _*experimental*_::
