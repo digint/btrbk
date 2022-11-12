@@ -45,7 +45,7 @@ The following commands are always allowed:
 
 Example line in /root/.ssh/authorized_keys on a backup target host:
 
-    command="ssh_filter_btrbk.sh --target --delete --restrict-path /mnt/btr_backup" ssh-rsa AAAAB3NzaC1...hwumXFRQBL btrbk@mydomain.com
+    command="ssh_filter_btrbk.sh --target --delete --restrict-path /mnt/btr_backup",restrict ssh-rsa AAAAB3NzaC1...hwumXFRQBL btrbk@mydomain.com
 
 
 OPTIONS
