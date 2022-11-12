@@ -2,7 +2,7 @@
 Description=btrbk daily backup
 
 [Timer]
-OnCalendar=daily
+OnCalendar=hourly
 AccuracySec=10min
 Persistent=true
 
