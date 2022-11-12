@@ -5,7 +5,6 @@ ConditionPathExists=|@CONFDIR@/btrbk.conf
 
 [Timer]
 OnCalendar=hourly
-AccuracySec=10min
 Persistent=true
 
 [Install]
