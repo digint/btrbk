@@ -246,7 +246,7 @@ For a quick additional snapshot of your home, run:
 Example: Host-initiated Backup on Fileserver
 --------------------------------------------
 
-Let's say you have a fileserver at "myserver.mydomain.com" where you
+Let's say you have a fileserver at "myserver.example.org" where you
 want to create backups of your laptop disk. The config could look like
 this:
 
@@ -255,11 +255,11 @@ this:
     volume /mnt/btr_pool
       subvolume rootfs
         target /mnt/btr_backup/mylaptop
-        target ssh://myserver.mydomain.com/mnt/btr_backup/mylaptop
+        target ssh://myserver.example.org/mnt/btr_backup/mylaptop
 
 In addition to the backups on your local usb-disk mounted at
 `/mnt/btr_backup/mylaptop`, incremental backups would also be pushed
-to `myserver.mydomain.com`.
+to `myserver.example.org`.
 
 
 Example: Fileserver-initiated Backups from Several Hosts
@@ -270,17 +270,17 @@ fileserver, the config would be something like:
 
     ssh_identity /etc/btrbk/ssh/id_rsa
 
-    volume ssh://alpha.mydomain.com/mnt/btr_pool
+    volume ssh://alpha.example.org/mnt/btr_pool
       target /mnt/btr_backup/alpha
       subvolume rootfs
       subvolume home
 
-    volume ssh://beta.mydomain.com/mnt/btr_pool
+    volume ssh://beta.example.org/mnt/btr_pool
       target /mnt/btr_backup/beta
       subvolume rootfs
       subvolume dbdata
 
-This will pull backups from alpha/beta.mydomain.com and locally
+This will pull backups from alpha/beta.example.org and locally
 create:
 
   * `/mnt/btr_backup/alpha/rootfs.YYYYMMDD`
@@ -381,7 +381,7 @@ running btrbk. Something like:
     rsync -az --delete \
           --inplace --numeric-ids --acls --xattrs \
           -e 'ssh -i /etc/btrbk/ssh/id_rsa' \
-          myhost.mydomain.com:/data/ \
+          myhost.example.org:/data/ \
           /mnt/btr_backup/myhost_sync/
 
     exec /usr/bin/btrbk -q run
@@ -408,7 +408,7 @@ compressed and piped through GnuPG.
     raw_target_compress   xz
     raw_target_encrypt    gpg
     gpg_keyring           /etc/btrbk/gpg/pubring.gpg
-    gpg_recipient         btrbk@mydomain.com
+    gpg_recipient         btrbk@example.org
 
     volume /mnt/btr_pool
       subvolume home
@@ -445,7 +445,7 @@ will need the `btrfs` executable from the [btrfs-progs] package.
 On the client side, create a ssh key dedicated to btrbk, without
 password protection:
 
-    # ssh-keygen -t rsa -b 4096 -f /etc/btrbk/ssh/id_rsa -C btrbk@mydomain.com -N ""
+    # ssh-keygen -t rsa -b 4096 -f /etc/btrbk/ssh/id_rsa -C btrbk@example.org -N ""
 
 The content of the public key (/etc/btrbk/ssh/id_rsa.pub) is used for
 authentication in "authorized_keys" on the server side (see [sshd(8)]
