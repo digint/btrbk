@@ -1,5 +1,7 @@
 [Unit]
 Description=btrbk daily backup
+ConditionPathExists=|@CONFDIR@/btrbk/btrbk.conf
+ConditionPathExists=|@CONFDIR@/btrbk.conf
 
 [Timer]
 OnCalendar=hourly

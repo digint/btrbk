@@ -1,6 +1,8 @@
 [Unit]
 Description=btrbk backup
 Documentation=man:btrbk(1)
+ConditionPathExists=|@CONFDIR@/btrbk/btrbk.conf
+ConditionPathExists=|@CONFDIR@/btrbk.conf
 
 [Service]
 Type=oneshot
