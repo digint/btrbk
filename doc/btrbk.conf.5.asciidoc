@@ -612,8 +612,8 @@ files)!
 Raw backups consist of two files: the main data file containing the
 btrfs send stream, and a sidecar file ".info" containing metadata:
 
-  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|.xz][.gpg]
-  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|.xz][.gpg].info
+  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|...][.gpg]
+  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|...][.gpg].info
 
 For 'incremental' backups ("incremental yes"), please note that:
 

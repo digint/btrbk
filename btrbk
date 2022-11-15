@@ -65,7 +65,7 @@ my $ipv6_addr_match = qr/[a-fA-F0-9]*:[a-fA-F0-9]*:[a-fA-F0-9:]+/; # simplified 
 my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
 my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 my $btrbk_timestamp_match = qr/(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "YYYYMMDD[Thhmm[ss+0000]][_NN]"
-my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))?/;  # matches ".btrfs[.gz|bz2|xz][.gpg|encrypted]"
+my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))?/;  # matches ".btrfs[.gz|.bz2|.xz|...][.gpg|.encrypted]"
 my $safe_file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 
 my $group_match = qr/[a-zA-Z0-9_:-]+/;
@@ -2010,7 +2010,7 @@ sub system_read_raw_info_dir($)
              '-maxdepth', '1',
              '-type', 'f',
              '!', '-size', '0',
-             '-name', '\*.btrfs.\*info',  # match ".btrfs[.gz|bz2|xz][.gpg].info"
+             '-name', '\*.btrfs.\*info',  # match ".btrfs[.gz|.bz2|.xz|...][.gpg].info"
              '-exec', 'echo INFO_FILE=\{\} \;',
              '-exec', 'cat \{\} \;'
             ],
