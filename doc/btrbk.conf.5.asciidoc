@@ -274,7 +274,7 @@ set to ``all'' (the default).
     remote locations. Defaults to ``no''. If enabled, make sure that
     '<compress_command>' is available on the source and target
     hosts. Supported '<compress_command>': gzip, pigz, bzip2, pbzip2,
-    xz, lzo, lz4, zstd.
+    bzip3, xz, lzo, lz4, zstd.
 
 *stream_compress_level* default|<number>::
     Compression level for the specified '<compress_command>'. Refer to
@@ -289,7 +289,7 @@ set to ``all'' (the default).
 
 *stream_compress_threads* default|<number>::
     Number of threads to use for <compress_command>. Only supported
-    for "pigz", "pbzip2", "zstd" and recent versions of "xz".
+    for "pigz", "pbzip2", "bzip3", "zstd" and recent versions of "xz".
 
 *stream_compress_adapt* default|<number>::
     Enable adaptive compression for <compress_command>. Only supported
@@ -633,8 +633,8 @@ Additional options for raw targets:
 
 *raw_target_compress* <compress_command>|no::
     Compression algorithm to use for raw backup target. Supported
-    '<compress_command>': gzip, pigz, bzip2, pbzip2, xz, lzo, lz4,
-    zstd.
+    '<compress_command>': gzip, pigz, bzip2, pbzip2, bzip3, xz, lzo,
+    lz4, zstd.
 *raw_target_compress_level* default|<number>::
     Compression level for the specified <compress_command>.
 *raw_target_compress_long* default|<number>::

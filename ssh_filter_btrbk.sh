@@ -12,7 +12,7 @@ allow_exact_list=
 allow_rate_limit=1
 allow_stream_buffer=1
 allow_compress=1
-compress_list="gzip|pigz|bzip2|pbzip2|xz|lzop|lz4|zstd"
+compress_list="gzip|pigz|bzip2|pbzip2|bzip3|xz|lzop|lz4|zstd"
 
 # note that the backslash is NOT a metacharacter in a POSIX bracket expression!
 option_match='-[a-zA-Z0-9=-]+'   # matches short as well as long options
