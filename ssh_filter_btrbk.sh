@@ -12,7 +12,7 @@ allow_exact_list=
 allow_rate_limit=1
 allow_stream_buffer=1
 allow_compress=1
-compress_list="gzip|pigz|bzip2|pbzip2|bzip3|xz|lzop|lz4|zstd"
+compress_list='gzip|pigz|bzip2|pbzip2|bzip3|xz|lzop|lz4|zstd'
 
 # note that the backslash is NOT a metacharacter in a POSIX bracket expression!
 option_match='-[a-zA-Z0-9=-]+'   # matches short as well as long options
@@ -40,14 +40,14 @@ allow_exact_cmd()
 reject_and_die()
 {
     local reason=$1
-    log_cmd "auth.err" "btrbk REJECT" "$reason"
+    log_cmd 'auth.err' 'btrbk REJECT' "$reason"
     echo "ERROR: ssh_filter_btrbk.sh: ssh command rejected: $reason: $SSH_ORIGINAL_COMMAND" 1>&2
     exit 255
 }
 
 run_cmd()
 {
-    log_cmd "auth.info" "btrbk ACCEPT"
+    log_cmd 'auth.info' 'btrbk ACCEPT'
     eval " $SSH_ORIGINAL_COMMAND"
 }
 
@@ -77,7 +77,7 @@ reject_filtered_cmd()
     # rate_limit_remote and stream_buffer_remote use combined
     # "mbuffer" as of btrbk-0.29.0
     if [[ -n "$allow_stream_buffer" ]] || [[ -n "$allow_rate_limit" ]]; then
-        mbuffer_match="mbuffer -v 1 -q( -s [0-9]+[kmgKMG]?)?( -m [0-9]+[kmgKMG]?)?( -[rR] [0-9]+[kmgtKMGT]?)?"
+        mbuffer_match='mbuffer -v 1 -q( -s [0-9]+[kmgKMG]?)?( -m [0-9]+[kmgKMG]?)?( -[rR] [0-9]+[kmgtKMGT]?)?'
     else
         mbuffer_match=
     fi
@@ -104,8 +104,8 @@ reject_filtered_cmd()
 # check for "--sudo" option before processing other options
 sudo_prefix=
 for key; do
-    [[ "$key" == "--sudo" ]] && sudo_prefix="sudo -n "
-    [[ "$key" == "--doas" ]] && sudo_prefix="doas -n "
+    [[ "$key" == '--sudo' ]] && sudo_prefix='sudo -n '
+    [[ "$key" == '--doas' ]] && sudo_prefix='doas -n '
 done
 
 while [[ "$#" -ge 1 ]]; do
@@ -173,8 +173,8 @@ done
 allow_exact_cmd "${sudo_prefix}btrfs subvolume (show|list)( ${option_match})* ${file_arg_match}";
 allow_cmd "${sudo_prefix}readlink"                    # resolve symlink
 allow_exact_cmd "${sudo_prefix}test -d ${file_arg_match}" # check directory (only for compat=busybox)
-allow_exact_cmd "cat /proc/self/mountinfo"            # resolve mountpoints
-allow_exact_cmd "cat /proc/self/mounts"               # legacy, for btrbk < 0.27.0
+allow_exact_cmd 'cat /proc/self/mountinfo'            # resolve mountpoints
+allow_exact_cmd 'cat /proc/self/mounts'               # legacy, for btrbk < 0.27.0
 
 # remove leading "|" on alternation lists
 allow_list=${allow_list#\|}
