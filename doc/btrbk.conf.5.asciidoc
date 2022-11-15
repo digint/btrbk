@@ -273,8 +273,8 @@ set to ``all'' (the default).
     Compress the btrfs send stream before transferring it from/to
     remote locations. Defaults to ``no''. If enabled, make sure that
     '<compress_command>' is available on the source and target
-    hosts. Supported '<compress_command>': gzip, pigz, bzip2, pbzip2,
-    xz, lzo, lz4, zstd.
+    hosts. Supported '<compress_command>': gzip, pigz, bzip2, bzip3,
+    pbzip2, xz, lzo, lz4, zstd.
 
 *stream_compress_level* default|<number>::
     Compression level for the specified '<compress_command>'. Refer to
@@ -289,7 +289,7 @@ set to ``all'' (the default).
 
 *stream_compress_threads* default|<number>::
     Number of threads to use for <compress_command>. Only supported
-    for "pigz", "pbzip2", "zstd" and recent versions of "xz".
+    for "pigz", "bzip3", "pbzip2", "zstd" and recent versions of "xz".
 
 *stream_compress_adapt* default|<number>::
     Enable adaptive compression for <compress_command>. Only supported
@@ -612,8 +612,8 @@ files)!
 Raw backups consist of two files: the main data file containing the
 btrfs send stream, and a sidecar file ".info" containing metadata:
 
-  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|.xz][.gpg]
-  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|.xz][.gpg].info
+  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|.bz3|.xz][.gpg]
+  <snapshot-name>.<timestamp>[_N].btrfs[.gz|.bz2|.bz3|.xz][.gpg].info
 
 For 'incremental' backups ("incremental yes"), please note that:
 
@@ -633,8 +633,8 @@ Additional options for raw targets:
 
 *raw_target_compress* <compress_command>|no::
     Compression algorithm to use for raw backup target. Supported
-    '<compress_command>': gzip, pigz, bzip2, pbzip2, xz, lzo, lz4,
-    zstd.
+    '<compress_command>': gzip, pigz, bzip2, bzip3, pbzip2, xz, lzo,
+    lz4, zstd.
 *raw_target_compress_level* default|<number>::
     Compression level for the specified <compress_command>.
 *raw_target_compress_long* default|<number>::
