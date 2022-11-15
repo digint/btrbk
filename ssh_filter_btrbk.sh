@@ -23,7 +23,7 @@ file_arg_match="('${file_match}'|${file_match_sane})" # support btrbk < 0.32.0
 log_cmd()
 {
     if [[ -n "$enable_log" ]]; then
-        logger -p $1 -t ssh_filter_btrbk.sh "$2 (Name: ${LOGNAME:-<unknown>}; Remote: ${SSH_CLIENT:-<unknown>})${3:+: $3}: $SSH_ORIGINAL_COMMAND"
+        logger -p "$1" -t ssh_filter_btrbk.sh "$2 (Name: ${LOGNAME:-<unknown>}; Remote: ${SSH_CLIENT:-<unknown>})${3:+: $3}: $SSH_ORIGINAL_COMMAND"
     fi
 }
 
@@ -39,7 +39,7 @@ allow_exact_cmd()
 
 reject_and_die()
 {
-    local reason=$1
+    local reason="$1"
     log_cmd 'auth.err' 'btrbk REJECT' "$reason"
     echo "ERROR: ssh_filter_btrbk.sh: ssh command rejected: $reason: $SSH_ORIGINAL_COMMAND" 1>&2
     exit 255
@@ -111,7 +111,7 @@ done
 while [[ "$#" -ge 1 ]]; do
     key="$1"
 
-    case $key in
+    case "$key" in
       -l|--log)
           enable_log=1
           ;;
@@ -177,9 +177,9 @@ allow_exact_cmd 'cat /proc/self/mountinfo'            # resolve mountpoints
 allow_exact_cmd 'cat /proc/self/mounts'               # legacy, for btrbk < 0.27.0
 
 # remove leading "|" on alternation lists
-allow_list=${allow_list#\|}
-allow_exact_list=${allow_exact_list#\|}
-restrict_path_list=${restrict_path_list#\|}
+allow_list="${allow_list#\|}"
+allow_exact_list="${allow_exact_list#\|}"
+restrict_path_list="${restrict_path_list#\|}"
 
 case "$SSH_ORIGINAL_COMMAND" in
     *\.\./*)  reject_and_die 'directory traversal'  ;;
