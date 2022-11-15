@@ -10,12 +10,16 @@ PREFIX    ?= /usr
 DOCDIR     = $(PREFIX)/share/doc/$(PN)
 MAN1DIR    = $(PREFIX)/share/man/man1
 MAN5DIR    = $(PREFIX)/share/man/man5
+SCRIPTDIR ?= $(PREFIX)/share/$(PN)/scripts
 
 ifeq ($(COMPRESS), yes)
   DOCS     := $(addsuffix .gz,$(DOCS))
   MAN_MAN1 := $(addsuffix .gz,$(MAN_MAN1))
   MAN_MAN5 := $(addsuffix .gz,$(MAN_MAN5))
 endif
+
+replace_vars = sed \
+	-e "s|@SCRIPTDIR@|$(SCRIPTDIR)|g"
 
 # convert using "asciidoctor": <https://asciidoctor.org>
 ASCIIDOCTOR_MANPAGE = asciidoctor -d manpage -b manpage
@@ -57,3 +61,6 @@ clean:
 
 %.html : %.asciidoc
 	SOURCE_DATE_EPOCH=$(call source_date_epoch,$<) $(ASCIIDOCTOR_HTML) -o $@ $<
+
+%.asciidoc : %.asciidoc.in
+	$(replace_vars) ssh_filter_btrbk.1.asciidoc.in > ssh_filter_btrbk.1.asciidoc
