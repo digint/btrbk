@@ -719,15 +719,17 @@ sub compress_cmd_text($;$)
 
   if((not $decompress) && defined($def->{level}) && ($def->{level} ne "default")) {
     my $level = $def->{level};
-    if($level < $cc->{level_min}) {
+    if(!defined($cc->{level_min})) {
+      WARN_ONCE "Compression level is not supported for '$cc->{name}', ignoring";
+      $level = undef;
+    } elsif($level < $cc->{level_min}) {
       WARN_ONCE "Compression level capped to minimum for '$cc->{name}': $cc->{level_min}";
       $level = $cc->{level_min};
-    }
-    if($level > $cc->{level_max}) {
+    } elsif($level > $cc->{level_max}) {
       WARN_ONCE "Compression level capped to maximum for '$cc->{name}': $cc->{level_max}";
       $level = $cc->{level_max};
     }
-    push @cmd, '-' . $level;
+    push @cmd, '-' . $level if(defined($level));
   }
   if(defined($def->{threads}) && ($def->{threads} ne "default")) {
     my $thread_opt = $cc->{threads};
