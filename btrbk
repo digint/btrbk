@@ -727,7 +727,9 @@ sub compress_cmd_text($;$)
       WARN_ONCE "Compression level capped to maximum for '$cc->{name}': $cc->{level_max}";
       $level = $cc->{level_max};
     }
-    push @cmd, '-' . $level;
+    if($cc->{level_min} >= 0) {
+      push @cmd, '-' . $level;
+    }
   }
   if(defined($def->{threads}) && ($def->{threads} ne "default")) {
     my $thread_opt = $cc->{threads};
