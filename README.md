@@ -82,7 +82,7 @@ with this package. For a detailed description, please consult the
 [btrbk.conf(5)] man-page.
 
 After a configuration change, it is highly recommended to check it by
-running btrbk with the `-n,--dryrun` option:
+running btrbk with the `-n,--dry-run` option:
 
     # btrbk -c /path/to/myconfig -v -n run
 
@@ -153,13 +153,17 @@ If you don't want to mount the btrfs root filesystem to
     snapshot_dir /btrbk_snapshots
     subvolume    /home
 
-Start a dry run:
+Start a dry run (-n, --dry-run):
 
     # btrbk run -n
 
 Create the first snapshot:
 
     # btrbk run
+
+Print schedule (-S, --print-schedule):
+
+    # btrbk run -n -S
 
 If it works as expected, configure a cron job to run btrbk hourly:
 
