@@ -2092,7 +2092,7 @@ sub system_write_raw_info($$;@)
 
   DEBUG "Writing (" . ($append ? "append:" . join(",", keys %$raw_info) : "create") . ") raw info file: $info_file";
   my $ret = run_cmd(
-    { cmd => [ 'echo', '-e', '-n', '"' . (join '\n', @line) . '\n"' ] },
+    { cmd => [ 'printf', quoteshell(join('\n', @line) . '\n') ] },
     { ($append ? "append_to_file" : "redirect_to_file") => { unsafe => $info_file },
       rsh => vinfo_rsh($vol),
     });
