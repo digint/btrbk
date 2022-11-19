@@ -605,10 +605,6 @@ TARGET TYPES
     btrfs-send(8), with optional compression and encryption.
 +
 --
-Note that the target preserve mechanism is currently disabled for
-incremental raw backups (btrbk does not delete any incremental raw
-files)!
-
 Raw backups consist of two files: the main data file containing the
 btrfs send stream, and a sidecar file ".info" containing metadata:
 
@@ -623,6 +619,11 @@ For 'incremental' backups ("incremental yes"), please note that:
   a good compromise for a vacation backup plan, but for the long term
   make sure that a non-incremental backup is triggered from time to
   time.
+
+* The scheduler will never delete dependent parents of backups
+  preserved by the retention policy (run btrbk with the '-S',
+  '--print-schedule' option to get a comprehensive output of the
+  scheduler results).
 
 * There is currently no support for rotation of incremental backups:
   if 'incremental' is set, a full backup must be triggered manually
