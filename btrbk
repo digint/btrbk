@@ -4494,6 +4494,22 @@ sub macro_delete($$$$;@)
   my $schedule_options = shift || die;
   my %delete_options = @_;
 
+  my $depends_fn = (($root_subvol->{CONFIG}{target_type} // "") eq "raw") && sub {
+    my $vol = shift->{value} // die;
+    my @ret;
+    if(my $related = _related_nodes($vol->{node}, omit_self => 1, fatal => 1)) {
+      foreach my $dep (@$related) {
+        TRACE "Checking parent of dependent raw target: $vol->{PRINT} <- $dep->{BTRBK_RAW}{NAME}" if($do_trace);
+        push @ret, grep($dep->{uuid} eq $_->{value}{node}{uuid}, @_);
+      }
+      return ("parent of preserved raw target", \@ret);
+    } else {
+      ABORTED($result_vinfo, "Failed to resolve related raw targets");
+      WARN "Skipping delete of \"$root_subvol->{PRINT}/$subvol_basename.*\": " . ABORTED_TEXT($result_vinfo);
+      return ("", []);
+    }
+  };
+
   my @schedule;
   foreach my $vol (@{vinfo_subvol_list($root_subvol, btrbk_direct_leaf => $subvol_basename)}) {
     push(@schedule, { value      => $vol,
@@ -4506,7 +4522,9 @@ sub macro_delete($$$$;@)
     %$schedule_options,
     schedule => \@schedule,
     preserve_date_in_future => 1,
+    depends => $depends_fn,
    );
+  return undef if(IS_ABORTED($result_vinfo));  # if depends_fn fails
 
   my @delete_success;
   foreach my $vol (@$delete) {
