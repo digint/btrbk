@@ -31,7 +31,7 @@
 #   NOTE: Depending on your setup (hardware, btrfs mount options),
 #   btrbk-verify may eat all your CPU power and use high bandwidth!
 #   Consider nice(1), ionice(1).
-
+#
 #   Incomplete resource eater list:
 #    - rsync: checksums, heavy disk I/O
 #    - btrfs: decompression, encryption
@@ -185,6 +185,8 @@ while [[ "$#" -ge 1 ]]; do
     shift
 done
 
+BR=$'\n'
+
 log_line()
 {
     echo "$@" 1>&2
@@ -207,13 +209,13 @@ tlog()
     [[ -n "$dryrun" ]] && [[ "$status" == "starting" ]] && status="dryrun_starting"
     local line="$(date --iso-8601=seconds) verify-rsync ${status} ${target} ${source} - -"
     [[ -n "$comment" ]] && line="$line # $comment";
-    tlog_text+="$line\n"
+    tlog_text+="$line${BR}"
     log_debug "$line"
 }
 tlog_print()
 {
     # tlog goes to stdout
-    echo -e "\nTRANSACTION LOG\n---------------\n${tlog_text:-}"
+    echo "${BR}TRANSACTION LOG${BR}---------------${BR}${tlog_text:-}"
 }
 
 # parse "rsync -i,--itemize-changes" output.
