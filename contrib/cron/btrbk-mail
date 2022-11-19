@@ -55,6 +55,8 @@ btrbk_opts="-c /etc/btrbk/btrbk.conf"
 #mail_cmd_block_prefix='\\u200B' # zero-width whitespace
 #mail_cmd_block_prefix=". "
 
+# Newline character
+BR=$'\n'
 
 #####  end config section  #####
 
@@ -83,47 +85,47 @@ send_mail()
         body+="$info"
     fi
     if [[ -n "$detail" ]] && [[ -n "$has_errors" ]] || [[ "${mail_detail:-no}" = "yes" ]]; then
-        [[ -n "$body" ]] && body+="\n\nDETAIL:\n"
+        [[ -n "$body" ]] && body+="${BR}${BR}DETAIL:${BR}"
         body+="$detail"
     fi
 
     # skip sending mail on empty body
     if [[ -z "$body" ]] && [[ -n "$has_errors" ]]; then
-        body+="FATAL: something went wrong (errors present but empty mail body)\n"
+        body+="FATAL: something went wrong (errors present but empty mail body)${BR}"
     fi
     [[ -z "$body" ]] && exit 0
 
     # send mail
-    echo -e "$body" | mail -s "$subject" $mailto
+    echo "$body" | mail -s "$subject" $mailto
     if [[ $? -ne 0 ]]; then
-        echo -e "$0: Failed to send btrbk mail to \"$mailto\", dumping mail:\n" 1>&2
-        echo -e "<mail_subject>$subject</mail_subject>\n<mail_body>\n$body</mail_body>" 1>&2
+        echo "$0: Failed to send btrbk mail to \"$mailto\", dumping mail:${BR}" 1>&2
+        echo "<mail_subject>$subject</mail_subject>${BR}<mail_body>${BR}$body</mail_body>" 1>&2
     fi
 }
 
 einfo()
 {
-    info+="$1\n"
+    info+="$1${BR}"
 }
 
 ebegin()
 {
     ebtext=$1
-    detail+="\n### $1\n"
+    detail+="${BR}### $1${BR}"
 }
 
 eend()
 {
     if [[ $1 -eq 0 ]]; then
         eetext=${3-success}
-        detail+="\n"
+        detail+="${BR}"
     else
         has_errors=1
         eetext="ERROR (code=$1)"
         [[ -n "$2" ]] && eetext+=": $2"
-        detail+="\n### $eetext\n"
+        detail+="${BR}### $eetext${BR}"
     fi
-    info+="$ebtext: $eetext\n"
+    info+="$ebtext: $eetext${BR}"
     return $1
 }
 
@@ -139,10 +141,10 @@ run_cmd()
 {
     cmd_out=$("$@" 2>&1)
     local ret=$?
-    detail+="++ ${@@Q}\n"
+    detail+="++ ${@@Q}${BR}"
     if [[ -n "${mail_cmd_block_prefix:-}" ]] && [[ -n "$cmd_out" ]]; then
         detail+=$(echo -n "$cmd_out" | sed "s/^/${mail_cmd_block_prefix}/")
-        detail+="\n"
+        detail+="${BR}"
     else
         detail+=$cmd_out
     fi
@@ -159,7 +161,7 @@ mount_all()
         if [[ $? -eq 0 ]]; then
             eend -1 "already mounted"
         else
-            detail+="\n"
+            detail+="${BR}"
             run_cmd mount --target $mountpoint
             eend $? && mounted+=" $mountpoint"
         fi
