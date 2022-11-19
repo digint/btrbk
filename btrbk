@@ -2011,8 +2011,9 @@ sub system_read_raw_info_dir($)
              '-type', 'f',
              '!', '-size', '0',
              '-name', '\*.btrfs.\*info',  # match ".btrfs[.gz|.bz2|.xz|...][.gpg].info"
-             '-exec', 'echo INFO_FILE=\{\} \;',
-             '-exec', 'cat \{\} \;'
+             '-print0',
+             '-exec', 'cat \{\} \;',
+             '-exec', 'printf "\0\0" \;',
             ],
     rsh => vinfo_rsh($droot),
     non_destructive => 1,
@@ -2023,49 +2024,46 @@ sub system_read_raw_info_dir($)
   }
 
   my @raw_targets;
-  my $cur_target;
-  foreach(@$ret)
-  {
-    if(/^INFO_FILE=/) {
-      push @raw_targets, $cur_target if($cur_target);
-      $cur_target = {};
-    }
-    next unless($cur_target);
-    $cur_target->{$1} = $2 if /^([a-zA-Z_]+)=(.*)/;
-  }
-  push @raw_targets, $cur_target if($cur_target);
-
-  # input validation (we need to abort here, or the backups will be resumed)
-  foreach my $raw_info (@raw_targets) {
-    unless($raw_info->{INFO_FILE}) {
+  foreach (split "\000\000", join "\n", @$ret) {
+    unless (s/^(.*?)\000//s) {
       ERROR("Error while parsing command output for: $droot->{PATH}");
       return undef;
     }
+    my $info_file = check_file($1, { absolute => 1 }, error_statement => 'for raw info file')
+      // return undef;
+    my $raw_info = { INFO_FILE => $info_file };
+    foreach (split "\n") {
+      $raw_info->{$1} = $2 if /^([a-zA-Z_]+)=(.*)/;
+    }
+
+    # input validation (we need to abort here, or the backups will be resumed)
     unless($raw_info->{FILE}) {
-      ERROR("Missing \"FILE=\" in raw info file: " . $raw_info->{INFO_FILE});
+      ERROR("Missing \"FILE=\" in raw info file: $info_file");
       return undef;
     }
     unless(check_file($raw_info->{FILE}, { name_only => 1 })) {
-      ERROR("Ambiguous \"FILE=\" in raw info file: " . $raw_info->{INFO_FILE});
+      ERROR("Ambiguous \"FILE=\" in raw info file: $info_file");
       return undef;
     }
     unless($raw_info->{TYPE} && ($raw_info->{TYPE} eq 'raw')) {
-      ERROR("Unsupported \"type\" in raw info file: " . $raw_info->{INFO_FILE});
+      ERROR("Unsupported \"type\" in raw info file: $info_file");
       return undef;
     }
     unless($raw_info->{RECEIVED_UUID} && ($raw_info->{RECEIVED_UUID} =~ /^$uuid_match$/)) {
-      ERROR("Missing/Illegal \"received_uuid\" in raw info file: " . $raw_info->{INFO_FILE});
+      ERROR("Missing/Illegal \"received_uuid\" in raw info file: $info_file");
       return undef;
     }
     if(defined $raw_info->{RECEIVED_PARENT_UUID}) {
       unless(($raw_info->{RECEIVED_PARENT_UUID} eq '-') || ($raw_info->{RECEIVED_PARENT_UUID} =~ /^$uuid_match$/)) {
-        ERROR("Illegal \"RECEIVED_PARENT_UUID\" in raw info file: " . $raw_info->{INFO_FILE});
+        ERROR("Illegal \"RECEIVED_PARENT_UUID\" in raw info file: $info_file");
         return undef;
       }
     }
     else {
       $raw_info->{RECEIVED_PARENT_UUID} = '-';
     }
+
+    push @raw_targets, $raw_info;
   }
 
   DEBUG("Parsed " . @raw_targets . " raw info files in path: $droot->{PATH}");
