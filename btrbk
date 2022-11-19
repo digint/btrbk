@@ -4638,6 +4638,7 @@ sub schedule(@)
   my $result_hints    = $args{result_hints} // {};
   my $result_preserve_action_text = $args{result_preserve_action_text};
   my $result_delete_action_text   = $args{result_delete_action_text} // 'delete';
+  my $depends_fn      = $args{depends};
 
   my $preserve_day_of_week = $preserve->{dow} || die;
   my $preserve_hour_of_day = $preserve->{hod} // die;
@@ -4783,6 +4784,17 @@ sub schedule(@)
     my $href = $first_monthly_in_delta_years{$_} || die;
     if($preserve_yearly && (($preserve_yearly eq 'all') || ($href->{delta_years} <= $preserve_yearly))) {
       $href->{preserve} = "preserve yearly: first weekly of year $href->{year} ($href->{delta_years} years ago," . _format_preserve_delta($href, $preserve_day_of_week) . ")";
+    }
+  }
+
+  if($depends_fn) {
+    # for all preserved, check depends against all non-preserved
+    foreach my $href (grep $_->{preserve}, @sorted_schedule) {
+      my ($dtxt, $deps) = $depends_fn->($href, grep(!$_->{preserve}, @sorted_schedule));
+      foreach my $dep (@$deps) {
+        DEBUG "Preserving dependent: $dep->{value}{PRINT} <- $href->{value}{PRINT}";
+        $dep->{preserve} = "preserve forced: $dtxt";
+      }
     }
   }
 
