@@ -806,7 +806,6 @@ sub _safe_cmd($;$)
       # NOTE: all files must be absolute
       if($offending) {
         push @$offending, $_ unless(defined(check_file($_, { absolute => 1 })));
-        push @$offending, $_ unless(!$safe_commands || /^($safe_file_match)$/);
       }
       $_ = $prefix . quoteshell($_) . $postfix;
     }
@@ -3785,6 +3784,10 @@ sub check_file($$;@)
   }
   elsif(($file =~ /^\s/) || ($file =~ /\s$/)) {
     ERROR "Illegal leading/trailing whitespace ${error_statement}: \"$file\"" if(defined($error_statement));
+    return undef;
+  }
+  if($safe_commands && $file !~ /^$safe_file_match$/) {
+    ERROR "Invalid file name (restricted by \"safe_commands\" option) ${error_statement}: \"$file\"" if(defined($error_statement));
     return undef;
   }
 
