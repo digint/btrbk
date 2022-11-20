@@ -349,6 +349,8 @@ my %raw_info_sort = (
   INCOMPLETE           => 100,
 );
 
+my $raw_info_value_match = qr/[0-9a-zA-Z_-]*/;
+
 my %raw_url_cache;   # map URL to (fake) btr_tree node
 my %mountinfo_cache; # map MACHINE_ID to mount points (sorted descending by file length)
 my %mount_source_cache; # map URL_PREFIX:mount_source (aka device) to btr_tree node
@@ -2023,8 +2025,8 @@ sub system_read_raw_info_dir($)
   }
 
   my @raw_targets;
-  foreach (split "\000\000", join "\n", @$ret) {
-    unless (s/^(.*?)\000//s) {
+  foreach my $info_text (split "\000\000", join "\n", @$ret) {
+    unless($info_text =~ s/^(.*?)\000//s) {
       ERROR("Error while parsing command output for: $droot->{PATH}");
       return undef;
     }
@@ -2032,12 +2034,23 @@ sub system_read_raw_info_dir($)
       // return undef;
     my $name = ($info_file =~ s/^.*\///r);
     $name =~ s/\.info$//;
+
     my $raw_info = {
       INFO_FILE  => $info_file,
       NAME       => $name,
     };
-    foreach (split "\n") {
-      $raw_info->{$1} = $2 if /^([a-zA-Z_]+)=(.*)/;
+    foreach my $line (split "\n", $info_text) {
+      my ($key, $value) = ($line =~ /^([a-zA-Z_]+)=(.*)/);
+      next unless $key;
+      if($key eq "FILE") {
+        WARN("Ignoring ambiguous \"FILE=$value\" from raw info file, using \"$name\": $info_file") if($value ne $name);
+        next;
+      }
+      unless($value =~ /^$raw_info_value_match$/) {
+        ERROR("Failed to parse \"$key=$value\" in raw info file: $info_file");
+        return undef;
+      }
+      $raw_info->{$key} = $value;
     }
 
     # input validation (we need to abort here, or the backups will be resumed)
@@ -2058,12 +2071,6 @@ sub system_read_raw_info_dir($)
     else {
       $raw_info->{RECEIVED_PARENT_UUID} = '-';
     }
-
-    # FILE is informative only; if present, check against sidecar filename
-    if($raw_info->{FILE} && ($raw_info->{FILE} ne $raw_info->{NAME})) {
-      WARN("Ignoring ambiguous \"FILE=$raw_info->{FILE}\" from raw info file, using \"$raw_info->{NAME}\": $info_file");
-    }
-    delete $raw_info->{FILE};
 
     push @raw_targets, $raw_info;
   }
