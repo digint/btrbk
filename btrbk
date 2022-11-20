@@ -884,6 +884,11 @@ sub run_cmd(@)
     my @rsh_compress_out;
     my @decompress_in;
 
+    if($href->{compressed_stdout}) {
+      # stdout of this command is compressed (e.g. for "cat foo.xz")
+      $compressed = $href->{compressed_stdout};
+    }
+
     # input stream compression: local, in front of rsh_cmd_pipe
     if($href->{rsh} && $stream_options->{stream_compress} && (not $href->{stream_source})) {
       if($compressed && ($compression{$compressed->{key}}->{format} ne $compression{$stream_options->{stream_compress}->{key}}->{format})) {
@@ -1513,7 +1518,9 @@ sub btrfs_send_receive($$;$$$)
   my $clone_src = shift // [];
   my $ret_vol_received = shift;
 
-  my $vol_received = vinfo_child($target, $snapshot->{NAME});
+  my $raw = $snapshot->{node}{BTRBK_RAW};
+  # TODO: change raw readin, set NAME to effective, leave {node}{BTRBK_RAW}{NAME} as raw image name
+  my $vol_received = vinfo_child($target, $raw ? $snapshot->{NAME} =~ s/$raw_postfix_match$//r : $snapshot->{NAME});
   $$ret_vol_received = $vol_received if(ref $ret_vol_received);
 
   print STDOUT "Creating backup: $vol_received->{PRINT}\n" if($show_progress && (not $dryrun));
@@ -1531,12 +1538,29 @@ sub btrfs_send_receive($$;$$$)
   push(@receive_options, '--max-errors=0') if($compat_ignore_err);
 
   my @cmd_pipe;
-  push @cmd_pipe, {
-    cmd => vinfo_cmd($snapshot, "btrfs send", @$send_options, { unsafe => $snapshot->{PATH} }),
-    rsh => vinfo_rsh($snapshot, disable_compression => $stream_options->{stream_compress}),
-    stream_options => $stream_options,
-    filter_stderr => [ \&_btrfs_filter_stderr, sub { $_ = undef if(/^At subvol/) } ],
-  };
+  if($raw) {
+    unless($compression{$raw->{compress}}) {
+      ERROR "Unsupported compression algorithm \"$raw->{compress}\" for raw subvolume: $snapshot->{NAME}";
+      return undef;
+    }
+    my $compress = $raw->{compress} && { key => $raw->{compress} }; # TODO: get some default, see config_compress_hash
+    push @cmd_pipe, {
+      cmd => [ 'cat', { unsafe => $snapshot->{PATH} } ],
+      rsh => vinfo_rsh($snapshot, disable_compression => $stream_options->{stream_compress}),
+      #??? rsh => vinfo_rsh($snapshot, disable_compression => $compress),
+      stream_options => $stream_options,
+      compressed_stdout => $compress,
+      compressed_ok => 1,
+    };
+  }
+  else {
+    push @cmd_pipe, {
+      cmd => vinfo_cmd($snapshot, "btrfs send", @$send_options, { unsafe => $snapshot->{PATH} }),
+      rsh => vinfo_rsh($snapshot, disable_compression => $stream_options->{stream_compress}),
+      stream_options => $stream_options,
+      filter_stderr => [ \&_btrfs_filter_stderr, sub { $_ = undef if(/^At subvol/) } ],
+    };
+  }
 
   push @cmd_pipe, {
     cmd => vinfo_cmd($target, "btrfs receive", @receive_options, { unsafe => $target->{PATH} . '/' } ),
@@ -5990,7 +6014,16 @@ MAIN:
     my $exit_status = 0;
     my @subvol_src;
     foreach my $svol (@subvol_args) {
-      unless(vinfo_init_root($svol)) {
+      # TODO: change raw readin, set NAME/URL/... to effective, leave {node}{BTRBK_RAW}{NAME} as raw image name
+      my $raw_root = vinfo($svol->{URL} =~ s/[^\/]*$//r, $config);
+      # TODO: consider checking for file type as well
+      if(($svol->{NAME} =~ /$raw_postfix_match$/) && vinfo_init_raw_root($raw_root)) {
+        if(my $svol_raw = vinfo_subvol($raw_root, $svol->{NAME})) {
+          $svol = $svol_raw;
+          INFO "Identified raw source: $svol->{PRINT}";
+        }
+      }
+      elsif(!vinfo_init_root($svol)) {
         ERROR "Failed to fetch subvolume detail for '$svol->{PRINT}'", @stderr;
         $exit_status = 1;
         next;
@@ -6043,12 +6076,25 @@ MAIN:
         $exit_status = 10;
         next;
       }
-      my ($clone_src, $target_parent_node);
-      my $parent = get_best_parent(
-        $svol, $dvol,
-        clone_src          => \$clone_src,
-        target_parent_node => \$target_parent_node,
-       );
+      my ($parent, $clone_src, $target_parent_node);
+      if($svol->{node}{BTRBK_RAW}) {
+        # source is raw, don't set any parents
+        my $rpu = $svol->{node}{BTRBK_RAW}{RECEIVED_PARENT_UUID};
+        unless($rpu eq '-' ||
+               $dvol->{node}{TREE_ROOT}{RECEIVED_UUID_HASH}{$rpu} ||
+               $dvol->{node}{TREE_ROOT}{UUID_HASH}{$rpu} ) {
+          ERROR "Missing parent subvolume for incremental raw target: uuid=$svol->{node}{BTRBK_RAW}{RECEIVED_PARENT_UUID}";
+          $exit_status = 10;
+          next;
+        }
+      }
+      else {
+        $parent = get_best_parent(
+          $svol, $dvol,
+          clone_src          => \$clone_src,
+          target_parent_node => \$target_parent_node,
+         );
+      }
       unless(macro_send_receive(
         source    => $svol,
         target    => $dvol,
