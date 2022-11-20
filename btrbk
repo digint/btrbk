@@ -1760,7 +1760,7 @@ sub btrfs_send_to_file($$$;$$)
             if(/^KEY=([0-9a-fA-f]+)/) {
               $kdf_session_key = $1;
             }
-            elsif(/^([a-z_]+)=(.*)/) {
+            elsif(/^([a-z_]+)=($raw_info_value_match)/) {
               my $info_key = 'kdf_' . $1;
               my $info_val = $2;
               DEBUG "Adding raw_info from kdf_backend: $info_key=$info_val";
