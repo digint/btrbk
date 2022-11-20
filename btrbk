@@ -3387,7 +3387,7 @@ sub get_related_snapshots($$;$)
   my $svol = shift // die;
   my $btrbk_basename = shift; # if set, also filter by direct_leaf
   my @ret = map( { vinfo_resolved($_, $snaproot, btrbk_direct_leaf => $btrbk_basename) // () }
-                 _related_nodes($svol->{node}, readonly => 1, omit_self => 1) );
+                 @{_related_nodes($svol->{node}, readonly => 1, omit_self => 1)} );
 
   if($do_trace) { TRACE "get_related_snapshots: found: $_->{PRINT}" foreach(@ret); }
   DEBUG "Found " . scalar(@ret) . " related snapshots of \"$svol->{PRINT}\" in: $snaproot->{PRINT}" . (defined($btrbk_basename) ? "/$btrbk_basename.*" : "");
@@ -3568,10 +3568,10 @@ sub _related_nodes($;@)
     my $snode_id = $snode->{id};
     my @filtered = grep { $_->{id} != $snode_id } @related_nodes;
     TRACE "related_nodes: found total=" . scalar(@filtered) . " related readonly subvolumes" if($do_trace);
-    return @filtered;
+    return \@filtered;
   }
   TRACE "related_nodes: found total=" . scalar(@related_nodes) . " related readonly subvolumes (including self)" if($do_trace);
-  return @related_nodes;
+  return \@related_nodes;
 }
 
 
@@ -3615,7 +3615,7 @@ sub get_best_parent($$$;@)
   # no warnings on aborted search (due to deep relations).
   my %c_rel_id;   # map id to c_related
   my @c_related;  # candidates for parent (correlated + related), unsorted
-  foreach (_related_nodes($svol->{node}, readonly => 1, omit_self => 1, nowarn => 1)) {
+  foreach (@{_related_nodes($svol->{node}, readonly => 1, omit_self => 1, nowarn => 1)}) {
     my $vinfo = vinfo_resolved($_, $resolve_sroot);
     if((not $vinfo) && $source_fallback_all_mountpoints) { # related node is not under $resolve_sroot
       $vinfo = vinfo_resolved_all_mountpoints($_, $svol);
@@ -5691,7 +5691,7 @@ MAIN:
       foreach my $svol (@subvol_args) {
         my $svol_gen = $svol->{node}{readonly} ? $svol->{node}{cgen} : $svol->{node}{gen};
         my @related = map({ vinfo_resolved_all_mountpoints($_, $svol->{VINFO_MOUNTPOINT}) // () }
-                          _related_nodes($svol->{node})); # includes $svol
+                          @{_related_nodes($svol->{node})}); # includes $svol
         push @resolved_vol, @related;
       }
     }
