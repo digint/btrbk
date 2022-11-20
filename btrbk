@@ -3010,6 +3010,7 @@ sub vinfo_init_raw_root($;@)
                    SUBTREE => [],
                    UUID_HASH => {},
                    RECEIVED_UUID_HASH => {},
+                   PARENT_UUID_HASH => {},
                    URL_PREFIX => $droot->{URL_PREFIX},                 # for _fs_path (logging)
                    MOUNTINFO => [ { mount_point => $droot->{PATH} } ], # for _fs_path (logging)
                  };
@@ -3021,13 +3022,24 @@ sub vinfo_init_raw_root($;@)
 
     # inject nodes to fake btr_tree
     $droot->{node} = $tree_root;
-    my %child_uuid_list;
-    foreach my $raw_info (@$raw_info_ary)
+    foreach my $raw_info (sort { $a->{NAME} cmp $b->{NAME} } @$raw_info_ary)
     {
-      # Set btrfs subvolume information (received_uuid, parent_uuid) from filename info.
+      # Set btrfs subvolume information from filename info.
       #
-      # NOTE: received_parent_uuid in BTRBK_RAW is the "parent of the source subvolume", NOT the
-      #       "parent of the received subvolume".
+      # Important notes:
+      #  - Raw targets have a fake uuid and parent_uuid.
+      #  - RECEIVED_PARENT_UUID in BTRBK_RAW is the "parent of the
+      #    source subvolume", NOT the "parent of the received subvolume".
+      #
+      # If restoring a backup from raw btrfs images (using "incremental yes|strict"):
+      # "btrfs send -p parent source > svol.btrfs", the backups
+      # on the target will get corrupted (unusable!) as soon as
+      # an any files in the chain gets deleted.
+      #
+      # We need to make sure btrbk will NEVER delete those (see _raw_depends):
+      # - svol.<timestamp>--<received_uuid_0>.btrfs                        : root (full) image
+      # - svol.<timestamp>--<received_uuid-n>[@<received_uuid_n-1>].btrfs  : incremental image
+
       my $subvol = vinfo_child($droot, $raw_info->{NAME});
       unless(vinfo_inject_child($droot, $subvol, {
         TARGET_TYPE   => $raw_info->{TYPE},
@@ -3040,38 +3052,20 @@ sub vinfo_init_raw_root($;@)
         ERROR("Failed create raw node \"$raw_info->{NAME}\" from raw info file: \"$raw_info->{INFO_FILE}\"");
         return undef;
       }
-
-      if($raw_info->{RECEIVED_PARENT_UUID} ne '-') {
-        $child_uuid_list{$raw_info->{RECEIVED_PARENT_UUID}} //= [];
-        push @{$child_uuid_list{$raw_info->{RECEIVED_PARENT_UUID}}}, $subvol;
-      }
     }
 
     my @subvol_list = @{vinfo_subvol_list($droot, sort => 'path')};
     DEBUG "Found " . scalar(@subvol_list) . " raw subvolume backups in: $droot->{PRINT}";
 
-    foreach my $subvol (@subvol_list)
-    {
-      # If restoring a backup from raw btrfs images (using "incremental yes|strict"):
-      # "btrfs send -p parent source > svol.btrfs", the backups
-      # on the target will get corrupted (unusable!) as soon as
-      # an any files in the chain gets deleted.
-      #
-      # We need to make sure btrbk will NEVER delete those:
-      # - svol.<timestamp>--<received_uuid_0>.btrfs                        : root (full) image
-      # - svol.<timestamp>--<received_uuid-n>[@<received_uuid_n-1>].btrfs  : incremental image
-
-      foreach my $child (@{$child_uuid_list{$subvol->{node}{received_uuid}}}) {
-        # Insert correct (i.e. fake) parent UUID
-        $child->{node}{parent_uuid} = $subvol->{node}{uuid};
-
-        # Make sure that incremental backup chains are never broken:
-        DEBUG "Found parent/child partners, forcing preserve of: \"$subvol->{PRINT}\", \"$child->{PRINT}\"";
-        $subvol->{node}{FORCE_PRESERVE}  = "preserve forced: parent of another raw target";
-        $child->{node}{FORCE_PRESERVE} ||= "preserve forced: child of another raw target";
-      }
+    # set parent_uuid based on RECEIVED_PARENT_UUID
+    foreach my $node (@{$tree_root->{SUBTREE}}) {
+      my $parents = $tree_root->{RECEIVED_UUID_HASH}{$node->{BTRBK_RAW}{RECEIVED_PARENT_UUID}} // [];
+      my $parent = (grep { $_->{BTRBK_RAW}{RECEIVED_PARENT_UUID} eq '-' } @$parents)[0] // $parents->[0]; # if multiple candidates, prefer non-incremental
+      TRACE "vinfo_init_raw_root: $node->{BTRBK_RAW}{NAME} parent=" . ($parent ? $parent->{BTRBK_RAW}{NAME} : "") if($do_trace);
+      next unless $parent;
+      $node->{parent_uuid} = $parent->{uuid};
+      push @{$tree_root->{PARENT_UUID_HASH}{$node->{parent_uuid}}}, $node;
     }
-    # TRACE(Data::Dumper->Dump([\@subvol_list], ["vinfo_raw_subvol_list{$droot}"]));
   }
 
   $droot->{node} = $tree_root;
