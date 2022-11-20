@@ -3518,9 +3518,11 @@ sub _related_nodes($;@)
     $distance++;
   }
   if($distance >= $abort_distance) {
-    my $logmsg = "Parent UUID chain exceeds depth=$abort_distance, ignoring related parents of uuid=$uuid for: " . _fs_path($snode);
+    my $logmsg = "Parent UUID chain exceeds depth=$abort_distance" .
+      ($opts{fatal} ? " for: " : ", ignoring related parents of uuid=$uuid for: ") . _fs_path($snode);
     DEBUG $logmsg;
     WARN_ONCE $logmsg unless($opts{nowarn});
+    return undef if($opts{fatal});
   }
   TRACE "related_nodes: d=$distance uuid=$uuid : top of parent chain" if($do_trace);
 
@@ -3533,9 +3535,11 @@ sub _related_nodes($;@)
     my $children = $parent_uuid_hash->{$uuid};
     if($children) {
       if($distance >= $abort_distance) {
-        my $logmsg = "Parent/child relations exceed depth=$abort_distance, ignoring related children of uuid=$uuid for: " . _fs_path($snode);
+        my $logmsg = "Parent/child relations exceed depth=$abort_distance" .
+          ($opts{fatal} ? " for: " : ", ignoring related children of uuid=$uuid for: ") . _fs_path($snode);
         DEBUG $logmsg;
         WARN_ONCE $logmsg unless($opts{nowarn});
+        return undef if($opts{fatal});
       } else {
         push @nn, { MARK_UUID => $uuid, MARK_DISTANCE => ($distance + 1) }, @$children;
       }
