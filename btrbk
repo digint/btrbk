@@ -337,7 +337,7 @@ my %backend_cmd_map = (
 # keys used in raw target sidecar files (.info):
 my %raw_info_sort = (
   TYPE                 => 1,
-  FILE                 => 2,
+  FILE                 => 2,   # informative only (as of btrbk-0.32.6)
   RECEIVED_UUID        => 3,
   RECEIVED_PARENT_UUID => 4,
   compress             => 10,
@@ -2030,20 +2030,17 @@ sub system_read_raw_info_dir($)
     }
     my $info_file = check_file($1, { absolute => 1 }, error_statement => 'for raw info file')
       // return undef;
-    my $raw_info = { INFO_FILE => $info_file };
+    my $name = ($info_file =~ s/^.*\///r);
+    $name =~ s/\.info$//;
+    my $raw_info = {
+      INFO_FILE  => $info_file,
+      NAME       => $name,
+    };
     foreach (split "\n") {
       $raw_info->{$1} = $2 if /^([a-zA-Z_]+)=(.*)/;
     }
 
     # input validation (we need to abort here, or the backups will be resumed)
-    unless($raw_info->{FILE}) {
-      ERROR("Missing \"FILE=\" in raw info file: $info_file");
-      return undef;
-    }
-    unless(check_file($raw_info->{FILE}, { name_only => 1 })) {
-      ERROR("Ambiguous \"FILE=\" in raw info file: $info_file");
-      return undef;
-    }
     unless($raw_info->{TYPE} && ($raw_info->{TYPE} eq 'raw')) {
       ERROR("Unsupported \"type\" in raw info file: $info_file");
       return undef;
@@ -2061,6 +2058,12 @@ sub system_read_raw_info_dir($)
     else {
       $raw_info->{RECEIVED_PARENT_UUID} = '-';
     }
+
+    # FILE is informative only; if present, check against sidecar filename
+    if($raw_info->{FILE} && ($raw_info->{FILE} ne $raw_info->{NAME})) {
+      WARN("Ignoring ambiguous \"FILE=$raw_info->{FILE}\" from raw info file, using \"$raw_info->{NAME}\": $info_file");
+    }
+    delete $raw_info->{FILE};
 
     push @raw_targets, $raw_info;
   }
@@ -3014,7 +3017,7 @@ sub vinfo_init_raw_root($;@)
       #
       # NOTE: received_parent_uuid in BTRBK_RAW is the "parent of the source subvolume", NOT the
       #       "parent of the received subvolume".
-      my $subvol = vinfo_child($droot, $raw_info->{FILE});
+      my $subvol = vinfo_child($droot, $raw_info->{NAME});
       unless(vinfo_inject_child($droot, $subvol, {
         TARGET_TYPE   => $raw_info->{TYPE},
         parent_uuid   => '-', # NOTE: correct value gets inserted below
@@ -3023,7 +3026,7 @@ sub vinfo_init_raw_root($;@)
         readonly      => ($raw_info->{INCOMPLETE} ? 0 : 1),
       }, $raw_info))
       {
-        ERROR("Ambiguous \"FILE=\" in raw info file: \"$raw_info->{INFO_FILE}\"");
+        ERROR("Failed create raw node \"$raw_info->{NAME}\" from raw info file: \"$raw_info->{INFO_FILE}\"");
         return undef;
       }
 
