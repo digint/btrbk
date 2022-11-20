@@ -59,25 +59,25 @@ my %compression = (
   zstd   => { name => 'zstd',   format => 'zst', compress_cmd => [ 'zstd',   '-c' ], decompress_cmd => [ 'zstd',   '-d', '-c' ], level_min => 1, level_max => 19, threads => '-T', long => '--long=', adapt => '--adapt' },
  );
 
-my $compress_format_alt = join '|', map { $_->{format} } values %compression; # note: this contains duplicate alternations
-my $ipv4_addr_match = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
-my $ipv6_addr_match = qr/[a-fA-F0-9]*:[a-fA-F0-9]*:[a-fA-F0-9:]+/; # simplified (contains at least two colons), matches "::1", "2001:db8::7"
-my $host_name_match = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
-my $uuid_match = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
-my $btrbk_file_match = qr/(?<name>.+)\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "NAME.YYYYMMDD[Thhmm[ss+0000]][_NN]"
+my $compress_format_alt  = join '|', map { $_->{format} } values %compression; # note: this contains duplicate alternations
+my $ipv4_addr_match      = qr/(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/;
+my $ipv6_addr_match      = qr/[a-fA-F0-9]*:[a-fA-F0-9]*:[a-fA-F0-9:]+/; # simplified (contains at least two colons), matches "::1", "2001:db8::7"
+my $host_name_match      = qr/(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])/;
+my $uuid_match           = qr/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+my $btrbk_file_match     = qr/(?<name>.+)\.(?<YYYY>[0-9]{4})(?<MM>[0-9]{2})(?<DD>[0-9]{2})(T(?<hh>[0-9]{2})(?<mm>[0-9]{2})((?<ss>[0-9]{2})(?<zz>(Z|[+-][0-9]{4})))?)?(_(?<NN>[0-9]+))?/;  # matches "NAME.YYYYMMDD[Thhmm[ss+0000]][_NN]"
 my $timeshift_file_match = qr/(?<YYYY>[0-9]{4})-(?<MM>[0-9]{2})-(?<DD>[0-9]{2})_(?<hh>[0-9]{2})-(?<mm>[0-9]{2})-(?<ss>[0-9]{2})\/(?<name>[^\/]+)/;  # matches "YYYY-MM-DD_hh-mm-ss/NAME"
-my $raw_postfix_match = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))?/;  # matches ".btrfs[.gz|.bz2|.xz|...][.gpg|.encrypted]"
-my $safe_file_match = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
+my $raw_postfix_match    = qr/\.btrfs(\.($compress_format_alt))?(\.(gpg|encrypted))?/;  # matches ".btrfs[.gz|.bz2|.xz|...][.gpg|.encrypted]"
+my $safe_file_match      = qr/[0-9a-zA-Z_@\+\-\.\/]+/;  # note: ubuntu uses '@' in the subvolume layout: <https://help.ubuntu.com/community/btrfs>
 
-my $group_match = qr/[a-zA-Z0-9_:-]+/;
-my $config_split_match = qr/\s*[,\s]\s*/;
+my $group_match          = qr/[a-zA-Z0-9_:-]+/;
+my $config_split_match   = qr/\s*[,\s]\s*/;
 
-my %day_of_week_map = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
-my @syslog_facilities = qw( user mail daemon auth lpr news cron authpriv local0 local1 local2 local3 local4 local5 local6 local7 );
+my %day_of_week_map      = ( sunday => 0, monday => 1, tuesday => 2, wednesday => 3, thursday => 4, friday => 5, saturday => 6 );
+my @syslog_facilities    = qw( user mail daemon auth lpr news cron authpriv local0 local1 local2 local3 local4 local5 local6 local7 );
 
 my @incremental_prefs_avail   = qw(sro srn sao san aro arn);
 my @incremental_prefs_default = qw(sro:1 srn:1 sao:1 san:1 aro:1 arn:1);
-my $incremental_prefs_match = "(defaults|(" . join("|", @incremental_prefs_avail) . ")(:[0-9]+)?)";
+my $incremental_prefs_match   = "(defaults|(" . join("|", @incremental_prefs_avail) . ")(:[0-9]+)?)";
 
 my %config_options = (
   # NOTE: the parser always maps "no" to undef
