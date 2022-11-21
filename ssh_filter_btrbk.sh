@@ -3,7 +3,7 @@
 set -e
 set -u
 
-export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH='/usr/bin:/bin'
 
 enable_log=
 restrict_path_list=
