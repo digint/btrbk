@@ -82,6 +82,11 @@ OPTIONS
 -p, --restrict-path <path>::
     Restrict commands to <path>. Note that "btrfs subvolume show",
     "btrfs subvolume list" are NOT affected by this option.
++
+It is not possible to restrict commands to exact subvolume names, as
+btrfs-receive(8) takes a <path> as argument (directory, not including
+the subvolume file name to be created, this is encoded in the
+send-stream).
 
 -l, --log::
     Log ACCEPT and REJECT messages to the system log.
