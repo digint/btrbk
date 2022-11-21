@@ -42,7 +42,7 @@ reject_and_die()
     local reason="$1"
     log_cmd 'auth.err' 'btrbk REJECT' "$reason"
     printf 'ERROR: ssh_filter_btrbk.sh: ssh command rejected: %s: %s\n' "$reason" "$SSH_ORIGINAL_COMMAND" 1>&2
-    exit 255
+    exit 1
 }
 
 run_cmd()
@@ -166,7 +166,7 @@ while [ "$#" -ge 1 ]; do
 
       *)
           printf 'ERROR: ssh_filter_btrbk.sh: failed to parse command line option: %s\n' "$key" 1>&2
-          exit 255
+          exit 2
           ;;
     esac
     shift
