@@ -22,7 +22,7 @@ file_arg_match="('${file_match}'|${file_match_sane})" # support btrbk < 0.32.0
 
 log_cmd()
 {
-    if [[ -n "$enable_log" ]]; then
+    if [ -n "$enable_log" ]; then
         logger -p "$1" -t ssh_filter_btrbk.sh "$2 (Name: ${LOGNAME:-<unknown>}; Remote: ${SSH_CLIENT:-<unknown>})${3:+: $3}: $SSH_ORIGINAL_COMMAND"
     fi
 }
@@ -53,7 +53,7 @@ run_cmd()
 
 reject_filtered_cmd()
 {
-    if [[ -n "$restrict_path_list" ]]; then
+    if [ -n "$restrict_path_list" ]; then
 	# match any of restrict_path_list,
 	# or any file/directory (matching file_match) below restrict_path
 	path_match="'(${restrict_path_list})(${file_match})?'"
@@ -66,7 +66,7 @@ reject_filtered_cmd()
     # btrbk >= 0.32.0 quotes files, allow both (legacy)
     path_match="(${path_match}|${path_match_legacy})"
 
-    if [[ -n "$allow_compress" ]]; then
+    if [ -n "$allow_compress" ]; then
         decompress_match="(${compress_list}) -d -c( -[pT][0-9]+)?"
         compress_match="(${compress_list}) -c( -[0-9])?( -[pT][0-9]+)?"
     else
@@ -76,7 +76,7 @@ reject_filtered_cmd()
 
     # rate_limit_remote and stream_buffer_remote use combined
     # "mbuffer" as of btrbk-0.29.0
-    if [[ -n "$allow_stream_buffer" ]] || [[ -n "$allow_rate_limit" ]]; then
+    if [ -n "$allow_stream_buffer" ] || [ -n "$allow_rate_limit" ]; then
         mbuffer_match='mbuffer -v 1 -q( -s [0-9]+[kmgKMG]?)?( -m [0-9]+[kmgKMG]?)?( -[rR] [0-9]+[kmgtKMGT]?)?'
     else
         mbuffer_match=
@@ -103,12 +103,12 @@ reject_filtered_cmd()
 
 # check for "--sudo" option before processing other options
 sudo_prefix=
-for key; do
-    [[ "$key" == '--sudo' ]] && sudo_prefix='sudo -n '
-    [[ "$key" == '--doas' ]] && sudo_prefix='doas -n '
+for key in "$@"; do
+    [ "$key" = '--sudo' ] && sudo_prefix='sudo -n '
+    [ "$key" = '--doas' ] && sudo_prefix='doas -n '
 done
 
-while [[ "$#" -ge 1 ]]; do
+while [ "$#" -ge 1 ]; do
     key="$1"
 
     case "$key" in
@@ -193,7 +193,7 @@ case "$SSH_ORIGINAL_COMMAND" in
     *\<*)     reject_and_die 'unsafe character "<"' ;;
     *\>*)     reject_and_die 'unsafe character ">"' ;;
     *\`*)     reject_and_die 'unsafe character "`"' ;;
-    *\|*)     [[ -n "$allow_compress" ]] || [[ -n "$allow_rate_limit" ]] || [[ -n "$allow_stream_buffer" ]] || reject_and_die 'unsafe character "|"' ;;
+    *\|*)     [ -n "$allow_compress" ] || [ -n "$allow_rate_limit" ] || [ -n "$allow_stream_buffer" ] || reject_and_die 'unsafe character "|"' ;;
 esac
 
 reject_filtered_cmd
