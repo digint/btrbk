@@ -23,7 +23,7 @@ file_arg_match="('${file_match}'|${file_match_sane})" # support btrbk < 0.32.0
 log_cmd()
 {
     if [ -n "$enable_log" ]; then
-        logger -p "$1" -t ssh_filter_btrbk.sh "$2 (Name: ${LOGNAME:-<unknown>}; Remote: ${SSH_CLIENT:-<unknown>})${3:+: $3}: $SSH_ORIGINAL_COMMAND"
+        logger -p "$1" -t ssh_filter_btrbk.sh "$2 (Name: ${LOGNAME:-<unknown>}; Connection: ${SSH_CONNECTION:-<unknown>})${3:+: $3}: $SSH_ORIGINAL_COMMAND"
     fi
 }
 
