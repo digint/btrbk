@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 set -e
 set -u
@@ -87,17 +87,21 @@ reject_filtered_cmd()
     stream_in_match="(${decompress_match} \| )?(${mbuffer_match} \| )?"
     stream_out_match="( \| ${mbuffer_match})?( \| ${compress_match}$)?"
 
+    # `grep`’s `-q`-option is not used as it may cause an exit status of `0` even
+    # when an error occurred.
+
     allow_stream_match="^${stream_in_match}${allow_cmd_match}${stream_out_match}"
-    if [[ $SSH_ORIGINAL_COMMAND =~ $allow_stream_match ]] ; then
+    if printf '%s' "$SSH_ORIGINAL_COMMAND" | grep -E "$allow_stream_match" >/dev/null 2>/dev/null; then
         return 0
     fi
 
     exact_cmd_match="^(${allow_exact_list})$";
-    if [[ $SSH_ORIGINAL_COMMAND =~ $exact_cmd_match ]] ; then
+    if printf '%s' "$SSH_ORIGINAL_COMMAND" | grep -E "$exact_cmd_match" >/dev/null 2>/dev/null; then
         return 0
     fi
 
-    reject_and_die "disallowed command${restrict_path_list:+ (restrict-path: \"${restrict_path_list//|/\", \"}\")}"
+    local formatted_restrict_path_list="$(printf '%s' "$restrict_path_list" | sed 's/|/", "/g')"
+    reject_and_die "disallowed command${restrict_path_list:+ (restrict-path: \"$formatted_restrict_path_list\")}"
 }
 
 
