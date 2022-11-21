@@ -1,8 +1,11 @@
 #!/bin/sh
 
-set -e -u
+# initialise and sanitise the shell execution environment
+unset -v IFS
+export LC_ALL=C
+export PATH='/sbin:/bin:/usr/sbin:/usr/bin'
 
-export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+set -e -u
 
 enable_log=
 restrict_path_list=
