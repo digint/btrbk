@@ -23,6 +23,20 @@ file_match_sane='/[0-9a-zA-Z_@+./-]*' # matches file path (equal to ${file_match
 file_match="/[^']*" # btrbk >= 0.32.0 quotes file arguments: match all but single quote
 file_arg_match="('${file_match}'|${file_match_sane})" # support btrbk < 0.32.0
 
+print_normalised_pathname()
+{
+    # Normalises a pathname given via the positional parameter #1 as follows:
+    # * Folds any >=3 leading `/` into 1.
+    #   POSIX specifies that implementations may treat exactly 2 leading `//`
+    #   specially and therefore such are not folded here.
+    # * Folds any >=2 non-leading `/` into 1.
+    # * Strips any trailing `/`.
+
+    local pathname="$1"
+
+    printf '%s' "${pathname}" | sed -E 's%^///+%/%; s%(.)//+%\1/%g; s%/+$%%'
+}
+
 log_cmd()
 {
     local priority="$1"
@@ -141,7 +155,7 @@ while [ "$#" -ge 1 ]; do
           ;;
 
       -p|--restrict-path)
-          restrict_path_list="${restrict_path_list}|${2%/}"  # add to list while removing trailing slash
+          restrict_path_list="${restrict_path_list}|$(print_normalised_pathname "$2")"
           shift # past argument
           ;;
 
