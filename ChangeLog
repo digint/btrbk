@@ -1,3 +1,8 @@
+btrbk-current
+  * Changed the default of "preserve_day_of_week" to "monday" in
+    accordance with the start of an ISO 8601 week as well as the
+    meaning of "weekly" in systemd.
+
 btrbk-0.32.5
 
   * Correct handling of zero-size raw info file (close #491).
