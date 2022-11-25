@@ -23,6 +23,21 @@ file_match_sane='/[0-9a-zA-Z_@+./-]*' # matches file path (equal to ${file_match
 file_match="/[^']*" # btrbk >= 0.32.0 quotes file arguments: match all but single quote
 file_arg_match="('${file_match}'|${file_match_sane})" # support btrbk < 0.32.0
 
+is_pathname_absolute()
+{
+    # Checks whether a string is an absolute pathname (that is: one that is non-
+    # empty and starts with either exactly one or more than two `/`).
+
+    local pathname="$1"
+
+    [ "${pathname}" != '//' ] || return 1
+    [ -n "${pathname##//[!/]*}" ] || return 1
+    [ -z "${pathname##/*}" ] || return 1
+    [ -n "${pathname}" ] || return 1
+
+    return 0
+}
+
 print_normalised_pathname()
 {
     # Normalises a pathname given via the positional parameter #1 as follows:
@@ -155,6 +170,11 @@ while [ "$#" -ge 1 ]; do
           ;;
 
       -p|--restrict-path)
+          # check whether the pathname is absolute
+          if ! is_pathname_absolute "$2"; then
+              reject_and_die "pathname \"$2\" given to the \"--restrict-path\"-option is not absolute"
+          fi
+
           restrict_path_list="${restrict_path_list}|$(print_normalised_pathname "$2")"
           shift # past argument
           ;;
