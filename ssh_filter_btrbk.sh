@@ -183,6 +183,8 @@ restrict_path_list=${restrict_path_list#\|}
 
 case "$SSH_ORIGINAL_COMMAND" in
     *\.\./*)  reject_and_die 'directory traversal'  ;;
+    *'
+'*)           reject_and_die 'unsafe character LF'  ;;
     *\$*)     reject_and_die 'unsafe character "$"' ;;
     *\&*)     reject_and_die 'unsafe character "&"' ;;
     *\(*)     reject_and_die 'unsafe character "("' ;;
