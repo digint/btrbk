@@ -4530,8 +4530,8 @@ sub macro_send_receive(@)
       TARGET_TYPE    => $target_type,
       FORCE_PRESERVE => 'preserve forced: created just now',
     }, $raw_info);
-    $source->{SUBVOL_SENT}{$target->{URL}} = $vol_received;
   }
+  $source->{SUBVOL_SENT}{$target->{URL}} = $vol_received;
 
   # add info to $config->{SUBVOL_RECEIVED}
   $info{received_type} = $target_type || die;
