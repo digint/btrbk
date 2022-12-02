@@ -4529,7 +4529,6 @@ sub macro_send_receive(@)
       readonly       => 1,
       TARGET_TYPE    => $target_type,
       FORCE_PRESERVE => 'preserve forced: created just now',
-      INJECTED_BY    => 'receive',
     }, $raw_info);
     $source->{SUBVOL_SENT}{$target->{URL}} = $vol_received;
   }
@@ -6790,7 +6789,6 @@ MAIN:
               received_uuid  => '-',
               readonly       => 1,
               FORCE_PRESERVE => 'preserve forced: created just now',
-              INJECTED_BY    => 'snapshot',
             });
             $svol->{SNAPSHOT_CREATED} = $snapshot;
           }
@@ -6805,12 +6803,11 @@ MAIN:
     #
     # create backups
     #
-    my $schedule_results;
+    my $schedule_results = [];
     if($skip_backups) {
       INFO "Skipping backup creation (btrbk snapshot)";
     }
     else {
-      $schedule_results = [];
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snaproot = vinfo_snapshot_root($svol);
@@ -6876,8 +6873,7 @@ MAIN:
                 results  => $schedule_results_mixed,
                 result_hints => { topic => "backup", root_path => $snaproot->{PATH} },
                 result_delete_action_text   => 'REMOVE_FROM_OUTPUT',
-                # not required, we patch this in late, before displaying
-                #result_preserve_action_text => 'create',
+                result_preserve_action_text => 'create',
                );
               my @resume = grep defined, @$preserve;   # remove entries with no value from list (target subvolumes)
               $resume_total = scalar @resume;
@@ -6948,7 +6944,6 @@ MAIN:
     }
     else
     {
-      $schedule_results = [];
       foreach my $sroot (vinfo_subsection($config, 'volume')) {
         foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
           my $snaproot = vinfo_snapshot_root($svol);
@@ -6993,7 +6988,7 @@ MAIN:
               unless(macro_delete($droot, $snapshot_basename, $droot,
                                   { preserve     => config_preserve_hash($droot, $action_archive ? "archive" : "target"),
                                     results      => $schedule_results,
-                                    result_hints => { topic => "backup", root_path => $droot->{PATH} },
+                                    result_hints => { topic => "backup_delete", root_path => $droot->{PATH} },
                                   },
                                   commit => config_key($droot, "btrfs_commit_delete"),
                                   type   => "delete_target",
@@ -7024,7 +7019,7 @@ MAIN:
             macro_delete($snaproot, $snapshot_basename, $svol,
                          { preserve     => config_preserve_hash($svol, "snapshot", wipe => $wipe_snapshots),
                            results      => $schedule_results,
-                           result_hints => { topic => "snapshot", root_path => $snaproot->{PATH} },
+                           result_hints => { topic => "snapshot_delete", root_path => $snaproot->{PATH} },
                          },
                          commit => config_key($svol, "btrfs_commit_delete"),
                          type   => "delete_snapshot",
@@ -7053,13 +7048,12 @@ MAIN:
       # print scheduling results
       #
       if($print_schedule && $schedule_results) {
-        foreach my $topic (qw(snapshot backup)) {
+        foreach my $topic (qw(backup backup_delete snapshot_delete)) {
           my @data = map +{ %$_, vinfo_prefixed_keys("", $_->{value}) },
-                     grep { $_->{action} = "create" if($_->{value}{node}{INJECTED_BY});
-                            !($_->{action} && $_->{action} eq "REMOVE_FROM_OUTPUT") }
+                     grep { !($_->{action} && $_->{action} eq "REMOVE_FROM_OUTPUT") }
                      grep { $_->{topic} eq $topic } @$schedule_results;
           next unless(@data);
-          print_formatted("schedule", \@data, title => (uc($topic) . " SCHEDULE"), paragraph => 1);
+          print_formatted("schedule", \@data, title => (uc($topic =~ s/_/ /gr) . " SCHEDULE"), paragraph => 1);
         }
       }
 
