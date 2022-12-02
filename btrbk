@@ -806,10 +806,12 @@ sub _safe_cmd($;$)
       $_ = $_->{unsafe};
       die "cannot quote leading dash for command: $_" if(/^-/);
       # NOTE: all files must be absolute
-      if($offending) {
-        push @$offending, $_ unless(defined(check_file($_, { absolute => 1 })));
+      my $file = check_file($_, { absolute => 1 }, sanitize => 1 );
+      unless(defined($file)) {
+        die "uncaught unsafe file: $_" unless($offending);
+        push @$offending, $_;
       }
-      $_ = $prefix . quoteshell($_) . $postfix;
+      $_ = $prefix . quoteshell($file // $_) . $postfix;
     }
     $_
   } @$aref;
