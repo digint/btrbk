@@ -14,13 +14,6 @@ Download and unpack the latest [btrbk source tarball] and type:
     sudo make install
 
 
-### Gentoo Linux
-
-btrbk is in portage:
-
-    emerge app-backup/btrbk
-
-
 ### Debian Based Distros
 
 btrbk is in debian stable (utils): https://packages.debian.org/stable/utils/btrbk
@@ -45,6 +38,13 @@ btrbk is in AUR: https://aur.archlinux.org/packages/btrbk/
 btrbk is in the community repository
 
     apk add btrbk
+
+
+### Gentoo Linux
+
+btrbk is in portage:
+
+    emerge app-backup/btrbk
 
 
 ### Void Linux
