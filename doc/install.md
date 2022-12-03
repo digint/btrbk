@@ -23,7 +23,7 @@ Packages are also available via NeuroDebian: http://neuro.debian.net/pkgs/btrbk.
 
 ### Fedora Linux
 
-btrbk is in the official Fedora repos: https://apps.fedoraproject.org/packages/btrbk
+btrbk is in the official Fedora repos: https://src.fedoraproject.org/rpms/btrbk
 
     sudo dnf install btrbk
 
