@@ -4258,6 +4258,8 @@ sub parse_config_line($$$;@)
   }
   else
   {
+    $value =~ s/^"(.*)"$/$1/;
+    $value =~ s/^'(.*)'$/$1/;
     return append_config_option($cur, $key, $value, $cur->{CONTEXT}, error_statement => $error_statement);
   }
 
