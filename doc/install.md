@@ -15,6 +15,12 @@ Download and unpack the latest [btrbk source tarball] and type:
 
     sudo make install
 
+#### Try latest master from Github:
+
+    wget https://raw.githubusercontent.com/digint/btrbk/master/btrbk
+    chmod +x btrbk
+    sudo ./btrbk ls /
+
 
 ### Debian Based Distros
 
