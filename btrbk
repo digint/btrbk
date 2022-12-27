@@ -90,7 +90,7 @@ my %config_options = (
   incremental_prefs           => { default => \@incremental_prefs_default, accept => [ qr/$incremental_prefs_match/ ], split => 1 },
   incremental_clones          => { default => "yes",         accept => [qw( yes no )] },
   incremental_resolve         => { default => "mountpoint",  accept => [qw( mountpoint directory _all_accessible )] },
-  preserve_day_of_week        => { default => "sunday",      accept => [ (keys %day_of_week_map) ] },
+  preserve_day_of_week        => { default => "monday",      accept => [ (keys %day_of_week_map) ] },
   preserve_hour_of_day        => { default => 0,             accept => [ (0..23) ]  },
   snapshot_preserve           => { default => undef,         accept => [qw( no )], accept_preserve_matrix => 1, context => [qw( global volume subvolume )], },
   snapshot_preserve_min       => { default => "all",         accept => [qw( all latest ), qr/[1-9][0-9]*[hdwmy]/ ], context => [qw( global volume subvolume )], },

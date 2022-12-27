@@ -56,7 +56,7 @@ snapshot_dir               _btrbk_snap
 
 # Specify on which day of week weekly/monthly backups are to be
 # preserved.
-#preserve_day_of_week       sunday
+#preserve_day_of_week       monday
 
 # Preserve all snapshots for a minimum period of time.
 #snapshot_preserve_min      1d

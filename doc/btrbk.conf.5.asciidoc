@@ -179,7 +179,7 @@ not be certain about this, such operations are disallowed in
     Defines on what day a snapshot/backup is considered to be a
     "weekly" backup. Weekly, monthly and yearly backups are preserved
     on this day of week (see <<_retention_policy,RETENTION POLICY>>
-    below). Defaults to ``sunday''.
+    below). Defaults to ``monday''.
 
 *preserve_hour_of_day* [0..23]::
     Defines after what time (in full hours since midnight) a
