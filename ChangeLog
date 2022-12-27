@@ -1,3 +1,10 @@
+btrbk-current
+
+  * ssh_filter_btrbk.sh uses new exit statuses on failures (1 when the
+    SSH command was rejected, 2 when the program’s arguments could not
+    be parsed).
+  * ssh_filter_btrbk.sh’s logging output format has changed slightly.
+
 btrbk-0.32.5
 
   * Correct handling of zero-size raw info file (close #491).
