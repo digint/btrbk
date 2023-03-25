@@ -1,3 +1,14 @@
+btrbk-0.32.6
+
+  * Fix backup of unrelated (by parent_uuid) snapshots (close #339).
+  * Remove echo -e for portability (close #506).
+  * Support btrfs send protocol v2 (send_protocol and
+    send_compressed_data config options).
+  * Add bzip3 support.
+  * Convert ssh_filter_btrbk.sh to POSIX sh, and harden it.
+  * Slight change in ssh_filter_btrbk.sh logging output.
+  * Minor bugfixes, stability and documentation improvements.
+
 btrbk-0.32.5
 
   * Correct handling of zero-size raw info file (close #491).
