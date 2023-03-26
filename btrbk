@@ -6055,7 +6055,8 @@ MAIN:
 
       unless($svol->{node}{readonly}) {
         WARN "Subvolume is not read-only, skipping: $svol->{PRINT}";
-        $exit_status = 10;
+        $exit_status = 10 unless($recursive);
+        next;
       }
 
       my $dvol = $svol->{SUBVOL_DIR} ? vinfo($droot->{URL} . "/" . $svol->{SUBVOL_DIR}, $droot->{CONFIG}) : $droot;
