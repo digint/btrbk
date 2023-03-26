@@ -4321,7 +4321,7 @@ sub _config_collect_values
 
 sub init_config(@)
 {
-  my %defaults = ( CONTEXT => "meta", @_ );
+  my %defaults = ( CONTEXT => "meta", SRC_FILE => "DEFAULTS", @_ );
   # set defaults
   foreach (keys %config_options) {
     next if $config_options{$_}->{deprecated};  # don't pollute hash with deprecated options
@@ -5584,8 +5584,9 @@ MAIN:
     $config = parse_config($config_file);
     exit 2 unless($config);
   }
-  elsif($fallback_default_config) {
-    INFO "Configuration file not found, falling back to defaults";
+  elsif($fallback_default_config && !$config_cmdline) {
+    INFO "Configuration file not found: " . join(', ', @config_src);
+    INFO "Using default configuration";
     $config = init_config();
   }
   else {
