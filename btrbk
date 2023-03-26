@@ -356,6 +356,7 @@ my %mountinfo_cache; # map MACHINE_ID to mount points (sorted descending by file
 my %mount_source_cache; # map URL_PREFIX:mount_source (aka device) to btr_tree node
 my %uuid_cache;      # map UUID to btr_tree node
 my %realpath_cache;  # map URL to realpath (symlink target). undef denotes an error.
+my %mkdir_cache;     # map URL to mkdir status: 1=created, undef=error
 
 my $tree_inject_id   = 0;  # fake subvolume id for injected nodes (negative)
 my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id: XXXXXXXX-XXXX-XXXX-XXXX-000000000000
@@ -1999,7 +2000,6 @@ sub system_mkdir($)
                    );
   end_transaction("mkdir", defined($ret));
   return undef unless(defined($ret));
-  delete $realpath_cache{$vol->{URL}};
   return 1;
 }
 
@@ -2906,6 +2906,19 @@ sub vinfo_realpath($@)
   my $url = $vol->{URL} // die;
   return $realpath_cache{$url} if(exists($realpath_cache{$url}));
   return $realpath_cache{$url} = system_realpath($vol);
+}
+
+
+sub vinfo_mkdir($)
+{
+  my $vol = shift // die;
+  my $url = $vol->{URL} // die;
+  return $mkdir_cache{$url} if(exists($mkdir_cache{$url}));
+  return -1 if(vinfo_realpath($vol));
+  return undef unless($mkdir_cache{$url} = system_mkdir($vol));
+  $vol->{SUBDIR_CREATED} = 1;
+  delete $realpath_cache{$url}; # clear realpath cache (allow retry)
+  return 1;
 }
 
 
@@ -5999,7 +6012,7 @@ MAIN:
       vinfo_assign_config($droot);
       unless($archive_raw ? vinfo_init_raw_root($droot) : vinfo_init_root($droot)) {
         DEBUG "Failed to fetch " . ($archive_raw ? "raw target metadata" : "subvolume detail") . " for '$droot->{PRINT}'";
-        unless(system_mkdir($droot)) {
+        unless(vinfo_mkdir($droot)) {
           ABORTED($droot, "Failed to create directory: $droot->{PRINT}/");
           WARN "Skipping archive target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot), @stderr;
           next;
