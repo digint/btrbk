@@ -2915,16 +2915,11 @@ sub vinfo_mountpoint
   my %args = @_;
 
   DEBUG "Resolving mount point for: $vol->{PRINT}";
-  my $mountinfo_root = mountinfo_tree($vol);
-  return undef unless($mountinfo_root);
+  my $mountinfo_root = mountinfo_tree($vol)
+    or return undef;
 
-  my $realpath = $realpath_cache{$vol->{URL}};
-  unless(defined($realpath)) {
-    $realpath = system_realpath($vol);
-    # set to empty string on errors (try only once)
-    $realpath_cache{$vol->{URL}} = $realpath // "";
-  }
-  return undef unless($realpath);
+  my $realpath = vinfo_realpath($vol)
+    or return undef;
 
   my $mountpoint = _find_mountpoint($mountinfo_root, $realpath);
 
@@ -3000,7 +2995,7 @@ sub vinfo_init_raw_root($;@)
   my $tree_root = $raw_url_cache{$droot->{URL}};
   TRACE "raw_url_cache " . ($tree_root ? "HIT" : "MISS") . ": URL=$droot->{URL}" if($do_trace);
   unless($tree_root) {
-    if(my $real_path = $realpath_cache{$droot->{URL}}) {
+    if(my $real_path = vinfo_realpath($droot)) {
       my $real_url = $droot->{URL_PREFIX} . $real_path;
       $tree_root = $raw_url_cache{$real_url};
       TRACE "raw_url_cache " . ($tree_root ? "HIT" : "MISS") . ": REAL_URL=$real_url" if($do_trace);
