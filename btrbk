@@ -355,7 +355,7 @@ my %raw_url_cache;   # map URL to (fake) btr_tree node
 my %mountinfo_cache; # map MACHINE_ID to mount points (sorted descending by file length)
 my %mount_source_cache; # map URL_PREFIX:mount_source (aka device) to btr_tree node
 my %uuid_cache;      # map UUID to btr_tree node
-my %realpath_cache;  # map URL to realpath (symlink target). empty string denotes an error.
+my %realpath_cache;  # map URL to realpath (symlink target). undef denotes an error.
 
 my $tree_inject_id   = 0;  # fake subvolume id for injected nodes (negative)
 my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id: XXXXXXXX-XXXX-XXXX-XXXX-000000000000
@@ -2897,6 +2897,15 @@ sub mountinfo_tree($)
   $tree_root->{MOUNTINFO_LIST} = $mountinfo;
 
   return $tree_root;
+}
+
+
+sub vinfo_realpath($@)
+{
+  my $vol = shift // die;
+  my $url = $vol->{URL} // die;
+  return $realpath_cache{$url} if(exists($realpath_cache{$url}));
+  return $realpath_cache{$url} = system_realpath($vol);
 }
 
 
