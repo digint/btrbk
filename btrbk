@@ -6011,6 +6011,11 @@ MAIN:
       url         => $droot->{URL},
     };
 
+    unless(system_testdir($droot)) {
+      ERROR "Not a directory: $droot->{PRINT}";
+      exit 1;
+    }
+
     my $exit_status = 0;
     my @subvol_src;
     foreach my $svol (@subvol_args) {
