@@ -6156,14 +6156,20 @@ MAIN:
     my @data;
     my %usage_cache;
     my %processed;
+    my $exit_status = 0;
     my $push_data = sub {
       my ($vol, $type) = @_;
       return if $processed{$vol->{URL}};
       my $mountpoint = vinfo_mountpoint($vol, fs_type => 'btrfs');
-      return unless($mountpoint);
+      unless($mountpoint) {
+        $exit_status = 1;
+        return unless($mountpoint) ;
+      }
       my $mount_source = $mountpoint->{mount_source};
       my $mid = $vol->{MACHINE_ID} . $mount_source;
-      $usage_cache{$mid} //= btrfs_filesystem_usage(vinfo($vol->{URL_PREFIX} . $mountpoint->{mount_point}, $vol->{CONFIG})) // {};
+      my $usage = btrfs_filesystem_usage(vinfo($vol->{URL_PREFIX} . $mountpoint->{mount_point}, $vol->{CONFIG}));
+      $exit_status = 1 unless defined($usage);
+      $usage_cache{$mid} //= $usage // {};
       push @data, { %{$usage_cache{$mid}},
                     type => $type,
                     mount_source => $mount_source,
@@ -6181,7 +6187,7 @@ MAIN:
     }
     @data = sort { $a->{url} cmp $b->{url} } @data;
     print_formatted("usage", \@data);
-    exit exit_status($config);
+    exit $exit_status;
   }
 
 
