@@ -96,7 +96,7 @@ my %config_options = (
   snapshot_preserve_min       => { default => "all",         accept => [qw( all latest ), qr/[1-9][0-9]*[hdwmy]/ ], context => [qw( global volume subvolume )], },
   target_preserve             => { default => undef,         accept => [qw( no )], accept_preserve_matrix => 1 },
   target_preserve_min         => { default => "all",         accept => [qw( all latest no ), qr/[0-9]+[hdwmy]/ ] },
-  target_create_dir           => { default => undef,         accept => [qw( yes no )] },
+  # target_create_dir           => { default => undef,         accept => [qw( yes no )] },
   archive_preserve            => { default => undef,         accept => [qw( no )], accept_preserve_matrix => 1, context => [qw( global )] },
   archive_preserve_min        => { default => "all",         accept => [qw( all latest no ), qr/[0-9]+[hdwmy]/ ], context => [qw( global )] },
   ssh_identity                => { default => undef,         accept => [qw( no ) ], accept_file => { absolute => 1 } },
@@ -5900,8 +5900,17 @@ MAIN:
         [ snapshot_dir      => $sroot->{PATH} . $subdir ],
         [ snapshot_name     => $snapshot_name ],
         [ target            => ($raw_cmdline ? "raw" : "send-receive") . " '" . $droot->{URL} . $subdir . "'" ],
-        [ target_create_dir => "yes" ],
+        # [ target_create_dir => "yes" ], # not user-settable yet, see below
        );
+      $cur->{target_create_dir} = "yes";
+
+      if($dryrun && !vinfo_realpath(my $dr = vinfo_child($droot, $subdir))) {
+        # vinfo_mkdir below does not know about $droot, and thus cannot fake realpath_cache correctly.
+        # hackily set cache here for now, while keeping target_create_dir disabled for the user.
+        # TODO: implement pinned target root subvolume, and enable target_create_dir as regular option.
+        system_mkdir($dr); # required for correct transaction log
+        $realpath_cache{$droot->{URL} . $subdir} = $droot->{PATH} . $subdir;
+      }
     }
     _config_propagate_target($config);
 
