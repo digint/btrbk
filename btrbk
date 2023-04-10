@@ -3478,7 +3478,7 @@ sub get_receive_targets($$;@)
       TRACE "get_receive_targets: skip unexpected match: " . _fs_path($_) if($do_trace);
       push @unexpected, { src_vol => $src_vol, target_node => $_ };
       if($opts{warn} && config_key($droot, "warn_unknown_targets")) {
-        WARN "Receive target of \"$src_vol->{PRINT}\" exists at unknown location: " . ($vinfo ? $vinfo->{PRINT} : _fs_path($_));
+        WARN "Receive target of \"$src_vol->{PRINT}\" already exists at a foreign location: " . ($vinfo ? $vinfo->{PRINT} : _fs_path($_));
       }
       next;
     }
@@ -6807,10 +6807,10 @@ MAIN:
             }
 
             if(scalar @$unexpected_only && ((config_key($droot, "incremental") // "") eq "strict")) {
-              # If target exists at unexpected location ONLY, we can't send/receive it.
-              ABORTED($droot, "Receive targets of backup candidates exist at unexpected location only");
-              WARN "Skipping backup of \"$sroot->{PRINT}/${snapshot_basename}.*\": " . ABORTED_TEXT($droot),
-                "Please check your target configuration, or fix manually by running" . ($droot->{URL_PREFIX} ? " (on $droot->{URL_PREFIX}):" : ":"),
+              ABORTED($droot, "Receive targets of backup candidates found at a foreign location, and option \"incremental\" is set to \"strict\"");
+              WARN "Skipping backups of \"$snaproot->{PRINT}/${snapshot_basename}.*\": " . ABORTED_TEXT($droot),
+                "It is not possible to backup (send-receive) those subvolumes without duplicating some data.",
+                "Please check your target setup, or fix manually by running" . ($droot->{URL_PREFIX} ? " (on $droot->{URL_PREFIX}):" : ":"),
                 "`btrfs subvolume snapshot -r <found> <target>`",
                 map { "target: $droot->{PATH}/$_->{src_vol}{NAME}, found: " . _fs_path($_->{target_node}) } @$unexpected_only;
               next;
