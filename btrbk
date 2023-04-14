@@ -6294,8 +6294,8 @@ MAIN:
       WARN "No subvolume configured for \"volume $sroot->{URL}\"";
     }
     foreach my $svol (vinfo_subsection($sroot, 'subvolume')) {
-      DEBUG "Initializing subvolume section: $svol->{PRINT}";
       my $snaproot = vinfo_snapshot_root($svol);
+      DEBUG "Initializing snapshot root: $snaproot->{PRINT}";
       unless(vinfo_init_root($snaproot)) {
         ABORTED($svol, "Failed to fetch subvolume detail for snapshot_dir");
         WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol), @stderr;
@@ -6303,6 +6303,7 @@ MAIN:
       }
       next if($skip_snapshots || $action_archive);
 
+      DEBUG "Initializing subvolume section: $svol->{PRINT}";
       unless(vinfo_init_root($svol)) {
         ABORTED($svol, "Failed to fetch subvolume detail");
         WARN "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol), @stderr;
@@ -6764,7 +6765,7 @@ MAIN:
           my @snapshots = sort({ cmp_date($a->{node}{BTRBK_DATE}, $b->{node}{BTRBK_DATE}) }
                                @{vinfo_subvol_list($snaproot, readonly => 1, btrbk_direct_leaf => $snapshot_basename)});
           foreach my $droot (vinfo_subsection($svol, 'target')) {
-            INFO "Checking for missing backups of subvolume \"$svol->{PRINT}\" in \"$droot->{PRINT}/\"";
+            INFO "Checking for missing backups of \"$snaproot->{PRINT}/${snapshot_basename}.*\" in: $droot->{PRINT}/";
             my @schedule;
             my $resume_total = 0;
             my $resume_success = 0;
@@ -6923,7 +6924,7 @@ MAIN:
               #
               # delete backups
               #
-              INFO "Cleaning backups of subvolume \"$svol->{PRINT}\": $droot->{PRINT}/$snapshot_basename.*";
+              INFO "Cleaning backups of \"$snaproot->{PRINT}/${snapshot_basename}.*\" in: $droot->{PRINT}/";
               unless(macro_delete($droot, $snapshot_basename, $droot,
                                   { preserve     => config_preserve_hash($droot, $action_archive ? "archive" : "target"),
                                     results      => $schedule_results,
@@ -6954,7 +6955,7 @@ MAIN:
             }
           }
           else {
-            INFO "Cleaning snapshots" . ($wipe_snapshots ? " (wipe)" : "") . ": $snaproot->{PRINT}/$snapshot_basename.*";
+            INFO "Cleaning snapshots" . ($wipe_snapshots ? " (wipe)" : "") . ": $snaproot->{PRINT}/${snapshot_basename}.*";
             macro_delete($snaproot, $snapshot_basename, $svol,
                          { preserve     => config_preserve_hash($svol, "snapshot", wipe => $wipe_snapshots),
                            results      => $schedule_results,
