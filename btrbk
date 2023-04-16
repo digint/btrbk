@@ -5900,7 +5900,7 @@ MAIN:
     {
       next unless($vol->{node}{readonly});
       my $snapshot_name = $vol->{node}{BTRBK_BASENAME};
-      unless(defined($snapshot_name)) {
+      unless(defined($snapshot_name) && ($vol->{node}{BTRBK_FAMILY} eq "btrbk")) {
         WARN "Skipping subvolume (not a btrbk subvolume): $vol->{PRINT}";
         next;
       }
