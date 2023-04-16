@@ -359,10 +359,10 @@ constraints.
     daemon, auth, lpr, news, cron, authpriv, local0..local7.
 
 *lockfile* <file>|no::
-    Create lockfile <file> on startup; checks lockfile before running
-    any btrfs commands (using perl "flock"), and exits if the lock is
-    held by another btrbk instance. Ignored on dryrun ('-n',
-    '--dry-run'). See also '--lockfile' command-line option.
+    Place an exclusive lock on <file> during program execution, using
+    flock(2). If the lock is held by another process, exit before
+    running any actions. Ignored on dryrun ('-n', '--dry-run'). See
+    also '--lockfile' command-line option.
 
 *backend* <backend>::
     Backend filesystem utilities to be used for btrfs specific
