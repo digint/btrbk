@@ -3315,10 +3315,10 @@ sub vinfo_subsection($$;$)
 # allow (absolute) path / url with wildcards
 # allow group (exact match)
 # allow host[:port] (exact match)
-sub vinfo_filter_statement($;$) {
-  my $filter = shift;
-  my $reason = shift // "expression \"$filter\"";
-  my %ret = ( unparsed => $filter, reason => $reason );
+sub vinfo_filter_statement($$) {
+  my $filter = shift // die;
+  my $origin = shift // die;
+  my %ret = ( unparsed => $filter, origin => $origin, reason => "$origin: $filter" );
 
   my ($url_prefix, $path) = check_url($filter, accept_wildcards => 1);
   unless($path) {
@@ -4912,17 +4912,16 @@ sub print_header(@)
     print "    Dryrun: YES\n";
   }
   if($config && $config->{CMDLINE_FILTER_LIST}) {
-    my @list = @{$config->{CMDLINE_FILTER_LIST}};
     print "    Filter: ";
-    print join("\n            ", @list);
+    print join("\n            ", @{$config->{CMDLINE_FILTER_LIST}});
     print "\n";
   }
   if($args{info}) {
     print "\n" . join("\n", grep(defined, @{$args{info}})) . "\n";
   }
-  if($args{options} && (scalar @{$args{options}})) {
+  if(my @options = grep(defined, @{$args{options} // []})) {
     print "\nOptions:\n    ";
-    print join("\n    ", grep(defined, @{$args{options}}));
+    print join("\n    ", @options);
     print "\n";
   }
   if($args{legend}) {
@@ -5499,7 +5498,7 @@ MAIN:
   }
   my @filter_vf;
   foreach (@filter_args) {
-    my $vf = vinfo_filter_statement($_);
+    my $vf = vinfo_filter_statement($_, "filter_argument");
     unless($vf) {
       ERROR "Bad argument: invalid filter statement: $_";
       ERROR_HELP_MESSAGE;
@@ -5508,7 +5507,7 @@ MAIN:
     push @filter_vf, $vf;
   }
   foreach (@exclude_cmdline) {
-    my $vf = vinfo_filter_statement($_, "command line argument \"--exclude=$_\"");
+    my $vf = vinfo_filter_statement($_, "exclude");
     unless($vf) {
       ERROR "Bad argument: invalid filter statement: --exclude='$_'";
       ERROR_HELP_MESSAGE;
@@ -5922,7 +5921,7 @@ MAIN:
 
     # translate archive_exclude globs, add to exclude args
     my $archive_exclude = config_key($config, 'archive_exclude') // [];
-    push @exclude_vf, map(vinfo_filter_statement($_, "configuration option \"archive_exclude $_\""), (@$archive_exclude));
+    push @exclude_vf, map(vinfo_filter_statement($_, "archive_exclude"), (@$archive_exclude));
   }
 
 
@@ -6115,7 +6114,7 @@ MAIN:
     foreach my $sroot (vinfo_subsection($config, 'volume')) {
       if(my $ff = vinfo_match(\@exclude_vf, $sroot)) {
 
-        ABORTED($sroot, "skip_cmdline_exclude", $ff->{reason});
+        ABORTED($sroot, "skip_" . $ff->{origin}, "Match on $ff->{reason}");
         DEBUG "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
         next;
       }
@@ -6126,7 +6125,7 @@ MAIN:
         if(my $ff = (vinfo_match(\@exclude_vf, $svol) ||
                      vinfo_match(\@exclude_vf, vinfo_child($snaproot, $snapshot_name))))
         {
-          ABORTED($svol, "skip_cmdline_exclude", "command line argument \"--exclude=$ff->{unparsed}\"");
+          ABORTED($svol, "skip_" . $ff->{origin}, "Match on $ff->{reason}");
           DEBUG "Skipping subvolume \"$svol->{PRINT}\": " . ABORTED_TEXT($svol);
           next;
         }
@@ -6135,14 +6134,14 @@ MAIN:
           if(my $ff = (vinfo_match(\@exclude_vf, $droot) ||
                        vinfo_match(\@exclude_vf, vinfo_child($droot, $snapshot_name))))
           {
-            ABORTED($droot, "skip_cmdline_exclude", "command line argument \"--exclude=$ff->{unparsed}\"");
+            ABORTED($droot, "skip_" . $ff->{origin}, "Match on $ff->{reason}");
             DEBUG "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
             next;
           }
         }
       }
       if($all_svol_aborted) {
-        ABORTED($sroot, "skip_cmdline_exclude", "All subvolumes excluded");
+        ABORTED($sroot, "skip_inherit_exclude", "All subvolumes excluded");
         DEBUG "Skipping volume \"$sroot->{PRINT}\": " . ABORTED_TEXT($sroot);
       }
     }
@@ -7063,6 +7062,9 @@ MAIN:
                 push @subvol_out, "--- $_->{PRINT}";
               }
 
+              if(IS_ABORTED($droot, "skip_archive_exclude")) {
+                push @subvol_out, "<archive_exclude>";
+              }
               if(IS_ABORTED($droot, "abort_")) {
                 push @subvol_out, "!!! Target \"$droot->{PRINT}\" aborted: " . ABORTED_TEXT($droot);
               }
@@ -7077,9 +7079,18 @@ MAIN:
               push @subvol_out, "!!! Aborted: " . ABORTED_TEXT($svol);
             }
 
-            # print "<no_action>" for subvolume, unless aborted by "skip_"
-            unless(scalar(@subvol_out) || IS_ABORTED($sroot, "skip_") || IS_ABORTED($svol, "skip_")) {
-              @subvol_out = "<no_action>";
+            unless(scalar(@subvol_out)) {
+              @subvol_out = (
+                # print <archive_exclude> on skip_archive_exclude
+                IS_ABORTED($sroot, "skip_archive_exclude") ? "<archive_exclude>" :
+                IS_ABORTED($svol,  "skip_archive_exclude") ? "<archive_exclude>" :
+                # print nothing if aborted by any other "skip_" tag
+                IS_ABORTED($sroot, "skip_") ? () :
+                IS_ABORTED($svol,  "skip_") ? () :
+                "<no_action>"
+                # alternative: print generic aborted key
+                #"<" . (IS_ABORTED($sroot, "skip_") || IS_ABORTED($svol, "skip_") || "no_action") . ">",
+               );
             }
 
             if(@subvol_out) {
@@ -7095,16 +7106,16 @@ MAIN:
           }
         }
 
-        my @cmdline_options = map { "exclude: $_" } @exclude_cmdline;
-        push @cmdline_options, "$skip_snapshots: No snapshots created" if($skip_snapshots);
-        push @cmdline_options, "$skip_backups: No backups created" if($skip_backups);
-        push @cmdline_options, "$preserve_snapshots: Preserved all snapshots" if($preserve_snapshots);
-        push @cmdline_options, "$preserve_backups: Preserved all backups" if($preserve_backups);
-
         print_header(title => $action_archive ? "Archive Summary" : "Backup Summary",
                      config => $config,
                      time => $start_time,
-                     options => \@cmdline_options,
+                     options => [
+                       (map $_->{reason}, @exclude_vf),
+                       $skip_snapshots     && "$skip_snapshots: No snapshots created",
+                       $skip_backups       && "$skip_backups: No backups created",
+                       $preserve_snapshots && "$preserve_snapshots: Preserved all snapshots",
+                       $preserve_backups   && "$preserve_backups: Preserved all backups",
+                      ],
                      legend => [
                        $action_archive && "++.  created directory",
                        $action_run     && "===  up-to-date subvolume (source snapshot)",
