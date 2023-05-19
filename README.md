@@ -428,7 +428,7 @@ host. For each backup, two files are created:
   * `/backup/home.YYYYMMDD.btrfs.xz.gpg.info`: sidecar file containing
     metadata used by btrbk.
 
-I you are using raw _incremental_ backups, please make sure you
+If you are using raw _incremental_ backups, please make sure you
 understand the implications (see [btrbk.conf(5)], TARGET TYPES).
 
 
