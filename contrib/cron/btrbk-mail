@@ -4,6 +4,8 @@
 
 now=$(date +%Y%m%d)
 
+declare -A rsync_src rsync_dst rsync_log rsync_rsh rsync_opt
+
 #####  start config section  #####
 
 # Email recipients, separated by whitespace:
