@@ -33,7 +33,9 @@ rsync_opt[example_data]="-az --delete --inplace --numeric-ids --acls --xattrs"
 # If set, add "rsync_dst" to "sync_fs" (see below) if rsync reports files transferred
 #sync_fs_onchange[example_data]=yes
 
-# Enabled rsync declarations (whitespace-separated list)
+# Enable all rsync declarations (all indices of rsync_src array)
+#rsync_enable=${!rsync_src[@]}
+# Explicitely enable rsync declarations (whitespace-separated list)
 #rsync_enable="example_data"
 rsync_enable=
 
