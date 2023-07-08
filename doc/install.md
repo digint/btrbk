@@ -9,7 +9,8 @@ file, choose one of the following methods:
 
 ### Generic Linux System
 
-Install [asciidoctor] if you want to build the documentation.
+Install [asciidoctor] or [asciidoc] if you want to build the
+documentation.
 
 Download and unpack the latest [btrbk source tarball] and type:
 
@@ -64,3 +65,4 @@ btrbk is in Void's `current` repository
 
   [btrbk source tarball]: https://digint.ch/download/btrbk/releases/
   [asciidoctor]: https://asciidoctor.org
+  [asciidoc]: https://asciidoc.org
