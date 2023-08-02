@@ -1572,13 +1572,6 @@ sub btrfs_send_receive($$;$$$$)
     filter_stderr => [ \&_btrfs_filter_stderr, sub { $_ = undef if(/^At subvol/) } ],
   };
 
-  # if ($total_len > 0) { 
-  #   push @cmd_pipe, {
-  #     cmd => vinfo_cmd($snapshot, "pv -s $total_len -e -r -p"),
-  #     filter_stderr = 
-  #   };
-  # }
-
   push @cmd_pipe, {
     cmd => vinfo_cmd($target, "btrfs receive", @receive_options, { unsafe => $target->{PATH} . '/' } ),
     rsh => vinfo_rsh($target, disable_compression => $stream_options->{stream_compress}),
