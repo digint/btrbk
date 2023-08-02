@@ -365,6 +365,7 @@ my $fake_uuid_prefix = 'XXXXXXXX-XXXX-XXXX-XXXX-'; # plus 0-padded inject_id: XX
 my $program_name; # "btrbk" or "lsbtr", default to "btrbk"
 my $safe_commands;
 my $dryrun;
+my $progress_total = 0;
 my $loglevel = 1;
 my $quiet;
 my @exclude_vf;
@@ -715,6 +716,16 @@ sub stream_buffer_cmd_text($)
   return { cmd_text => join(' ', @cmd) };
 }
 
+sub stream_progress_cmd_text($)
+{
+  my $total_len = shift;
+  return () unless($total_len > 0);
+  my @cmd = ( "pv" );
+  push @cmd, ("-s", $total_len);
+  push @cmd, "-e -r -p -i 2";
+  return { cmd_text => join(' ', @cmd) };
+}
+
 sub compress_cmd_text($;$)
 {
   my $def = shift // die;
@@ -841,6 +852,8 @@ sub run_cmd(@)
   $cmd_pipe_in[0]->{stream_source} = 1;
   $cmd_pipe_in[-1]->{stream_sink}  = 1;
 
+  my $cmd_progress_any = 0;
+
   foreach my $href (@cmd_pipe_in)
   {
     die if(defined($href->{cmd_text}));
@@ -909,6 +922,9 @@ sub run_cmd(@)
     if($href->{rsh}) {
       # honor stream_buffer_remote, rate_limit_remote for stream source / sink
       my @rsh_stream_buffer_in  = $href->{stream_sink}   ? stream_buffer_cmd_text($stream_options->{rsh_sink}) : ();
+      
+      my @rsh_total_progress_in  = exists $href->{total_progress} ? stream_progress_cmd_text($href->{total_progress}) : ();
+      
       my @rsh_stream_buffer_out = $href->{stream_source} ? stream_buffer_cmd_text($stream_options->{rsh_source}) : ();
 
       my @rsh_cmd_pipe = (
@@ -916,6 +932,7 @@ sub run_cmd(@)
         @rsh_stream_buffer_in,
         $href,
         @rsh_stream_buffer_out,
+        @rsh_total_progress_in,
         @rsh_compress_out,
        );
       @decompress_in = ();
@@ -935,13 +952,24 @@ sub run_cmd(@)
 
     # local stream_buffer, rate_limit and show_progress in front of stream sink
     my @stream_buffer_in = $href->{stream_sink} ? stream_buffer_cmd_text($stream_options->{local_sink}) : ();
+    my @total_progress_in  = exists $href->{total_progress} ? stream_progress_cmd_text($href->{total_progress}) : ();
 
+    if ( @total_progress_in ){
+      $cmd_progress_any = 1;
+    }
+
+    if (@stream_buffer_in){
+      $cmd_progress_any = 1;
+    }
+    
     push @cmd_pipe, (
       @decompress_in,   # empty if rsh
       @stream_buffer_in,
       @rsh_compress_in, # empty if not rsh
       $href,  # command or rsh_cmd_pipe
+      @total_progress_in,
      );
+
   }
 
   my $cmd = _piped_cmd_txt(\@cmd_pipe);
@@ -957,13 +985,19 @@ sub run_cmd(@)
   }
   DEBUG "### $cmd";
 
-
   # execute command
   my ($pid, $out_fh, $err_fh, @stdout);
-  $err_fh = gensym;
+  if ($cmd_progress_any){
+    $err_fh = '>&STDERR';
+  }
+  else{
+    $err_fh = gensym;
+  }
   if(eval_quiet { $pid = open3(undef, $out_fh, $err_fh, $cmd); }) {
     chomp(@stdout = readline($out_fh));
-    chomp(@stderr = readline($err_fh));
+    if (!$cmd_progress_any){
+      chomp(@stderr = readline($err_fh));
+    }
     waitpid($pid, 0);
     if($do_trace) {
       if($large_output) {
@@ -1503,14 +1537,15 @@ sub _btrfs_send_options($$;$$)
   return \@send_options;
 }
 
-sub btrfs_send_receive($$;$$$)
+sub btrfs_send_receive($$;$$$$)
 {
   my $snapshot = shift || die;
   my $target = shift || die;
   my $parent = shift;
+  my $total_len = shift;
   my $clone_src = shift // [];
   my $ret_vol_received = shift;
-
+  
   my $vol_received = vinfo_child($target, $snapshot->{NAME});
   $$ret_vol_received = $vol_received if(ref $ret_vol_received);
 
@@ -1532,9 +1567,17 @@ sub btrfs_send_receive($$;$$$)
   push @cmd_pipe, {
     cmd => vinfo_cmd($snapshot, "btrfs send", @$send_options, { unsafe => $snapshot->{PATH} }),
     rsh => vinfo_rsh($snapshot, disable_compression => $stream_options->{stream_compress}),
+    total_progress => $total_len,
     stream_options => $stream_options,
     filter_stderr => [ \&_btrfs_filter_stderr, sub { $_ = undef if(/^At subvol/) } ],
   };
+
+  # if ($total_len > 0) { 
+  #   push @cmd_pipe, {
+  #     cmd => vinfo_cmd($snapshot, "pv -s $total_len -e -r -p"),
+  #     filter_stderr = 
+  #   };
+  # }
 
   push @cmd_pipe, {
     cmd => vinfo_cmd($target, "btrfs receive", @receive_options, { unsafe => $target->{PATH} . '/' } ),
@@ -4405,6 +4448,7 @@ sub macro_send_receive(@)
   my $config_target = $target->{CONFIG};
   my $target_type = $config_target->{target_type} || die;
   my $incremental = config_key($config_target, "incremental");
+  my $total_len = $info{total_len};
 
   # check for existing target subvolume
   if(my $err_vol = vinfo_subvol($target, $source->{NAME})) {
@@ -4449,7 +4493,7 @@ sub macro_send_receive(@)
   my $raw_info;
   if($target_type eq "send-receive")
   {
-    $ret = btrfs_send_receive($source, $target, $parent, \@clone_src, \$vol_received);
+    $ret = btrfs_send_receive($source, $target, $parent, $total_len, \@clone_src, \$vol_received);
     ABORTED($config_target, "Failed to send/receive subvolume") unless($ret);
   }
   elsif($target_type eq "raw")
@@ -5232,6 +5276,36 @@ sub exit_status
 }
 
 
+sub sub_diff($$) {
+  #
+  # calc snapshot diff (btrfs find-new)
+  #
+  my $src_vol = $_[0];
+  my $target_vol = $_[1];
+
+  # NOTE: in some cases "cgen" differs from "gen", even for read-only snapshots (observed: gen=cgen+1)
+  my $lastgen = $src_vol->{node}{gen} + 1;
+
+  # dump files, sorted and unique
+  my $ret = btrfs_subvolume_find_new($target_vol, $lastgen);
+  
+  INFO "Listing changed files for subvolume: $target_vol->{PRINT}  (gen=$target_vol->{node}{gen})";
+  INFO "Starting at generation after subvolume: $src_vol->{PRINT}  (gen=$src_vol->{node}{gen})";
+  INFO "Listing files modified within generation range: [$lastgen..$target_vol->{node}{gen}]";
+  DEBUG "Newest file generation (transid marker) was: $ret->{transid_marker}";
+  my $files = $ret->{files};
+  my $total_len = 0;
+  foreach my $name (sort keys %$files) {
+    my $finfo = $files->{$name};
+    $total_len += $finfo->{len};
+  }
+
+  INFO "Total size: " . print_size($total_len) ;
+  
+  return $total_len;
+}
+
+
 
 MAIN:
 {
@@ -5295,6 +5369,7 @@ MAIN:
     'preserve-backups'   => sub { $preserve_backups = "preserve-backups" },
     'wipe'               => \$wipe_snapshots,
     'progress'           => \$show_progress,
+    'progress-total'     => \$progress_total,
     'related'            => \$extents_related,
     'table|t'            => sub { $output_format = "table" },
     'long|L'             => sub { $output_format = "long" },
@@ -6867,11 +6942,20 @@ MAIN:
                   clone_src          => \$clone_src,
                   target_parent_node => \$target_parent_node,
                  );
+                my $total_len;
+                if ($dryrun || !$progress_total) {
+                  $total_len = 0;
+                }
+                else{
+                  $show_progress = 0;
+                  $total_len = sub_diff($parent, $snapshot);
+                }
                 if(macro_send_receive(source    => $snapshot,
                                       target    => $droot,
                                       parent    => $parent,  # this is <undef> if no suitable parent found
                                       clone_src => $clone_src,
                                       target_parent_node => $target_parent_node,
+                                      total_len => $total_len,
                                      ))
                 {
                   $resume_success++;
