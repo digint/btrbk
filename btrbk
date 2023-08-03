@@ -706,7 +706,7 @@ sub stream_buffer_cmd_text($)
 
   # NOTE: mbuffer takes defaults from /etc/mbuffer.rc
   my @cmd = ( "mbuffer" );
-  push @cmd, ( "-v", "1" ); # disable warnings (they arrive asynchronously and cant be caught)
+  push @cmd, ( "-v", "1" ); # disable warnings (they arrive asynchronously and can't be caught)
   push @cmd, "-q" unless($progress);
   push @cmd, ( "-s", $blocksize ) if($blocksize);
   push @cmd, ( "-m", lc($bufsize) ) if($bufsize);
@@ -1797,7 +1797,7 @@ sub btrfs_send_to_file($$$;$$)
       };
     }
     else {
-      die "Usupported encryption type (raw_target_encrypt)";
+      die "Unsupported encryption type (raw_target_encrypt)";
     }
   }
 
@@ -2160,7 +2160,7 @@ sub read_extentmap_cache($)
       read($fh, $buf, 24 + 8 * 2); # read header
       my ($v, $gen, $time) = unpack('a24Q<Q<', $buf);
       unless(($v =~ /^btrbk_extentmap_v1/) && $gen && $time) {
-        ERROR "Ambigous cache file: $file";
+        ERROR "Ambiguous cache file: $file";
         next;
       }
       if($gen != $vol->{node}{gen}) {
@@ -2290,7 +2290,7 @@ sub aio_extentmap($)
           if($_->[3] & IO::AIO::FIEMAP_EXTENT_DATA_INLINE()) {
             $inline_count++;
             next if($ignore_inline);
-            WARN_ONCE "Ambigous inline region [$_->[1] .. $_->[1] + $_->[2] - 1] for $file" if((($_->[1] != 0) || ($_->[2] != 4096)));
+            WARN_ONCE "Ambiguous inline region [$_->[1] .. $_->[1] + $_->[2] - 1] for $file" if((($_->[1] != 0) || ($_->[2] != 4096)));
           }
           push @range, [ $_->[1], $_->[1] + $_->[2] - 1 ];
         }
@@ -3106,7 +3106,7 @@ sub _vinfo_subtree_list
 
   # if $vinfo_parent->{NODE_SUBDIR} is set, vinfo_parent->{PATH} does
   # not point to a subvolume directly, but to "<path_to_subvolume>/NODE_SUBDIR".
-  # skip nodes wich are not in NODE_SUBDIR, or strip NODE_SUBDIR from from rel_path.
+  # skip nodes which are not in NODE_SUBDIR, or strip NODE_SUBDIR from from rel_path.
   my $node_subdir_filter = ($depth == 0) ? $vinfo_parent->{NODE_SUBDIR} : undef;
   foreach my $node (@{$tree->{SUBTREE}}) {
     my $rel_path = $node->{REL_PATH};
@@ -4270,7 +4270,7 @@ sub parse_config_line($$$;@)
                    target_type => $target_type,
                    url => $url_prefix . $path,
                  };
-    # NOTE: target sections are propagated to the apropriate SUBSECTION in _config_propagate_target()
+    # NOTE: target sections are propagated to the appropriate SUBSECTION in _config_propagate_target()
     $cur->{TARGET} //= [];
     push(@{$cur->{TARGET}}, $target);
     $cur = $target;

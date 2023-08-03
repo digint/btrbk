@@ -76,7 +76,7 @@ This states:
 
 ### Upgrade "resume_missing"
 
-If you have a line: "resume_missing yes" somwhere in your config,
+If you have a line: "resume_missing yes" somewhere in your config,
 simply remove it. btrbk always resumes missing backups.
 
 If you have "resume_missing no", you can imitate this behaviour by
