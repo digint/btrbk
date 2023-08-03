@@ -2340,7 +2340,7 @@ sub extentmap_merge(@) {
   my $end = -2;
   foreach (@range) {
     if($_->[0] <= $end + 1) {
-      # range overlaps the preceeding one, or is adjacent to it
+      # range overlaps the preceding one, or is adjacent to it
       $end = $_->[1] if($_->[1] > $end);
     }
     else {
