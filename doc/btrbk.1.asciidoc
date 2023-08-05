@@ -143,7 +143,7 @@ as "first backup of the day".
     space-separated, quoted key=value pairs (machine readable).
 +
 If set to "col:", prints only the <columns> specified (comma-separated
-list). Header lines are ommitted if the "h:" modifier is present.
+list). Header lines are omitted if the "h:" modifier is present.
 Columns prefixed with "-" are collapsed if empty. Columns postfixed
 with ":RALIGN" are right-aligned.
 
