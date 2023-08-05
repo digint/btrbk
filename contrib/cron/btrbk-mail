@@ -35,7 +35,7 @@ rsync_opt[example_data]="-az --delete --inplace --numeric-ids --acls --xattrs"
 
 # Enable all rsync declarations (all indices of rsync_src array)
 #rsync_enable=${!rsync_src[@]}
-# Explicitely enable rsync declarations (whitespace-separated list)
+# Explicitly enable rsync declarations (whitespace-separated list)
 #rsync_enable="example_data"
 rsync_enable=
 
