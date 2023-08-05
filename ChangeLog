@@ -47,7 +47,7 @@ btrbk-0.32.1
 btrbk-0.32.0
 
   * MIGRATION
-    - If timestamp_format is not configured, explicitely set
+    - If timestamp_format is not configured, explicitly set
       "timestamp_format short" to revert old behavior.
     - Update ssh_filter_btrbk.sh on remote hosts.
   * Change default for timestamp_format to "long".
@@ -81,7 +81,7 @@ btrbk-0.31.2
   * MIGRATION
     - Update ssh_filter_btrbk.sh on remote hosts.
   * ssh_filter_btrbk.sh: Fix security vulnerability.
-    Specialy crafted commands may be executed without being propely
+    Specially crafted commands may be executed without being properly
     checked. Applies to remote hosts filtering ssh commands using
     ssh_filter_btrbk.sh in authorized_keys.
   * Warn if no subvolume defined in config (close #378).
@@ -248,7 +248,7 @@ btrbk-0.27.0
     - Allow snapshot_dir to be a mountpoint.
     - Search complete target tree for correlated subvolumes.
     - Include snapshots from all mountpoints as candidates (disabled
-      due to uptream bug: github.com/kdave/btrfs-progs/issues/96).
+      due to upstream bug: github.com/kdave/btrfs-progs/issues/96).
     - Read /proc/self/mountinfo instead of /proc/self/mounts.
     - Always read /proc/self/mountinfo.
     - Resolve realpath using readlink(1).
@@ -319,7 +319,7 @@ btrbk-0.25.0
   * Allow trailing comments in btrbk.conf (close #129).
   * Bugfix: rate limiting must be done after compression (close #134).
   * raw_target_encrypt: Always set "gpg --no-random-seed-file":
-    prevents creation of "~/.gnupg/random_seed" with slight perfomance
+    prevents creation of "~/.gnupg/random_seed" with slight performance
     penalty.
 
 btrbk-0.24.0
