@@ -54,7 +54,7 @@ salt_hex = "".join(["{:02x}".format(x) for x in salt])
 dk_hex = "".join(["{:02x}".format(x) for x in dk])
 
 print("KEY=" + dk_hex);
-print("algoritm=pbkdf2_hmac");
+print("algorithm=pbkdf2_hmac");
 print("hash_name=" + hash_name);
 print("salt=" + salt_hex);
 print("iterations=" + str(iterations));
