@@ -722,7 +722,7 @@ sub stream_progress_cmd_text($)
   return () unless($total_len > 0);
   my @cmd = ( "pv" );
   push @cmd, ("-s", $total_len);
-  push @cmd, "-e -r -p -i 2";
+  push @cmd, "-b -t -e -a -r -p -i 2";
   return { cmd_text => join(' ', @cmd) };
 }
 
@@ -5275,6 +5275,10 @@ sub sub_diff($$) {
   #
   my $src_vol = $_[0];
   my $target_vol = $_[1];
+
+  if (!defined $src_vol) {
+    return 0;
+  }
 
   # NOTE: in some cases "cgen" differs from "gen", even for read-only snapshots (observed: gen=cgen+1)
   my $lastgen = $src_vol->{node}{gen} + 1;
