@@ -291,9 +291,9 @@ set to ``all'' (the default).
     Number of threads to use for <compress_command>. Only supported
     for "pigz", "pbzip2", "bzip3", "zstd" and recent versions of "xz".
 
-*stream_compress_adapt* default|<number>::
+*stream_compress_adapt* yes|no::
     Enable adaptive compression for <compress_command>. Only supported
-    for "zstd" (version >= 1.3.6).
+    for "zstd" (version >= 1.3.6). Defaults to ``no''.
 
 *stream_buffer* <size>|no::
     Add a buffer to the btrfs send stream (locally, on uncompressed
