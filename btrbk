@@ -166,39 +166,6 @@ my %config_options = (
   # deprecated options
   ssh_port                    => { default => "default", accept => [qw( default ), qr/[0-9]+/ ],
                                    deprecated => { DEFAULT => { warn => 'Please use "ssh://hostname[:port]" notation in the "volume" and "target" configuration lines.' } } },
-  btrfs_progs_compat          => { default => undef, accept => [qw( yes no )],
-                                   deprecated => { DEFAULT => { ABORT => 1, warn => 'This feature has been dropped in btrbk-v0.23.0. Please update to newest btrfs-progs, AT LEAST >= $BTRFS_PROGS_MIN' } } },
-  snapshot_preserve_daily     => { default => 'all', accept => [qw( all ), qr/[0-9]+/ ], context => [qw( global volume subvolume )],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  snapshot_preserve_weekly    => { default => 0, accept => [qw( all ), qr/[0-9]+/ ], context => [qw( global volume subvolume )],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  snapshot_preserve_monthly   => { default => 'all', accept => [qw( all ), qr/[0-9]+/ ], context => [qw( global volume subvolume )],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  target_preserve_daily       => { default => 'all', accept => [qw( all ), qr/[0-9]+/ ],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  target_preserve_weekly      => { default => 0, accept => [qw( all ), qr/[0-9]+/ ],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  target_preserve_monthly     => { default => 'all', accept => [qw( all ), qr/[0-9]+/ ],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  resume_missing              => { default => "yes", accept => [qw( yes no )],
-                                   deprecated => { yes => { warn => 'ignoring (missing backups are always resumed since btrbk v0.23.0)' },
-                                                   no  => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve_min latest" and "target_preserve no" if you want to keep only the latest backup', },
-                                                   DEFAULT => {} } },
-  snapshot_create_always      => { default => undef, accept => [qw( yes no )],
-                                   deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
-                                                            replace_key   => "snapshot_create",
-                                                            replace_value => "always",
-                                                           },
-                                                   no  => { warn => "Please use \"snapshot_create no\" or \"snapshot_create ondemand\"",
-                                                            replace_key   => "snapshot_create",
-                                                            replace_value => "ondemand",
-                                                           },
-                                                   DEFAULT => {},
-                                                  },
-                                 },
-  receive_log                 => { default => undef, accept => [qw( sidecar no )], accept_file => { absolute => 1 },
-                                   deprecated => { DEFAULT => { warn => "ignoring" } },
-                                 }
  );
 
 my @config_target_types = qw(send-receive raw); # first in list is default
@@ -4134,17 +4101,6 @@ sub append_config_option($$$$;@)
       push @wmsg, "Using \"$key $value\"";
     }
     WARN @wmsg if(@wmsg);
-    if($dh->{FAILSAFE_PRESERVE}) {
-      unless($config_override{FAILSAFE_PRESERVE}) { # warn only once
-        WARN "Entering failsafe mode:";
-        WARN "  - preserving ALL snapshots for ALL subvolumes";
-        WARN "  - ignoring ALL targets (skipping backup creation)";
-        WARN "  - please read \"doc/upgrade_to_v0.23.0.md\"";
-        $config_override{FAILSAFE_PRESERVE} = "Failsafe mode active (deprecated configuration)";
-      }
-      $config_override{snapshot_preserve_min} = 'all';
-      return $config;
-    }
   }
 
   if($opt->{allow_multiple}) {
@@ -6356,12 +6312,6 @@ MAIN:
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           DEBUG "Initializing target section: $droot->{PRINT}";
           my $target_type = $droot->{CONFIG}->{target_type} || die;
-
-          if($config_override{FAILSAFE_PRESERVE}) {
-            ABORTED($droot, $config_override{FAILSAFE_PRESERVE});
-            WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
-            next;
-          }
 
           if(config_key($droot, "target_create_dir")) {
             unless(my $ret = vinfo_mkdir($droot)) {
