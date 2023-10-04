@@ -514,7 +514,7 @@ btrbk-0.17.0
   * Bugfix: allow "/" as volume name (close: #15).
   * Bugfix: check source AND targets for determining snapshot postfix
     (close: #11).
-  * Bugfix: fixed "diff" action (colses: #14).
+  * Bugfix: fixed "diff" action (closes: #14).
   * Allow '+' character for subvolume names.
   * Filesystems on remote hosts are now printed as
     "{my.remote-host.com}" in summary and logs.

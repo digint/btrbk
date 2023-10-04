@@ -424,6 +424,7 @@ options:
        --format=FORMAT       change output format, FORMAT=table|long|raw
    -S, --print-schedule      print scheduler details (for the "run" command)
        --progress            show progress bar on send-receive operation
+       --progress-total      show progress bar on send-receive operation with ETA
        --lockfile=FILE       create and check lockfile
        --override=KEY=VALUE  globally override a configuration option
 
