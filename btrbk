@@ -166,39 +166,6 @@ my %config_options = (
   # deprecated options
   ssh_port                    => { default => "default", accept => [qw( default ), qr/[0-9]+/ ],
                                    deprecated => { DEFAULT => { warn => 'Please use "ssh://hostname[:port]" notation in the "volume" and "target" configuration lines.' } } },
-  btrfs_progs_compat          => { default => undef, accept => [qw( yes no )],
-                                   deprecated => { DEFAULT => { ABORT => 1, warn => 'This feature has been dropped in btrbk-v0.23.0. Please update to newest btrfs-progs, AT LEAST >= $BTRFS_PROGS_MIN' } } },
-  snapshot_preserve_daily     => { default => 'all', accept => [qw( all ), qr/[0-9]+/ ], context => [qw( global volume subvolume )],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  snapshot_preserve_weekly    => { default => 0, accept => [qw( all ), qr/[0-9]+/ ], context => [qw( global volume subvolume )],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  snapshot_preserve_monthly   => { default => 'all', accept => [qw( all ), qr/[0-9]+/ ], context => [qw( global volume subvolume )],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "snapshot_preserve" and/or "snapshot_preserve_min"' } } },
-  target_preserve_daily       => { default => 'all', accept => [qw( all ), qr/[0-9]+/ ],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  target_preserve_weekly      => { default => 0, accept => [qw( all ), qr/[0-9]+/ ],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  target_preserve_monthly     => { default => 'all', accept => [qw( all ), qr/[0-9]+/ ],
-                                   deprecated => { DEFAULT => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve" and/or "target_preserve_min"' } } },
-  resume_missing              => { default => "yes", accept => [qw( yes no )],
-                                   deprecated => { yes => { warn => 'ignoring (missing backups are always resumed since btrbk v0.23.0)' },
-                                                   no  => { FAILSAFE_PRESERVE => 1, warn => 'Please use "target_preserve_min latest" and "target_preserve no" if you want to keep only the latest backup', },
-                                                   DEFAULT => {} } },
-  snapshot_create_always      => { default => undef, accept => [qw( yes no )],
-                                   deprecated => { yes => { warn => "Please use \"snapshot_create always\"",
-                                                            replace_key   => "snapshot_create",
-                                                            replace_value => "always",
-                                                           },
-                                                   no  => { warn => "Please use \"snapshot_create no\" or \"snapshot_create ondemand\"",
-                                                            replace_key   => "snapshot_create",
-                                                            replace_value => "ondemand",
-                                                           },
-                                                   DEFAULT => {},
-                                                  },
-                                 },
-  receive_log                 => { default => undef, accept => [qw( sidecar no )], accept_file => { absolute => 1 },
-                                   deprecated => { DEFAULT => { warn => "ignoring" } },
-                                 }
  );
 
 my @config_target_types = qw(send-receive raw); # first in list is default
@@ -707,7 +674,7 @@ sub stream_buffer_cmd_text($)
 
   # NOTE: mbuffer takes defaults from /etc/mbuffer.rc
   my @cmd = ( "mbuffer" );
-  push @cmd, ( "-v", "1" ); # disable warnings (they arrive asynchronously and cant be caught)
+  push @cmd, ( "-v", "1" ); # disable warnings (they arrive asynchronously and can't be caught)
   push @cmd, "-q" unless($progress);
   push @cmd, ( "-s", $blocksize ) if($blocksize);
   push @cmd, ( "-m", lc($bufsize) ) if($bufsize);
@@ -1833,7 +1800,7 @@ sub btrfs_send_to_file($$$;$$)
       };
     }
     else {
-      die "Usupported encryption type (raw_target_encrypt)";
+      die "Unsupported encryption type (raw_target_encrypt)";
     }
   }
 
@@ -2196,7 +2163,7 @@ sub read_extentmap_cache($)
       read($fh, $buf, 24 + 8 * 2); # read header
       my ($v, $gen, $time) = unpack('a24Q<Q<', $buf);
       unless(($v =~ /^btrbk_extentmap_v1/) && $gen && $time) {
-        ERROR "Ambigous cache file: $file";
+        ERROR "Ambiguous cache file: $file";
         next;
       }
       if($gen != $vol->{node}{gen}) {
@@ -2326,7 +2293,7 @@ sub aio_extentmap($)
           if($_->[3] & IO::AIO::FIEMAP_EXTENT_DATA_INLINE()) {
             $inline_count++;
             next if($ignore_inline);
-            WARN_ONCE "Ambigous inline region [$_->[1] .. $_->[1] + $_->[2] - 1] for $file" if((($_->[1] != 0) || ($_->[2] != 4096)));
+            WARN_ONCE "Ambiguous inline region [$_->[1] .. $_->[1] + $_->[2] - 1] for $file" if((($_->[1] != 0) || ($_->[2] != 4096)));
           }
           push @range, [ $_->[1], $_->[1] + $_->[2] - 1 ];
         }
@@ -2376,7 +2343,7 @@ sub extentmap_merge(@) {
   my $end = -2;
   foreach (@range) {
     if($_->[0] <= $end + 1) {
-      # range overlaps the preceeding one, or is adjacent to it
+      # range overlaps the preceding one, or is adjacent to it
       $end = $_->[1] if($_->[1] > $end);
     }
     else {
@@ -3142,7 +3109,7 @@ sub _vinfo_subtree_list
 
   # if $vinfo_parent->{NODE_SUBDIR} is set, vinfo_parent->{PATH} does
   # not point to a subvolume directly, but to "<path_to_subvolume>/NODE_SUBDIR".
-  # skip nodes wich are not in NODE_SUBDIR, or strip NODE_SUBDIR from from rel_path.
+  # skip nodes which are not in NODE_SUBDIR, or strip NODE_SUBDIR from from rel_path.
   my $node_subdir_filter = ($depth == 0) ? $vinfo_parent->{NODE_SUBDIR} : undef;
   foreach my $node (@{$tree->{SUBTREE}}) {
     my $rel_path = $node->{REL_PATH};
@@ -4170,17 +4137,6 @@ sub append_config_option($$$$;@)
       push @wmsg, "Using \"$key $value\"";
     }
     WARN @wmsg if(@wmsg);
-    if($dh->{FAILSAFE_PRESERVE}) {
-      unless($config_override{FAILSAFE_PRESERVE}) { # warn only once
-        WARN "Entering failsafe mode:";
-        WARN "  - preserving ALL snapshots for ALL subvolumes";
-        WARN "  - ignoring ALL targets (skipping backup creation)";
-        WARN "  - please read \"doc/upgrade_to_v0.23.0.md\"";
-        $config_override{FAILSAFE_PRESERVE} = "Failsafe mode active (deprecated configuration)";
-      }
-      $config_override{snapshot_preserve_min} = 'all';
-      return $config;
-    }
   }
 
   if($opt->{allow_multiple}) {
@@ -4306,7 +4262,7 @@ sub parse_config_line($$$;@)
                    target_type => $target_type,
                    url => $url_prefix . $path,
                  };
-    # NOTE: target sections are propagated to the apropriate SUBSECTION in _config_propagate_target()
+    # NOTE: target sections are propagated to the appropriate SUBSECTION in _config_propagate_target()
     $cur->{TARGET} //= [];
     push(@{$cur->{TARGET}}, $target);
     $cur = $target;
@@ -6428,12 +6384,6 @@ MAIN:
         foreach my $droot (vinfo_subsection($svol, 'target')) {
           DEBUG "Initializing target section: $droot->{PRINT}";
           my $target_type = $droot->{CONFIG}->{target_type} || die;
-
-          if($config_override{FAILSAFE_PRESERVE}) {
-            ABORTED($droot, $config_override{FAILSAFE_PRESERVE});
-            WARN "Skipping target \"$droot->{PRINT}\": " . ABORTED_TEXT($droot);
-            next;
-          }
 
           if(config_key($droot, "target_create_dir")) {
             unless(my $ret = vinfo_mkdir($droot)) {

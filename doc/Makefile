@@ -1,5 +1,4 @@
-DOCS       = FAQ.md \
-             upgrade_to_v0.23.0.md
+DOCS       = FAQ.md
 MAN_MAN1   = btrbk.1 \
              lsbtr.1 \
              ssh_filter_btrbk.1
