@@ -1,3 +1,6 @@
+unreleased
+* New timestamp_format "human" with separators to increase human readability
+
 btrbk-0.32.6
 
   * Fix backup of unrelated (by parent_uuid) snapshots (close #339).

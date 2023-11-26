@@ -94,7 +94,7 @@ otherwise.
 
 === Basic Options
 
-*timestamp_format* short|long|long-iso::
+*timestamp_format* short|long|long-iso|human::
     Timestamp format used as postfix for new snapshot subvolume
     names. Defaults to ``long''.
 +
@@ -105,6 +105,7 @@ endif::backend-docbook,backend-manpage[]
 *short*;;    +YYYYMMDD[_N]+  (e.g. "20150825", "20150825_1")
 *long*;;     +YYYYMMDD<T>hhmm[_N]+  (e.g. "20150825T1531")
 *long-iso*;; +YYYYMMDD<T>hhmmss&plusmn;hhmm[_N]+  (e.g. "20150825T153123+0200")
+*human*;;    +YYYY\<\->MM\<\->DD<_>hh\<\->mm[_N]+  (e.g. "2015-08-25_15-31")
 --
 +
 Note that a postfix "_N" is appended to the timestamp if a snapshot or
