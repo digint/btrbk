@@ -417,6 +417,12 @@ with "ERROR: attribute 12 requested but not present".
 Note that there is *no guarantee that backups created with this
 option enabled can be restored at all*.
 
+*synology*::
+    Useful when transfering snapshots from Synology DSM NAS systems, that
+    are normally not compatible with standard Btrfs systems and sending
+    would cause a lot of ACL errors. When this is enabled, the option
+    `--without-syno-features` is passed to `btrfs send`.
+
 If you want to set this option for local or remote hosts only, set
 *compat_local* or *compat_remote* (e.g. "compat_remote busybox").
 --
