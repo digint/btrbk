@@ -85,6 +85,12 @@ install-systemd:
 	install -p -m 644 contrib/systemd/btrbk.timer.tmp "$(DESTDIR)$(SYSTEMDDIR)/btrbk.timer"
 	rm contrib/systemd/btrbk.service.tmp
 	rm contrib/systemd/btrbk.timer.tmp
+	$(replace_vars) contrib/systemd/btrbk-network.service.in > contrib/systemd/btrbk-network.service.tmp
+	$(replace_vars) contrib/systemd/btrbk-network.timer.in > contrib/systemd/btrbk-network.timer.tmp
+	install -p -m 644 contrib/systemd/btrbk-network.service.tmp "$(DESTDIR)$(SYSTEMDDIR)/btrbk-network.service"
+	install -p -m 644 contrib/systemd/btrbk-network.timer.tmp "$(DESTDIR)$(SYSTEMDDIR)/btrbk-network.timer"
+	rm contrib/systemd/btrbk-network.service.tmp
+	rm contrib/systemd/btrbk.timer-network.tmp
 
 install-share:
 	@echo 'installing auxiliary scripts...'
