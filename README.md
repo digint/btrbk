@@ -667,6 +667,25 @@ Btrfs Relationship (technical note)
     * Used by btrbk to determine best parent.
     * `/mnt/btr_pool/data.20150101 <-- /mnt/btr_pool/data`
 
+SystemD
+=======
+
+There are 2 systemD units available. One for local backups and one with networking support. They run a daily snapshot and can be enabled with their timers.
+
+Only one of these should be enabled at the same time.
+
+For local only:
+
+```
+sudo systemctl enable --now btrbk.timer
+```
+
+For networking support, like SSH targets and sources:
+
+```
+sudo systemctl enable --now btrbk-network.timer
+```
+
 
 FAQ
 ===
