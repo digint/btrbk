@@ -1,0 +1,8 @@
+[Unit]
+Description=btrbk backup
+Documentation=man:btrbk(1)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@BINDIR@/btrbk run
