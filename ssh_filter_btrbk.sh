@@ -78,8 +78,8 @@ reject_filtered_cmd()
     path_match="(${path_match}|${path_match_legacy})"
 
     if [ -n "${allow_compress}" ]; then
-        decompress_match="(${compress_list}) -d -c( -[pT][0-9]+)?"
-        compress_match="(${compress_list}) -c( -[0-9])?( -[pT][0-9]+)?"
+	decompress_match="(${compress_list}) -d -c( -[pT][0-9]+)?( --long(=[0-9]+)?)?( --adapt)?"
+        compress_match="(${compress_list}) -c( -[0-9])?( -[pT][0-9]+)?( --long(=[0-9]+)?)?( --adapt)?"
     else
         decompress_match=
         compress_match=
@@ -102,12 +102,12 @@ reject_filtered_cmd()
     # when an error occurred.
 
     allow_stream_match="^${stream_in_match}${allow_cmd_match}${stream_out_match}"
-    if printf '%s' "${SSH_ORIGINAL_COMMAND}" | grep -E "${allow_stream_match}" >/dev/null 2>/dev/null; then
+    if printf '%s' "${SSH_ORIGINAL_COMMAND}" | grep -E -- "${allow_stream_match}" >/dev/null 2>/dev/null; then
         return 0
     fi
 
     exact_cmd_match="^(${allow_exact_list})$";
-    if printf '%s' "${SSH_ORIGINAL_COMMAND}" | grep -E "${exact_cmd_match}" >/dev/null 2>/dev/null; then
+    if printf '%s' "${SSH_ORIGINAL_COMMAND}" | grep -E -- "${exact_cmd_match}" >/dev/null 2>/dev/null; then
         return 0
     fi
 
