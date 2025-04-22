@@ -102,12 +102,12 @@ reject_filtered_cmd()
     # when an error occurred.
 
     allow_stream_match="^${stream_in_match}${allow_cmd_match}${stream_out_match}"
-    if printf '%s' "${SSH_ORIGINAL_COMMAND}" | grep -E -- "${allow_stream_match}" >/dev/null 2>/dev/null; then
+    if printf '%s' "${SSH_ORIGINAL_COMMAND}" | grep -Eq -- "${allow_stream_match}"; then
         return 0
     fi
 
     exact_cmd_match="^(${allow_exact_list})$";
-    if printf '%s' "${SSH_ORIGINAL_COMMAND}" | grep -E -- "${exact_cmd_match}" >/dev/null 2>/dev/null; then
+    if printf '%s' "${SSH_ORIGINAL_COMMAND}" | grep -Eq -- "${exact_cmd_match}"; then
         return 0
     fi
 
