@@ -6762,7 +6762,7 @@ MAIN:
 
           # incomplete received (garbled) subvolumes are not readonly and have no received_uuid (as of btrfs-progs v4.3.1).
           # a subvolume in droot matching our naming is considered incomplete if received_uuid is not set!
-          my @delete = grep $_->{node}{received_uuid} eq '-', @{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_name, sort => 'path')};
+          my @delete = grep { !$_->{node}{readonly} || $_->{node}{received_uuid} eq '-' } @{vinfo_subvol_list($droot, btrbk_direct_leaf => $snapshot_name, sort => 'path')};
           my @delete_success;
           foreach my $target_vol (@delete) {
             DEBUG "Found incomplete target subvolume: $target_vol->{PRINT}";
