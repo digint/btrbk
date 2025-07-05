@@ -5216,7 +5216,7 @@ MAIN:
   my @exclude_cmdline;
   my ($config_cmdline, $lockfile_cmdline, $print_schedule,
       $preserve_snapshots, $preserve_backups, $wipe_snapshots, $skip_snapshots, $skip_backups,
-      $raw_cmdline, $extents_related,
+      $raw_cmdline, $extents_related, $loglevel_inc
      );
 
   # Calling btrbk via "lsbtr" symlink acts as an alias for "btrbk ls",
@@ -5228,7 +5228,7 @@ MAIN:
     'help|h'             => sub { HELP_MESSAGE; exit 0; },
     'version'            => sub { VERSION_MESSAGE; exit 0; },
     'quiet|q'            => \$quiet,
-    'verbose|v'          => sub { $loglevel = ($loglevel =~ /^[0-9]+$/) ? $loglevel+1 : 2; },
+    'verbose|v'          => sub { $loglevel_inc++ },
     'loglevel|l=s'       => \$loglevel,
     'format=s'           => \$output_format,
     'single-column|1'    => sub { $output_format = "single_column" },
@@ -5284,6 +5284,7 @@ MAIN:
     ERROR_HELP_MESSAGE;
     exit 2;
   }
+  $loglevel += $loglevel_inc // 0;
   $do_trace = 1 if($loglevel >= 4);
   require_data_dumper() if($do_trace || ($VERSION =~ /-dev$/));
 
