@@ -5229,7 +5229,6 @@ MAIN:
     'version'            => sub { VERSION_MESSAGE; exit 0; },
     'quiet|q'            => \$quiet,
     'verbose|v'          => sub { $loglevel_inc++ },
-    'loglevel|l=s'       => \$loglevel,
     'format=s'           => \$output_format,
     'single-column|1'    => sub { $output_format = "single_column" },
     'pretty'             => \$output_pretty,
@@ -5239,11 +5238,13 @@ MAIN:
    );
   push @getopt_options, ($program_name eq "lsbtr") ? (
     # "lsbtr" options
+    'loglevel=s'         => \$loglevel,
     'long|l'             => sub { $output_format = "table" },
     'uuid|u'             => sub { $output_format = "long" },
     'raw'                => sub { $output_format = "raw" },
    ) : (
      # "btrbk" options
+    'loglevel|l=s'       => \$loglevel,
     'dry-run|n'          => \$dryrun,
     'exclude=s'          => \@exclude_cmdline,
     'preserve|p'         => sub { $preserve_snapshots = "preserve", $preserve_backups = "preserve" },
