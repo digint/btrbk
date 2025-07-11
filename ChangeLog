@@ -1,3 +1,7 @@
+ unreleased
+
+  * Add "synology" compat option for Synology NAS.
+
 btrbk-0.32.6
 
   * Fix backup of unrelated (by parent_uuid) snapshots (close #339).
