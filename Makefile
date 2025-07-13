@@ -28,6 +28,7 @@ BINDIR      = $(PREFIX)/bin
 DOCDIR      = $(PREFIX)/share/doc/$(PN)
 SCRIPTDIR   = $(PREFIX)/share/$(PN)/scripts
 SYSTEMDDIR  = $(PREFIX)/lib/systemd/system
+TIMERCONF   = $(CONFDIR)/systemd/system
 BASHCOMPDIR = $(PREFIX)/share/bash-completion/completions
 MAN1DIR     = $(PREFIX)/share/man/man1
 MAN5DIR     = $(PREFIX)/share/man/man5
@@ -44,6 +45,7 @@ replace_vars = sed \
 	-e "s|@DOCDIR@|$(DOCDIR)|g" \
 	-e "s|@SCRIPTDIR@|$(SCRIPTDIR)|g" \
 	-e "s|@SYSTEMDDIR@|$(SYSTEMDDIR)|g" \
+	-e "s|@TIMERCONF@|$(TIMERCONF)|g" \
 	-e "s|@BASHCOMPDIR@|$(BASHCOMPDIR)|g" \
 	-e "s|@MAN1DIR@|$(MAN1DIR)|g" \
 	-e "s|@MAN5DIR@|$(MAN5DIR)|g"
@@ -79,12 +81,16 @@ install-completion:
 install-systemd:
 	@echo 'installing systemd service units...'
 	install -d -m 755 "$(DESTDIR)$(SYSTEMDDIR)"
+	install -d -m 755 "$(DESTDIR)$(TIMERCONF)/btrbk.timer.d"
 	$(replace_vars) contrib/systemd/btrbk.service.in > contrib/systemd/btrbk.service.tmp
 	$(replace_vars) contrib/systemd/btrbk.timer.in > contrib/systemd/btrbk.timer.tmp
+	$(replace_vars) contrib/systemd/delay.timer.in > contrib/systemd/delay.timer.tmp
 	install -p -m 644 contrib/systemd/btrbk.service.tmp "$(DESTDIR)$(SYSTEMDDIR)/btrbk.service"
 	install -p -m 644 contrib/systemd/btrbk.timer.tmp "$(DESTDIR)$(SYSTEMDDIR)/btrbk.timer"
+	install -p -m 644 contrib/systemd/delay.timer.tmp "$(DESTDIR)$(TIMERCONF)/btrbk.timer.d/delay.timer"
 	rm contrib/systemd/btrbk.service.tmp
 	rm contrib/systemd/btrbk.timer.tmp
+	rm contrib/systemd/delay.timer.tmp
 
 install-share:
 	@echo 'installing auxiliary scripts...'
