@@ -1,9 +1,10 @@
 [Unit]
 Description=btrbk daily backup
+ConditionPathExists=|@CONFDIR@/btrbk/btrbk.conf
+ConditionPathExists=|@CONFDIR@/btrbk.conf
 
 [Timer]
-OnCalendar=daily
-AccuracySec=10min
+OnCalendar=hourly
 Persistent=true
 
 [Install]
