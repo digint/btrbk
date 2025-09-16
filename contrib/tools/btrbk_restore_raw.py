@@ -35,8 +35,12 @@ class TransformOpensslDecrypt(TransformProcess):
 
 
 class TransformDecompress(TransformProcess):
+    programs = {
+        "gz": "pigz",
+    }
+    
     def __init__(self, program):
-        self.p = program
+        self.p = self.programs.get(program, program)
 
     def get_cmd(self, bfile, options):
         return [self.p, '-d']
@@ -146,7 +150,7 @@ class BackupFile:
 
     def restore_file(self, options):
         assert self.info.get('TYPE') == 'raw'
-        assert not self.info.get('INCOMPLETE')
+        assert self.info.get('INCOMPLETE') == '0'
         pipeline = BtrfsPipeline(self)
         for transformer in self.get_transformers():
             pipeline.append(transformer)
@@ -196,7 +200,7 @@ def main():
     parser.add_argument('restore_dir', help="target directory for restored subvolumes"
                                             " (path argument for \"btrfs receive\")")
     parser.add_argument('-n', '--dry-run', action='store_true',
-                        help="print commands that would be executed")
+                        help="print commmands that would be executed")
     parser.add_argument('--ignore-missing', action='store_true',
                         help="do not fail on missing parent snapshots")
 
