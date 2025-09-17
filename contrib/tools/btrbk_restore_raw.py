@@ -200,7 +200,7 @@ def main():
     parser.add_argument('restore_dir', help="target directory for restored subvolumes"
                                             " (path argument for \"btrfs receive\")")
     parser.add_argument('-n', '--dry-run', action='store_true',
-                        help="print commmands that would be executed")
+                        help="print commands that would be executed")
     parser.add_argument('--ignore-missing', action='store_true',
                         help="do not fail on missing parent snapshots")
 
