@@ -39,7 +39,7 @@ btrbk is in the official Fedora repos: https://src.fedoraproject.org/rpms/btrbk
 
 ### Arch Linux
 
-btrbk is in AUR: https://aur.archlinux.org/packages/btrbk/
+btrbk is in the "extra" repository: https://archlinux.org/packages/extra/any/btrbk/
 
 
 ### Alpine Linux
