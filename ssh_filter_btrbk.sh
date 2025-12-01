@@ -15,6 +15,7 @@ allow_rate_limit=1
 allow_stream_buffer=1
 allow_compress=1
 compress_list='gzip|pigz|bzip2|pbzip2|bzip3|xz|lzop|lz4|zstd'
+adaptive_compress_list='zstd'
 
 # note that the backslash is NOT a metacharacter in a POSIX bracket expression!
 option_match='-[a-zA-Z0-9=-]+'   # matches short as well as long options
@@ -65,21 +66,23 @@ run_cmd()
 reject_filtered_cmd()
 {
     if [ -n "${restrict_path_list}" ]; then
-	# match any of restrict_path_list,
-	# or any file/directory (matching file_match) below restrict_path
-	path_match="'(${restrict_path_list})(${file_match})?'"
-	path_match_legacy="(${restrict_path_list})(${file_match_sane})?"
+    # match any of restrict_path_list,
+    # or any file/directory (matching file_match) below restrict_path
+    path_match="'(${restrict_path_list})(${file_match})?'"
+    path_match_legacy="(${restrict_path_list})(${file_match_sane})?"
     else
-	# match any absolute file/directory (matching file_match)
-	path_match="'${file_match}'"
-	path_match_legacy="${file_match_sane}"
+    # match any absolute file/directory (matching file_match)
+    path_match="'${file_match}'"
+    path_match_legacy="${file_match_sane}"
     fi
     # btrbk >= 0.32.0 quotes files, allow both (legacy)
     path_match="(${path_match}|${path_match_legacy})"
 
     if [ -n "${allow_compress}" ]; then
         decompress_match="(${compress_list}) -d -c( -[pT][0-9]+)?"
-        compress_match="(${compress_list}) -c( -[0-9])?( -[pT][0-9]+)?"
+        compress_match="(${compress_list}) -c( -[0-9]{1,2})?( -[pT][0-9]+)?"
+        adaptive_decompress_match="(${adaptive_compress_list}) -d -c( -[pT][0-9]+)?( --adapt)?"
+        adaptive_compress_match="(${adaptive_compress_list}) -c( --adapt)?( -[pT][0-9]+)?"
     else
         decompress_match=
         compress_match=
@@ -95,8 +98,8 @@ reject_filtered_cmd()
 
     # allow multiple paths (e.g. "btrfs subvolume snapshot <src> <dst>")
     allow_cmd_match="(${allow_list})( ${option_match})*( ${path_match})+"
-    stream_in_match="(${decompress_match} \| )?(${mbuffer_match} \| )?"
-    stream_out_match="( \| ${mbuffer_match})?( \| ${compress_match}$)?"
+    stream_in_match="(${adaptive_decompress_match} \| )?(${decompress_match} \| )?(${mbuffer_match} \| )?"
+    stream_out_match="( \| ${mbuffer_match})?( \| ${compress_match}$)?( \| ${adaptive_compress_match}$)?"
 
     # `grep`’s `-q`-option is not used as it may cause an exit status of `0` even
     # when an error occurred.
