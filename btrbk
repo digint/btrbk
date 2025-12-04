@@ -142,9 +142,9 @@ my %config_options = (
   backend_remote              => { default => undef,         accept => [qw( no btrfs-progs btrfs-progs-btrbk btrfs-progs-sudo btrfs-progs-doas )] },
   backend_local_user          => { default => undef,         accept => [qw( no btrfs-progs btrfs-progs-btrbk btrfs-progs-sudo btrfs-progs-doas )] },
 
-  compat                      => { default => undef,         accept => [qw( no busybox ignore_receive_errors )], split => 1 },
-  compat_local                => { default => undef,         accept => [qw( no busybox ignore_receive_errors )], split => 1 },
-  compat_remote               => { default => undef,         accept => [qw( no busybox ignore_receive_errors )], split => 1 },
+  compat                      => { default => undef,         accept => [qw( no busybox ignore_receive_errors synology )], split => 1 },
+  compat_local                => { default => undef,         accept => [qw( no busybox ignore_receive_errors synology )], split => 1 },
+  compat_remote               => { default => undef,         accept => [qw( no busybox ignore_receive_errors synology )], split => 1 },
   safe_commands               => { default => undef,         accept => [qw( yes no )], context => [qw( global )] },
   btrfs_commit_delete         => { default => undef,         accept => [qw( yes no after each )],
                                                              deprecated => { MATCH => { regex => qr/^(?:after|each)$/, warn => 'Please use "btrfs_commit_delete yes|no"', replace_key => "btrfs_commit_delete", replace_value => "yes" } } },
@@ -1461,11 +1461,13 @@ sub _btrfs_send_options($$;$$)
   my $clone_src = shift // [];
   my $send_protocol = config_key($target, "send_protocol");
   my $send_compressed_data = config_key($target, "send_compressed_data");
+  my $compat_synology = config_key_lru($target, "compat", "synology");
   my @send_options;
   push(@send_options, '-p', { unsafe => $parent->{PATH} } ) if($parent);
   push(@send_options, '-c', { unsafe => $_ } ) foreach(map { $_->{PATH} } @$clone_src);
   push(@send_options, '--proto', $send_protocol ) if($send_protocol);
   push(@send_options, '--compressed-data' ) if($send_compressed_data);
+  push(@send_options, '--without-syno-features' ) if($compat_synology);
   #push(@send_options, '-v') if($loglevel >= 3);
   return \@send_options;
 }

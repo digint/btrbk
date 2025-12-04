@@ -202,3 +202,18 @@ volume ssh://my-remote-host.com/mnt/btr_pool
   snapshot_preserve_min  all
   subvolume home
     target /mnt/btr_backup/my-remote-host.com
+
+# Archive all shared folders from a Synology NAS btrfs.
+# Needs an admin account with SSH key login.
+volume ssh://my-synology-host.com/volume1
+  subvolume *
+  compat synology
+
+  snapshot_dir           btrbk_snapshots
+  snapshot_create        ondemand
+  snapshot_preserve_min  latest
+  snapshot_preserve      no
+
+  target_preserve_min    6m
+  target_preserve        10d 10w 12m
+  target /mnt/btr_backup/my-synology-host.com
