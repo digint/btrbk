@@ -147,6 +147,8 @@ while [ "$#" -ge 1 ]; do
       -s|--source)
           allow_cmd "${sudo_prefix}btrfs subvolume snapshot"
           allow_cmd "${sudo_prefix}btrfs send"
+          allow_exact_cmd "${sudo_prefix}btrfs property set ${file_arg_match} ro true"  # set snapshot read-only
+          allow_exact_cmd "${sudo_prefix}rm -rf ${file_arg_match}"                      # delete dirs in snapshot
           ;;
 
       -t|--target)
@@ -169,6 +171,8 @@ while [ "$#" -ge 1 ]; do
 
       --snapshot)
           allow_cmd "${sudo_prefix}btrfs subvolume snapshot"
+          allow_exact_cmd "${sudo_prefix}btrfs property set ${file_arg_match} ro true"  # set snapshot read-only
+          allow_exact_cmd "${sudo_prefix}rm -rf ${file_arg_match}"                      # delete dirs in snapshot
           ;;
 
       --send)
