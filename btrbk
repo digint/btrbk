@@ -1412,6 +1412,24 @@ sub btrfs_subvolume_set_readonly($)
 }
 
 
+sub btrfs_snapshot_delete_dir($$)
+{
+  my $snapshot = shift // die;
+  my $dir = shift // die;
+  my $rel_dir = check_file($dir, { relative => 1 }, sanitize => 1, error_statement => 'for snapshot_delete_dir') // return undef;
+  my $dir_path = $snapshot->{PATH} . '/' . $rel_dir;
+  INFO "[snapshot] delete dir: $dir_path";
+  my $ret = run_cmd(cmd => vinfo_cmd($snapshot, "rm", '-rf', { unsafe => $dir_path } ),
+                    rsh => vinfo_rsh($snapshot),
+                   );
+  unless(defined($ret)) {
+    ERROR "Failed to delete directory \"$rel_dir\" in snapshot: $snapshot->{PRINT}";
+    return undef;
+  }
+  return 1;
+}
+
+
 sub btrfs_subvolume_delete($@)
 {
   my $vol = shift // die;
@@ -6726,13 +6744,7 @@ MAIN:
             my $snapshot_ok = 1;
             if($create_rw) {
               foreach my $dir (@delete_dirs) {
-                my $dir_path = $snapshot->{PATH} . '/' . $dir;
-                INFO "[snapshot] delete dir: $dir_path";
-                my $ret = run_cmd(cmd => vinfo_cmd($snapshot, "rm", '-rf', { unsafe => $dir_path } ),
-                                  rsh => vinfo_rsh($snapshot),
-                                 );
-                unless(defined($ret)) {
-                  ERROR "Failed to delete directory \"$dir\" in snapshot: $snapshot->{PRINT}";
+                unless(btrfs_snapshot_delete_dir($snapshot, $dir)) {
                   $snapshot_ok = 0;
                   last;
                 }
