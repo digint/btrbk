@@ -152,6 +152,7 @@ my %config_options = (
   send_compressed_data        => { default => undef,         accept => [qw( yes no )] }, # NOTE: implies send_protocol=2
 
   snapshot_qgroup_destroy     => { default => undef,         accept => [qw( yes no )], context => [qw( global volume subvolume )] },
+  snapshot_delete_dir         => { default => undef,         accept_file => { relative => 1 }, allow_multiple => 1, context => [qw( global volume subvolume )] },
   target_qgroup_destroy       => { default => undef,         accept => [qw( yes no )] },
   archive_qgroup_destroy      => { default => undef,         accept => [qw( yes no )], context => [qw( global )] },
 
@@ -291,10 +292,12 @@ my @btrfs_cmd = (
   "btrfs receive",
   "btrfs filesystem usage",
   "btrfs qgroup destroy",
+  "btrfs property set",
 );
 my @system_cmd = (
   "readlink",
   "test",
+  "rm",
 );
 my %backend_cmd_map = (
   "btrfs-progs-btrbk" => { map +( $_ => [ s/ /-/gr ] ), @btrfs_cmd },
@@ -1365,10 +1368,11 @@ sub btrfs_subvolume_find_new($$;$)
 
 
 # returns $target, or undef on error
-sub btrfs_subvolume_snapshot($$)
+sub btrfs_subvolume_snapshot($$;$)
 {
   my $svol = shift || die;
   my $target_vol = shift // die;
+  my $readonly = shift // 1;
   my $target_path = $target_vol->{PATH} // die;
   my $src_path = $svol->{PATH} // die;
   INFO "[snapshot] source: $svol->{PRINT}";
@@ -1377,7 +1381,8 @@ sub btrfs_subvolume_snapshot($$)
                     vinfo_prefixed_keys("target", $target_vol),
                     vinfo_prefixed_keys("source", $svol),
                    );
-  my $ret = run_cmd(cmd => vinfo_cmd($svol, "btrfs subvolume snapshot", '-r', { unsafe => $src_path }, { unsafe => $target_path } ),
+  my @ro_flag = $readonly ? ('-r') : ();
+  my $ret = run_cmd(cmd => vinfo_cmd($svol, "btrfs subvolume snapshot", @ro_flag, { unsafe => $src_path }, { unsafe => $target_path } ),
                     rsh => vinfo_rsh($svol),
                     filter_stderr => \&_btrfs_filter_stderr,
                    );
@@ -1387,6 +1392,41 @@ sub btrfs_subvolume_snapshot($$)
     return undef;
   }
   return $target_vol;
+}
+
+
+sub btrfs_subvolume_set_readonly($)
+{
+  my $vol = shift // die;
+  my $path = $vol->{PATH} // die;
+  INFO "[snapshot] set readonly: $vol->{PRINT}";
+  my $ret = run_cmd(cmd => vinfo_cmd($vol, "btrfs property set", { unsafe => $path }, 'ro', 'true'),
+                    rsh => vinfo_rsh($vol),
+                    filter_stderr => \&_btrfs_filter_stderr,
+                   );
+  unless(defined($ret)) {
+    ERROR "Failed to set snapshot read-only: $vol->{PRINT}", @stderr;
+    return undef;
+  }
+  return $vol;
+}
+
+
+sub btrfs_snapshot_delete_dir($$)
+{
+  my $snapshot = shift // die;
+  my $dir = shift // die;
+  my $rel_dir = check_file($dir, { relative => 1 }, sanitize => 1, error_statement => 'for snapshot_delete_dir') // return undef;
+  my $dir_path = $snapshot->{PATH} . '/' . $rel_dir;
+  INFO "[snapshot] delete dir: $dir_path";
+  my $ret = run_cmd(cmd => vinfo_cmd($snapshot, "rm", '-rf', { unsafe => $dir_path } ),
+                    rsh => vinfo_rsh($snapshot),
+                   );
+  unless(defined($ret)) {
+    ERROR "Failed to delete directory \"$rel_dir\" in snapshot: $snapshot->{PRINT}";
+    return undef;
+  }
+  return 1;
 }
 
 
@@ -6697,16 +6737,39 @@ MAIN:
           # finally create the snapshot
           INFO "Creating subvolume snapshot for: $svol->{PRINT}";
           my $snapshot = vinfo_child($snaproot, "$snapshot_name");
-          if(btrfs_subvolume_snapshot($svol, $snapshot))
+          my @delete_dirs = @{config_key($svol, "snapshot_delete_dir") // []};
+          my $create_rw = scalar(@delete_dirs) ? 1 : 0;
+          if(btrfs_subvolume_snapshot($svol, $snapshot, !$create_rw))
           {
-            vinfo_inject_child($snaproot, $snapshot, {
-              parent_uuid    => $svol->{node}{uuid},
-              received_uuid  => '-',
-              readonly       => 1,
-              FORCE_PRESERVE => 'preserve forced: created just now',
-              INJECTED_BY    => 'snapshot',
-            });
-            $svol->{SNAPSHOT_CREATED} = $snapshot;
+            my $snapshot_ok = 1;
+            if($create_rw) {
+              foreach my $dir (@delete_dirs) {
+                unless(btrfs_snapshot_delete_dir($snapshot, $dir)) {
+                  $snapshot_ok = 0;
+                  last;
+                }
+              }
+              if($snapshot_ok) {
+                unless(btrfs_subvolume_set_readonly($snapshot)) {
+                  $snapshot_ok = 0;
+                }
+              }
+            }
+            if($snapshot_ok) {
+              vinfo_inject_child($snaproot, $snapshot, {
+                parent_uuid    => $svol->{node}{uuid},
+                received_uuid  => '-',
+                readonly       => 1,
+                FORCE_PRESERVE => 'preserve forced: created just now',
+                INJECTED_BY    => 'snapshot',
+              });
+              $svol->{SNAPSHOT_CREATED} = $snapshot;
+            }
+            else {
+              btrfs_subvolume_delete($snapshot);
+              ABORTED($svol, "Failed to process snapshot: $svol->{PRINT} -> $snapshot->{PRINT}");
+              WARN "Skipping subvolume section: " . ABORTED_TEXT($svol);
+            }
           }
           else {
             ABORTED($svol, "Failed to create snapshot: $svol->{PRINT} -> $snapshot->{PRINT}");

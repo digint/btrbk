@@ -143,6 +143,16 @@ Note that using ``long-iso'' has implications on the scheduling, see
     btrbk is taking care of snapshot creation). Defaults to
     ``always''.
 
+*snapshot_delete_dir* <directory>::
+    Delete directory '<directory>' inside newly created snapshots
+    (relative to the snapshot root). This option can be set multiple
+    times, and is available in global, volume and subvolume context.
++
+--
+If set, btrbk creates the snapshot as read-write, deletes all
+configured directories, and then sets the snapshot to read-only.
+--
+
 *incremental* yes|no|strict::
     If set, incremental backups are created. If set to ``strict'',
     non-incremental (initial) backups are never created, and
