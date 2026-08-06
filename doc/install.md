@@ -56,6 +56,13 @@ btrbk is in portage:
     emerge app-backup/btrbk
 
 
+### Solus
+
+btrbk is in the official repository:
+
+    eopkg it btrbk
+
+
 ### Void Linux
 
 btrbk is in Void's `current` repository
