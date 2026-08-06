@@ -2093,7 +2093,7 @@ sub system_urandom($;$) {
   binmode URANDOM;
   my $rand;
   my $rlen = read(URANDOM, $rand, $size);
-  close(FILE);
+  close(URANDOM);
   unless(defined($rand) && ($rlen == $size)) {
     ERROR "Failed to read from /dev/urandom: $!";
     return undef;
@@ -4313,17 +4313,29 @@ sub _config_file(@) {
   return undef;
 }
 
-sub parse_config($)
+# Recursively parse a single config file, following any "include" directives.
+# Returns the updated $cur context on success, undef on error.
+# $seen is a hashref mapping realpath -> 1 for files currently on the include
+# stack, used to detect circular includes.
+sub _parse_config_file
 {
-  my $file = shift;
-  return undef unless($file);
+  my ($file, $root, $cur, $seen) = @_;
+  $seen //= {};
 
-  my $root = init_config(SRC_FILE => $file);
-  my $cur = $root;
+  my $real = abs_path($file) // $file;
+  if($seen->{$real}) {
+    ERROR "Circular include detected for \"$file\"";
+    return undef;
+  }
+  $seen->{$real} = 1;
 
   TRACE "config: open configuration file: $file" if($do_trace);
-  open(FILE, '<', $file) or die $!;
-  while (<FILE>) {
+  open(my $fh, '<', $file) or do {
+    ERROR "Cannot open configuration file \"$file\": $!";
+    delete $seen->{$real};
+    return undef;
+  };
+  while(<$fh>) {
     chomp;
     s/((?:[^"'#]*(?:"[^"]*"|'[^']*'))*[^"'#]*)#.*/$1/; # remove comments
     next if /^\s*$/; # ignore empty lines
@@ -4332,19 +4344,64 @@ sub parse_config($)
     TRACE "config: parsing line $. with context=$cur->{CONTEXT}: \"$_\"" if($do_trace);
     unless(/^([a-zA-Z_]+)(?:\s+(.*))?$/) {
       ERROR "Parse error in \"$file\" line $.";
-      $root = undef;
-      last;
+      close $fh;
+      delete $seen->{$real};
+      return undef;
     }
-    unless($cur = parse_config_line($cur, lc($1), $2 // "", error_statement => "in \"$file\" line $.")) {
-      $root = undef;
-      last;
+    my ($key, $value) = (lc($1), $2 // "");
+    if($key eq "include") {
+      $value =~ s/^"(.*)"$/$1/;
+      $value =~ s/^'(.*)'$/$1/;
+      # resolve a relative pattern against the directory of the including file
+      unless($value =~ m{^/}) {
+        (my $dir = $file) =~ s{/[^/]*$}{};
+        $dir = "." if($dir eq $file);  # $file had no slash; use current directory
+        $value = "$dir/$value";
+      }
+      my @inc_files;
+      for my $m (sort glob($value)) {
+        if(-d $m) {
+          push @inc_files, sort glob("$m/*.conf");
+        } elsif(-e $m) {
+          push @inc_files, $m;
+        }
+      }
+      for my $inc_file (@inc_files) {
+        TRACE "config: including file: $inc_file (from \"$file\" line $.)" if($do_trace);
+        $cur = _parse_config_file($inc_file, $root, $cur, $seen);
+        unless(defined($cur)) {
+          close $fh;
+          delete $seen->{$real};
+          return undef;
+        }
+      }
+    } else {
+      unless($cur = parse_config_line($cur, $key, $value, error_statement => "in \"$file\" line $.")) {
+        close $fh;
+        delete $seen->{$real};
+        return undef;
+      }
     }
     TRACE "line processed: new context=$cur->{CONTEXT}" if($do_trace);
   }
-  close FILE || ERROR "Failed to close configuration file: $!";
+  close $fh || ERROR "Failed to close configuration file: $!";
+
+  delete $seen->{$real};
+  return $cur;
+}
+
+sub parse_config($)
+{
+  my $file = shift;
+  return undef unless($file);
+
+  my $root = init_config(SRC_FILE => $file);
+
+  unless(_parse_config_file($file, $root, $root, {})) {
+    return undef;
+  }
 
   _config_propagate_target($root);
-
   return $root;
 }
 

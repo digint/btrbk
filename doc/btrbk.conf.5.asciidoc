@@ -37,6 +37,29 @@ Blank lines are ignored. A hash character (#) starts a comment
 extending until end of line.
 
 
+INCLUDE FILES
+-------------
+
+*include* <pattern>::
+    Include additional configuration files matching the shell glob
+    '<pattern>'. All matching files are processed in sorted order.
+    If '<pattern>' matches a directory, it is treated as if
+    +'<pattern>/*.conf'+ had been specified, i.e. all files ending in
+    +.conf+ directly inside that directory are included.
++
+--
+A relative '<pattern>' is resolved relative to the directory of the
+file containing the 'include' directive.
+
+Circular includes are detected and reported as an error.
+
+Example:
+
+  include /etc/btrbk/btrbk.d/*.conf
+  include /etc/btrbk/btrbk.d
+--
+
+
 SECTIONS
 --------
 
