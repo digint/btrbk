@@ -94,7 +94,7 @@ reject_filtered_cmd()
     fi
 
     # allow multiple paths (e.g. "btrfs subvolume snapshot <src> <dst>")
-    allow_cmd_match="(${allow_list})( ${option_match})*( ${path_match})+"
+    allow_cmd_match="(${allow_list})( ${option_match})*( ${path_match})( (${option_match}|${path_match}))*"
     stream_in_match="(${decompress_match} \| )?(${mbuffer_match} \| )?"
     stream_out_match="( \| ${mbuffer_match})?( \| ${compress_match})?"
 
